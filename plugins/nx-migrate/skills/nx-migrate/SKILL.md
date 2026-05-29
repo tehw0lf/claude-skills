@@ -76,8 +76,11 @@ find libs apps -name "package.json" -not -path "*/node_modules/*" 2>/dev/null
 
 For each sub-package found:
 - Read the file
-- Compare its dependency versions against the root `package.json`
-- Update any that were bumped by the migration (e.g. `typescript`, `tslib`, `@angular/*`, `@nx/*`)
+- Compare its dependency versions against the root `package.json` using these mappings:
+  - Sub-package `peerDependencies` → root `dependencies` (libraries declare as peer what the app installs as prod dep)
+  - Sub-package `devDependencies` → root `devDependencies`
+  - Sub-package `dependencies` → root `dependencies`
+- Update any version that was bumped by the migration (e.g. `typescript`, `tslib`, `@angular/*`, `@nx/*`, `@angular/cdk`, `@angular/material`)
 - After edits, run `npm install` again to update `package-lock.json`
 
 ### 7. Clean up migrations.json
