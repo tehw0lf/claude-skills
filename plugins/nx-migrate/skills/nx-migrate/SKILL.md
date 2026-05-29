@@ -65,13 +65,28 @@ npx nx migrate --run-migrations 2>&1
 
 If individual migrations fail, read the error, fix the underlying issue (usually a config file format change), and re-run.
 
-### 6. Clean up migrations.json
+### 6. Sync sub-package dependencies
+
+After `npm install`, check if any dependency versions in sub-packages (`libs/*/package.json`, `apps/*/package.json`) are out of sync with the root `package.json`. In particular, `peerDependencies` and `devDependencies` in library packages must stay in sync with the versions in the root.
+
+```bash
+# Find all sub-package.json files
+find libs apps -name "package.json" -not -path "*/node_modules/*" 2>/dev/null
+```
+
+For each sub-package found:
+- Read the file
+- Compare its dependency versions against the root `package.json`
+- Update any that were bumped by the migration (e.g. `typescript`, `tslib`, `@angular/*`, `@nx/*`)
+- After edits, run `npm install` again to update `package-lock.json`
+
+### 7. Clean up migrations.json
 
 ```bash
 rm -f migrations.json
 ```
 
-### 7. Validate: lint → test → build
+### 8. Validate: lint → test → build
 
 Run the project's validation commands. For this workspace, check CLAUDE.md for the project-specific commands. Default:
 
@@ -89,7 +104,7 @@ For each failure:
 
 Repeat until all three pass with exit code 0.
 
-### 8. Run E2E tests (unless --skip-e2e was passed)
+### 9. Run E2E tests (unless --skip-e2e was passed)
 
 ```bash
 npm run e2e 2>&1
@@ -97,7 +112,7 @@ npm run e2e 2>&1
 
 Fix any E2E failures the same way as above.
 
-### 9. Commit
+### 10. Commit
 
 Stage all changes and commit:
 
@@ -113,10 +128,11 @@ chore(deps): migrate nx to vX.Y.Z
 - Run nx migrate latest
 - Apply generated migrations
 - Resolve peer dependency conflicts (if any)
+- Sync sub-package dependency versions (if any)
 - Fix lint/test/build issues (list specific fixes if any)
 ```
 
-### 10. Push and open PR
+### 11. Push and open PR
 
 ```bash
 git push -u origin chore/nx-migrate-latest
