@@ -1,0 +1,9 @@
+{
+  "name": "nx-migrate",
+  "version": "1.0.0",
+  "description": "Migrate an Nx monorepo to the latest Nx version with automatic conflict resolution and PR creation.",
+  "author": {
+    "name": "tehw0lf",
+    "email": "tehwolf@protonmail.com"
+  }
+}
