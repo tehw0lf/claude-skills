@@ -15,6 +15,15 @@
       },
       "category": "development",
       "source": "./plugins/nx-migrate"
+    },
+    {
+      "name": "trivy-fix",
+      "description": "Fix Trivy CVE findings from SARIF files across all relevant files in the codebase.",
+      "author": {
+        "name": "tehw0lf"
+      },
+      "category": "security",
+      "source": "./plugins/trivy-fix"
     }
   ]
 }

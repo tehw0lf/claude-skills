@@ -1,0 +1,9 @@
+{
+  "name": "trivy-fix",
+  "version": "1.0.0",
+  "description": "Fix Trivy CVE findings from SARIF files across all relevant files in the codebase.",
+  "author": {
+    "name": "tehw0lf",
+    "email": "tehwolf@protonmail.com"
+  }
+}
