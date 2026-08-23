@@ -24,6 +24,15 @@
       },
       "category": "security",
       "source": "./plugins/trivy-fix"
+    },
+    {
+      "name": "prune-branches",
+      "description": "Delete local git branches whose content already landed on the default branch, with squash-merge detection and a dry-run preview.",
+      "author": {
+        "name": "tehw0lf"
+      },
+      "category": "development",
+      "source": "./plugins/prune-branches"
     }
   ]
 }
