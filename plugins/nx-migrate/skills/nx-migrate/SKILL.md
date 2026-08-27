@@ -106,6 +106,15 @@ NX_SKIP_PROVENANCE_CHECK=true npx nx@<VERSION> migrate <VERSION> 2>&1
 
 If verification **fails**, stop and report. Do not migrate.
 
+Be aware that `npx nx@<VERSION>` still resolves `nx` to the workspace's local
+`node_modules`, so the installed (buggy) version runs the check no matter what
+you pin on the command line — the error text keeps saying `nx@latest` even
+when you pinned an exact version. There is consequently no flag-free path out
+of this from an affected install, and the override above is the only way
+through. If it is unavailable (e.g. denied by a permission rule), stop and
+report. Do not patch `node_modules`, export the variable, or write it to a
+file to get around it.
+
 ### 4. Install updated dependencies
 
 ```bash
