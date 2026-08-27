@@ -101,8 +101,14 @@ If verification passes, re-run pinned to the **exact version** (not the tag),
 scoping the skip flag to that single command — never export it, never persist it:
 
 ```bash
-NX_SKIP_PROVENANCE_CHECK=true npx nx@<VERSION> migrate <VERSION> 2>&1
+env NX_SKIP_PROVENANCE_CHECK=true npx nx migrate <VERSION> 2>&1
 ```
+
+Use the `env` prefix form rather than a bare `VAR=value npx ...`. Both scope
+the variable to that one command, but a leading assignment can break
+command-matching in permission rules (an allow-rule for `npx nx:*` stops
+matching once the line begins with the assignment), so this form is the one
+that actually runs.
 
 If verification **fails**, stop and report. Do not migrate.
 

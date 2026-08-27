@@ -60,9 +60,17 @@ Note that `npx nx@<version>` still resolves `nx` to the workspace's local
 `node_modules`, so the *installed* buggy version runs the check regardless of
 what you pin on the command line (the error text even keeps saying
 `nx@latest`). There is therefore no flag-free path out of this from an
-affected install. If the scoped override is unavailable to you — for example
-denied by a permission rule — stop and report it. Do not patch `node_modules`,
-export the variable, or otherwise persist the override.
+affected install.
+
+Write the override as `env VAR=value npx ...` rather than `VAR=value npx ...`.
+Both scope the variable to the single command, but a leading assignment can
+fail command-matching in permission rules (an allow-rule for `npx nx:*` no
+longer matches once the line starts with the assignment), so the `env` form is
+what actually gets through.
+
+If the scoped override is still unavailable to you — denied outright — stop and
+report it. Do not patch `node_modules`, export the variable, or otherwise
+persist it.
 
 ## Scope discipline
 
