@@ -50,6 +50,37 @@ git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads/ | gre
 
 Never treat the default branch itself as a candidate, and never delete the branch of a repository whose working tree is dirty without saying so.
 
+**Only `[gone]` branches are candidates.** A branch with **no upstream at all**
+(never pushed) is not a candidate and must never be deleted — it exists only
+locally, so nothing can prove its content is safe elsewhere. `[gone]` means an
+upstream existed and was removed, which is the merged-PR signal; an empty
+tracking field means either "still tracked" or "never pushed", and neither is
+eligible. Verify with `%(upstream:short)`, which is empty exactly when no
+upstream is configured:
+
+```bash
+git for-each-ref --format='%(refname:short)|%(upstream:short)|%(upstream:track)' refs/heads/
+```
+
+**Honour an explicit keep-list.** Some branches are deliberate local archives —
+a preserved working state, a pre-refactor snapshot — and they can become
+`[gone]` if their remote is ever deleted, which would otherwise make them
+candidates. Skip a branch when any of these holds, and report it as kept:
+
+- its name matches a pattern in `.git/prune-branches-keep` (one glob per line,
+  `#` comments allowed), if that file exists
+- its name contains `keep/`, `archive/`, `wip/`, or `working-state`
+- it carries a git note or config flag `branch.<name>.pruneKeep=true`
+
+Set the config flag for a branch you want protected permanently:
+
+```bash
+git config branch.<name>.pruneKeep true
+```
+
+A kept branch is never deleted regardless of its verdict, and never counted
+toward the deletion totals.
+
 ### 4. Classify each candidate
 
 Apply these tests in order and stop at the first that matches:
@@ -126,6 +157,8 @@ Summarise per repository: how many branches were deleted, which were skipped for
 ## Rules
 
 - Never delete a branch that is not the current repository's default branch and has content not present in the default branch.
+- Never delete a branch that has no upstream configured, or that matches the
+  keep-list — regardless of how safe its content looks.
 - Never skip `git fetch --prune`.
 - Never use `git branch -d` as the safety mechanism; the classification is the safety mechanism.
 - Never stash, reset, or discard uncommitted work to make a repository eligible.
