@@ -87,6 +87,20 @@ enabling any publishing target that detection merely made *possible*:
 A repo that merely *has* a Dockerfile does not necessarily want to publish an
 image. Default to build-and-test only, and add publishing on confirmation.
 
+**Three values cannot be detected at all — they are decisions, not properties of
+the repo. Ask; never guess a default and move on:**
+
+| Value | Why detection fails | Real example |
+|---|---|---|
+| `root_dir` | Ambiguous as soon as a repo holds more than one project | `unix-socket-bridge` builds `server/`, not the repo root |
+| `library_path` | Which build output gets published is a choice | `wp2md` publishes `dist` |
+| `platforms` | The default is `linux/amd64,linux/arm64`; narrowing is deliberate | `color` builds `linux/arm64` only |
+
+Getting `root_dir` wrong is the worst of the three: the build runs against the
+wrong directory and fails in a way that looks like a broken project rather than a
+misconfigured caller. If the repo has more than one plausible project root, ask
+instead of assuming `.`.
+
 ### 4. Get the job gates right
 
 Every publishing job requires a `push` event **plus** its own non-empty input.
@@ -102,8 +116,17 @@ Missing the second half means the job silently does not run — no error, no out
 | GitHub release | `artifact_path` **and** `publish_github_release: "true"` |
 | crates.io | `tool: cargo` |
 
-**Setting `libraries` without `library_path` publishes nothing at all.** If you
-write one, write both, or warn explicitly.
+**`libraries` is optional and selects the mode**, so do not add it reflexively:
+
+- `libraries` **empty** — publish the single package at `library_path`. This is
+  the common case; `wp2md` uses it with `library_path: dist` and no `libraries`.
+- `libraries` **set** — publish each named library from
+  `<library_path>/<name>/package.json`. For monorepos publishing several packages.
+
+Only one combination is wrong: **`libraries` set while `library_path` is empty.**
+The job is gated on `library_path`, so it never runs — no error, no failed check,
+the run is green and nothing is published. Setting only `library_path` is correct
+and needs no warning.
 
 ### 5. Write the caller
 
@@ -162,9 +185,23 @@ If `actionlint` is not installed, at minimum verify the YAML parses:
 python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/build.yml'))"
 ```
 
-Then re-check every `with:` key against the list from step 1. A key that is not
-in that list makes the whole run fail with an unknown-input error, and actionlint
-does **not** catch it for a remote reusable workflow.
+Then re-check every `with:` key against the list from step 1:
+
+```bash
+python3 - <<'EOF'
+import yaml
+w = yaml.safe_load(open(".github/workflows/build.yml"))["jobs"]["build_and_publish"]["with"]
+valid = set(open("/tmp/valid_inputs.txt").read().split())
+for k in w:
+    print(("ok      " if k in valid else "INVALID "), k)
+EOF
+```
+
+**This step is not redundant with actionlint.** Verified by experiment: inserting
+`event_name:` into an otherwise valid caller, `actionlint` reports no problem —
+it does not validate inputs against a *remote* reusable workflow. The run then
+fails at dispatch with an unknown-input error. The key check is the only thing
+between a generated caller and that failure.
 
 Report what was written, which publishing targets are active, and which registry
 setup (Trusted Publishing) the user still has to do by hand.
