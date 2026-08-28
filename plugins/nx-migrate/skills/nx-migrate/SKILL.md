@@ -44,34 +44,15 @@ npx nx@latest migrate latest 2>&1
 
 This updates `package.json` and generates `migrations.json` if migrations exist.
 
-#### If this fails with a provenance error
+#### If this fails with a provenance or supply-chain check
 
-> **Durable rule:** never disable a supply-chain check as a reflex. Verify the
-> artifact independently; if it verifies, use the narrowest override scoped to
-> one command; if it does not, stop and report.
->
-> **The specific bug below expires.** It is fixed in nx 23.1.2. Check the
-> installed version first — if it is 23.1.2 or newer and you still see this
-> error, the cause is something else, so investigate rather than applying the
-> workaround.
+**Never disable such a check as a reflex** — not with an env var, not with a
+flag. Verify the artifact independently first. If it verifies, use the
+narrowest override, scoped to a single command, never exported and never
+written to a file. If it does not verify, **stop and report**. Do not migrate.
 
-On npm 12+, `nx migrate` can abort with:
-
-```
-An error occurred while checking the provenance of nx@latest.
-Error: No attestation URL found
-```
-
-**Do not reflexively set `NX_SKIP_PROVENANCE_CHECK`.** The nx source comments
-explicitly warn against it, and blindly disabling a supply-chain check is the
-wrong default. This specific error is usually an nx bug, not a compromised
-package: nx reads `dist.attestations.url` off `npm view --json` output, but
-npm 12 always wraps that output in a JSON **array**, so the lookup is
-`undefined` for every version. Nx 23.1.2+ contains the fix
-(`Array.isArray(parsed) ? parsed[0] : parsed`).
-
-Verify the package is genuine before proceeding. Resolve the concrete version
-first (`npm view nx version`), then run the same checks nx would have:
+To verify a package, resolve the concrete version (`npm view nx version`), then
+run the same checks the tooling would:
 
 ```bash
 node -e "
@@ -97,29 +78,18 @@ All four must hold: repository `https://github.com/nrwl/nx`, workflow
 `.github/workflows/publish.yml`, ref `refs/tags/<version>`, digest match.
 `npm audit signatures` is a useful cross-check.
 
-If verification passes, re-run pinned to the **exact version** (not the tag),
-scoping the skip flag to that single command — never export it, never persist it:
+Write any override with an `env` prefix — `env VAR=value npx ...`, not
+`VAR=value npx ...`. Both scope the variable to that one command, but a leading
+assignment breaks command-matching in permission rules (an allow-rule for
+`npx nx:*` stops matching once the line begins with the assignment).
 
-```bash
-env NX_SKIP_PROVENANCE_CHECK=true npx nx migrate <VERSION> 2>&1
-```
+If the override is unavailable — denied by a permission rule — stop and report.
+Do not patch `node_modules`, export the variable, or write it to a file.
 
-Use the `env` prefix form rather than a bare `VAR=value npx ...`. Both scope
-the variable to that one command, but a leading assignment can break
-command-matching in permission rules (an allow-rule for `npx nx:*` stops
-matching once the line begins with the assignment), so this form is the one
-that actually runs.
-
-If verification **fails**, stop and report. Do not migrate.
-
-Be aware that `npx nx@<VERSION>` still resolves `nx` to the workspace's local
-`node_modules`, so the installed (buggy) version runs the check no matter what
-you pin on the command line — the error text keeps saying `nx@latest` even
-when you pinned an exact version. There is consequently no flag-free path out
-of this from an affected install, and the override above is the only way
-through. If it is unavailable (e.g. denied by a permission rule), stop and
-report. Do not patch `node_modules`, export the variable, or write it to a
-file to get around it.
+Note that `npx nx@<VERSION>` resolves `nx` to the workspace's local
+`node_modules`, so the *installed* version runs, not the one pinned on the
+command line. That matters whenever the installed version is the thing
+misbehaving.
 
 ### 4. Install updated dependencies
 

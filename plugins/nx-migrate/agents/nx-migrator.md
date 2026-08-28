@@ -38,31 +38,8 @@ it does not verify, **stop and report**. Do not migrate.
 
 This rule outlives any particular bug.
 
-<!-- EXPIRES: this subsection applies only to nx < 23.1.2. Check the installed
-     version first (node -e "console.log(require('./node_modules/nx/package.json').version)").
-     If it is 23.1.2 or newer, this no longer applies and can be deleted. -->
-
-### Known instance: nx < 23.1.2 on npm 12
-
-`nx migrate latest` aborts with `No attestation URL found`. This is an nx bug,
-not a compromised package: nx reads `dist.attestations.url` off `npm view
---json`, which npm 12 always returns as a JSON array, so the lookup is
-`undefined` for every version. Fixed in nx 23.1.2
-(`Array.isArray(parsed) ? parsed[0] : parsed`) — but the *installed* older nx
-is what runs the check, so the failure persists until the migration lands.
-
-Verification for this case means all four of: repository
-`https://github.com/nrwl/nx`, workflow `.github/workflows/publish.yml`, ref
-`refs/tags/<version>`, and a tarball digest matching the attestation subject.
-The skill has the script. Only then re-run pinned to the exact version.
-
-Note that `npx nx@<version>` still resolves `nx` to the workspace's local
-`node_modules`, so the *installed* buggy version runs the check regardless of
-what you pin on the command line (the error text even keeps saying
-`nx@latest`). There is therefore no flag-free path out of this from an
-affected install.
-
-Write the override as `env VAR=value npx ...` rather than `VAR=value npx ...`.
+When a scoped override is the right next step, write it as
+`env VAR=value npx ...` rather than `VAR=value npx ...`.
 Both scope the variable to the single command, but a leading assignment can
 fail command-matching in permission rules (an allow-rule for `npx nx:*` no
 longer matches once the line starts with the assignment), so the `env` form is
