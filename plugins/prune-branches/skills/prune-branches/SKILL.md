@@ -67,8 +67,13 @@ a preserved working state, a pre-refactor snapshot — and they can become
 `[gone]` if their remote is ever deleted, which would otherwise make them
 candidates. Skip a branch when any of these holds, and report it as kept:
 
-- its name matches a pattern in `.git/prune-branches-keep` (one glob per line,
-  `#` comments allowed), if that file exists
+- its name matches a pattern in either keep-file (one glob per line, `#`
+  comments allowed), if that file exists:
+  - `$XDG_CONFIG_HOME/prune-branches-keep` (default
+    `~/.config/prune-branches-keep`) — applies to **every** repository, so a
+    pattern only has to be written once
+  - `.git/prune-branches-keep` — that repository only; lives inside `.git/`, so
+    it is local and never committed
 - its name contains `keep/`, `archive/`, `wip/`, or `working-state`
 - it carries a git note or config flag `branch.<name>.pruneKeep=true`
 
