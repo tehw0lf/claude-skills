@@ -1,0 +1,9 @@
+{
+  "name": "setup-workflows",
+  "version": "1.0.0",
+  "description": "Set up tehw0lf/workflows reusable CI/CD in a repository: detect the project type, read the live input list from the orchestrator, and generate a validated caller workflow.",
+  "author": {
+    "name": "tehw0lf",
+    "email": "tehwolf@protonmail.com"
+  }
+}
