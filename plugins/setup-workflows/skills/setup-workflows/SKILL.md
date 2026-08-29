@@ -77,7 +77,30 @@ inputs are relevant:
 Read the actual scripts out of `package.json` rather than assuming names — pass
 `lint: "run lint"` only if a `lint` script exists. Map an existing e2e script to
 the `e2e` input (it exists; see the digit warning in step 1), not to
-`post_build_script`. The `install`/`lint`/`test`/
+`post_build_script`.
+
+**Verify each script input instead of trusting the reading, and paste the check
+into the report:**
+
+```bash
+python3 - <<'EOF'
+import json
+s = json.load(open("package.json")).get("scripts", {})
+for name in ("install","format","lint","test","e2e","build"):
+    print(f"  {name}: {'present' if name in s else 'ABSENT — do not pass this input'}")
+EOF
+```
+
+**An Nx target is not an npm script.** `project.json` routinely defines `lint`
+and `test` targets while `package.json` exposes neither, and `npm run lint` then
+fails with `Missing script: "lint"`. The lint step runs `<tool> <input>`
+unconditionally when the input is non-empty, so a wrong value is not ignored —
+it fails the build on the first push.
+
+Two correct options when a target exists without a matching script: leave the
+input unset, or reach the target explicitly with `lint: "exec nx lint"`. Say
+which you chose and why; never write `run <name>` for a name absent from
+`scripts`. The `install`/`lint`/`test`/
 `build_*` inputs are appended to the tool, so the value is the *subcommand*
 (`"run build"`, not `"npm run build"`).
 
@@ -164,7 +187,20 @@ jobs:
     with:
       tool: npm
       # ... detected inputs
-    secrets: inherit
+```
+
+**Do not add `secrets: inherit`.** The orchestrator declares exactly three
+optional secrets — `ANDROID_STOREPASS`, `AMO_API_KEY`, `AMO_API_SECRET` — and
+everything else authenticates through OIDC, so there is nothing for a normal
+build to inherit. None of the existing callers in this workspace use it.
+
+Add a `secrets:` block only for a Firefox or Android release, and name just the
+secrets that target needs:
+
+```yaml
+    secrets:
+      AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+      AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
 ```
 
 **All six permissions are required regardless of what you publish.** GitHub
@@ -204,6 +240,21 @@ w = yaml.safe_load(open(".github/workflows/build.yml"))["jobs"]["build_and_publi
 valid = set(open("/tmp/valid_inputs.txt").read().split())
 for k in w:
     print(("ok      " if k in valid else "INVALID "), k)
+EOF
+```
+
+Then confirm every `run <name>` value resolves to a real script — the key check
+above validates input *names*, not their *values*:
+
+```bash
+python3 - <<'EOF'
+import json, yaml
+s = json.load(open("package.json")).get("scripts", {})
+w = yaml.safe_load(open(".github/workflows/build.yml"))["jobs"]["build_and_publish"]["with"]
+for k, v in w.items():
+    if isinstance(v, str) and v.startswith("run "):
+        n = v[4:].split()[0]
+        print(("ok      " if n in s else "BROKEN  "), f"{k}: npm {v}")
 EOF
 ```
 
