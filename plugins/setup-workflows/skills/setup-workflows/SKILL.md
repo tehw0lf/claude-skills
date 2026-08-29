@@ -44,8 +44,16 @@ that is exactly the failure mode this skill exists to prevent.
 Extract the valid input names and defaults:
 
 ```bash
-sed -n '/^  workflow_call:/,/^jobs:/p' /tmp/btp.yml | grep -E "^      [a-z_]+:" | sed 's/[ :]//g'
+sed -n '/^  workflow_call:/,/^jobs:/p' /tmp/btp.yml \
+  | grep -E "^      [a-z0-9_]+:" | sed 's/[ :]//g' | tee /tmp/valid_inputs.txt
+wc -l < /tmp/valid_inputs.txt   # expect 42 as of 2026-08
 ```
+
+**The character class must include digits.** `[a-z_]+` silently drops `e2e` —
+the only input with a digit in its name. That is not a harmless miscount: the
+missing name reads as "this input was removed", and the natural next step is to
+route E2E through `post_build_script` to work around a problem that does not
+exist. If the count comes out at 41, the regex is wrong, not the orchestrator.
 
 Every key you write under `with:` must appear in that list. There is **no
 `event_name` input** — the orchestrator reads `github.event_name` internally.
@@ -67,7 +75,9 @@ inputs are relevant:
 | `manifest.json` with `browser_specific_settings` | — | Firefox add-on |
 
 Read the actual scripts out of `package.json` rather than assuming names — pass
-`lint: "run lint"` only if a `lint` script exists. The `install`/`lint`/`test`/
+`lint: "run lint"` only if a `lint` script exists. Map an existing e2e script to
+the `e2e` input (it exists; see the digit warning in step 1), not to
+`post_build_script`. The `install`/`lint`/`test`/
 `build_*` inputs are appended to the tool, so the value is the *subcommand*
 (`"run build"`, not `"npm run build"`).
 
