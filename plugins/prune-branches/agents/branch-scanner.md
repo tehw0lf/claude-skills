@@ -1,7 +1,8 @@
 ---
 name: branch-scanner
 description: Prunes stale local git branches in a single repository — classifies SAFE vs NEEDS REVIEW, reads the diffs behind anything uncertain, and deletes the safe ones only when the prompt authorises it. Use when scanning or cleaning several repositories at once. Spawn one agent per repository.
-model: opus
+model: sonnet
+effort: medium
 ---
 
 # Branch scanner agent
