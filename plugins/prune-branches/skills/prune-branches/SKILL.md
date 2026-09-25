@@ -1,127 +1,49 @@
 ---
 name: prune-branches
-description: Delete local git branches whose content already landed on the default branch. Detects squash-merged branches that `git branch -d` refuses to remove, previews every candidate with a verdict, and only deletes after confirmation. Optionally switches HEAD back to the default branch and fast-forwards it. Use when the user says "prune branches", "delete merged branches", "clean up branches", "tote branches löschen" or similar.
+description: Prune local git branches whose content already landed on the default branch, including squash-merged ones `git branch -d` refuses. Previews every candidate with a verdict and deletes only after confirmation. Use when the user says "prune branches", "delete merged branches", "clean up branches", "tote branches löschen" or similar.
 argument-hint: [all] [--yes]
 allowed-tools: Bash, TodoWrite
 ---
 
 # Prune Merged Branches
 
-Delete local branches that are fully merged, including squash-merged ones. Never delete a branch that still holds unmerged content.
+Never delete a branch that still holds unmerged content. `git branch -d` checks ancestry, which squash- and rebase-merges break; this skill compares *content*, so the **classification** is the safety mechanism and deletion uses `-D`.
 
 ## Arguments
 
-- no argument — operate on the repository containing the current working directory
-- `all` — scan every git repository under the coding workspace (default `~/Nextcloud/Coding`, override with `$CODING_ROOT`)
-- `--yes` — skip the confirmation prompt (still skips anything the check flags as unsafe)
-
-## Why this is not just `git branch -d`
-
-`git branch -d` only recognises branches reachable from the default branch. Squash-merged and rebase-merged PRs leave the local branch unreachable, so `-d` refuses and the branch accumulates forever. This skill compares *content* instead of ancestry.
+- no argument — the repository containing the current working directory
+- `all` — every git repository under `$CODING_ROOT` (default `~/Nextcloud/Coding`)
+- `--yes` — skip the confirmation prompt only; eligibility is unchanged
 
 ## Steps
 
-### 1. Refresh remote state first
-
-**This step is mandatory and must never be skipped.** A stale `origin/<default>` makes merged branches look unmerged and can make an unmerged branch look safe. Every judgement below depends on fresh refs.
+### 1. Classify
 
 ```bash
-git fetch --prune origin
+scripts/classify.sh "$(git rev-parse --show-toplevel)"   # or: scripts/classify.sh --all
 ```
 
-For `all`, iterate repositories with `find "$CODING_ROOT" -maxdepth 3 -type d -name .git -print0` and read them with `while IFS= read -r -d ''` — workspace paths contain spaces, and a plain `for` loop over unquoted `find` output silently breaks on them.
+The script is read-only. Per repository it runs `git fetch --prune origin`, takes the default branch from `origin/HEAD`, and emits `repo  branch  ahead  verdict  sha` for every `[gone]` branch plus every branch with no upstream. It skips a repository — never guessing — when the fetch fails or `origin`/`origin/HEAD` is missing; report those. Verdicts:
 
-### 2. Determine the default branch
+- `SAFE (no own commits | identical | squash-merged)` — eligible. `squash-merged` rests on `git cherry`, a heuristic.
+- `NEEDS REVIEW` — never eligible without step 2.
+- `KEPT (<rule>)` — never deleted, never counted. Rules: `$XDG_CONFIG_HOME/prune-branches-keep` (all repos) or `.git/prune-branches-keep` (one repo), one glob per line; names containing `keep/`, `archive/`, `wip/`, `working-state`; `git config branch.<name>.pruneKeep true`; a git note on the tip.
+- `INELIGIBLE (no upstream)` — never pushed, so nothing proves its content exists elsewhere. Never deleted.
 
-Do not assume `main`:
+### 2. Verify every NEEDS REVIEW branch
 
-```bash
-base=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-base="${base:-main}"
-```
-
-### 3. Collect candidates
-
-Branches whose upstream is gone (the PR was merged and the remote branch deleted):
-
-```bash
-git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads/ | grep '\[gone\]' | awk '{print $1}'
-```
-
-Never treat the default branch itself as a candidate, and never delete the branch of a repository whose working tree is dirty without saying so.
-
-**Only `[gone]` branches are candidates.** A branch with **no upstream at all**
-(never pushed) is not a candidate and must never be deleted — it exists only
-locally, so nothing can prove its content is safe elsewhere. `[gone]` means an
-upstream existed and was removed, which is the merged-PR signal; an empty
-tracking field means either "still tracked" or "never pushed", and neither is
-eligible. Verify with `%(upstream:short)`, which is empty exactly when no
-upstream is configured:
-
-```bash
-git for-each-ref --format='%(refname:short)|%(upstream:short)|%(upstream:track)' refs/heads/
-```
-
-**Honour an explicit keep-list.** Some branches are deliberate local archives —
-a preserved working state, a pre-refactor snapshot — and they can become
-`[gone]` if their remote is ever deleted, which would otherwise make them
-candidates. Skip a branch when any of these holds, and report it as kept:
-
-- its name matches a pattern in either keep-file (one glob per line, `#`
-  comments allowed), if that file exists:
-  - `$XDG_CONFIG_HOME/prune-branches-keep` (default
-    `~/.config/prune-branches-keep`) — applies to **every** repository, so a
-    pattern only has to be written once
-  - `.git/prune-branches-keep` — that repository only; lives inside `.git/`, so
-    it is local and never committed
-- its name contains `keep/`, `archive/`, `wip/`, or `working-state`
-- it carries a git note or config flag `branch.<name>.pruneKeep=true`
-
-Set the config flag for a branch you want protected permanently:
-
-```bash
-git config branch.<name>.pruneKeep true
-```
-
-A kept branch is never deleted regardless of its verdict, and never counted
-toward the deletion totals.
-
-### 4. Classify each candidate
-
-Apply these tests in order and stop at the first that matches:
-
-1. **`ahead: 0`** — `git rev-list --count "origin/$base..$b"` returns 0. The branch has no commits of its own; it is a stale pointer at an old state. **SAFE.**
-
-   This test comes first on purpose. Such a branch usually still shows a large diff against `origin/$base`, but that diff is everything `$base` gained since — not work at risk. Judging it by the diff alone produces a false "unmerged" verdict.
-
-2. **Identical tree** — `git diff --quiet "origin/$base" "$b"` succeeds. **SAFE.**
-
-3. **Squash-merge detection** — replay the branch's cumulative diff as a single commit on the merge base and ask whether `$base` already contains an equivalent patch:
-
-   ```bash
-   mb=$(git merge-base "origin/$base" "$b")
-   tmp=$(git commit-tree "$(git rev-parse "$b^{tree}")" -p "$mb" -m probe)
-   git cherry "origin/$base" "$tmp" | grep -q '^-' && echo SAFE_SQUASHED
-   ```
-
-   `git cherry` marks a commit `-` when an equivalent patch exists upstream. This is a heuristic, not proof.
-
-4. **Otherwise** — treat as **NEEDS REVIEW**, never as "delete anyway".
-
-### 5. Verify anything flagged NEEDS REVIEW
-
-Do not stop at the verdict and do not hand the user a bare list. For each such branch, show what is actually at stake:
+Do not hand the user a bare list. For each:
 
 ```bash
 git log --oneline "origin/$base..$b"
-git diff --stat "$(git merge-base origin/$base $b)" "$b"
+git diff --stat "$(git merge-base "origin/$base" "$b")" "$b"
 ```
 
-Then diff each touched file against `origin/$base` and read the result. A branch is still safe when its changes are present in `$base` in a *newer* form — an earlier PR whose follow-up refined it. It is genuinely unmerged only when `$base` lacks the change or contradicts it. Report which of the two it is, with the concrete evidence.
+Then diff each touched file against `origin/$base` and read it. Decide between: the change **is** in `$base` in a newer form (a follow-up refined it — safe in substance), or `$base` **lacks or contradicts** it (genuinely unmerged). Report which, with the evidence. Done when every NEEDS REVIEW branch has a reading backed by a diff, or is stated as unresolved.
 
-### 6. Present the preview
+### 3. Preview
 
-Print one table for the whole run, grouped by repository:
+One table for the whole run, grouped by repository:
 
 ```
 repo                 branch                          ahead  verdict
@@ -131,40 +53,24 @@ workflows            chore/remove-nx-cloud           0      SAFE (no own commits
 JavaScript/color     feature/wip-thing               2      NEEDS REVIEW
 ```
 
-State the totals and stop for confirmation, unless `--yes` was passed. Branches marked NEEDS REVIEW are excluded from deletion by default — list them separately as skipped and say why.
+State totals, list NEEDS REVIEW, KEPT and INELIGIBLE branches separately as skipped with the reason, flag dirty working trees, and stop for confirmation unless `--yes`.
 
-### 7. Delete
-
-Only after confirmation:
+### 4. Delete SAFE branches
 
 ```bash
-# if HEAD sits on a doomed branch, leave it first
-git checkout "$base"
+git checkout "$base"     # only if HEAD sits on a doomed branch
 git branch -D "$b"
 ```
 
-`-D` is required — `-d` rejects squash-merged branches, which is the whole reason this skill exists. That is also why steps 4–6 carry the safety burden: nothing may reach this point unverified.
+### 5. Fast-forward the default branch
 
-### 8. Bring the default branch up to date
+In each touched repository with a clean tree: `git pull --ff-only`. Skip dirty repositories and say so — never stash. If the fast-forward is refused, the repository has diverged: leave it for a human, never merge or rebase.
 
-For each touched repository with a clean working tree:
+### 6. Report
 
-```bash
-git pull --ff-only
-```
-
-Skip dirty repositories and say so rather than stashing. Never merge or rebase here — if the fast-forward is refused, the repository has diverged and needs a human.
-
-### 9. Report
-
-Summarise per repository: how many branches were deleted, which were skipped for review, which repositories were left alone because they were dirty, and where `main` was updated. If a heuristic produced a verdict you later corrected by reading the diff, say that plainly — it tells the user how much to trust the next run.
+Per repository: branches deleted (with SHA), skipped and why, repositories left alone (dirty, skipped by the script), and where the default branch was updated. If reading a diff overturned a verdict, say so plainly — it tells the user how far to trust the next run.
 
 ## Rules
 
-- Never delete a branch that is not the current repository's default branch and has content not present in the default branch.
-- Never delete a branch that has no upstream configured, or that matches the
-  keep-list — regardless of how safe its content looks.
-- Never skip `git fetch --prune`.
-- Never use `git branch -d` as the safety mechanism; the classification is the safety mechanism.
 - Never stash, reset, or discard uncommitted work to make a repository eligible.
-- When a repository has no remote or no `origin/HEAD`, report it and move on instead of guessing a base branch.
+- Never delete a branch the classification did not clear — not with `--yes`, not because it looks safe.
