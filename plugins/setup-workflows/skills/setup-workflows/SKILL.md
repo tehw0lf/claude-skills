@@ -21,13 +21,14 @@ allowed-tools: Bash, Read, Write, Edit, TodoWrite
 
 If `.github/workflows/` already calls `tehw0lf/workflows`, stop and show it. Overwrite only with `--force` or explicit confirmation. Migrating an existing caller is a different task — hand it back rather than guessing which inputs to keep.
 
-### 2. Fetch the live input list
+### 2. Fetch the live input list and permissions
 
 ```bash
-scripts/fetch-inputs.sh      # writes /tmp/valid_inputs.txt
+scripts/fetch-inputs.sh          # writes /tmp/valid_inputs.txt
+scripts/fetch-permissions.py     # writes /tmp/required_permissions.txt
 ```
 
-If it fails, **stop and say so** — never fall back to a remembered list. Every key under `with:` must appear in that list. If `e2e` seems missing, the extraction is wrong, not the orchestrator — never route E2E through `post_build_script`.
+If either fails, **stop and say so** — never fall back to a remembered list. Every key under `with:` must appear in that list. If `e2e` seems missing, the extraction is wrong, not the orchestrator — never route E2E through `post_build_script`.
 
 ### 3. Detect the project type
 
@@ -95,19 +96,20 @@ on:
 jobs:
   build_and_publish:
     uses: tehw0lf/workflows/.github/workflows/build-test-publish.yml@main
-    permissions:
-      id-token: write        # REQUIRED always — OIDC Trusted Publishing
-      attestations: write    # REQUIRED — build provenance attestation
+    permissions:             # exactly the scopes in /tmp/required_permissions.txt
+      id-token: write        # OIDC Trusted Publishing
+      attestations: write    # build provenance attestation
       actions: write
       contents: write
       packages: write
       security-events: write # SARIF upload to the Security tab
+      pull-requests: write   # npm-audit-autofix, called from security-scan-source
     with:
       tool: npm
       # ... detected inputs
 ```
 
-**All six permissions, whatever you publish** — reusable-workflow permissions cannot be granted conditionally, and a missing `attestations: write` fails the build at the attest step.
+**Every scope in `/tmp/required_permissions.txt`, whatever you publish.** The block above is what the orchestrator needed when this was written; the file is what it needs now. GitHub checks the whole call tree before starting — including jobs that will be skipped, like npm-audit-autofix in a Gradle repo — and a scope the caller does not grant ends the run in `startup_failure` with no job and no log. That is how a six-scope list broke `yaft-java`'s first run after npm-audit-autofix started requesting `pull-requests: write`.
 
 **No `secrets: inherit`.** Everything authenticates through OIDC. Add a `secrets:` block only for a Firefox (`AMO_API_KEY`, `AMO_API_SECRET`) or Android (`ANDROID_STOREPASS`) release, naming just those secrets:
 
@@ -123,9 +125,9 @@ Set `head_ref: ${{ github.head_ref }}` if the build needs the triggering branch 
 
 ```bash
 actionlint .github/workflows/build.yml          # if installed
-uv run scripts/validate-caller.py <repo>        # input names + run-script values; exits 1 on any problem
+uv run scripts/validate-caller.py <repo>        # input names, run-script values, permissions; exits 1 on any problem
 ```
 
-`validate-caller.py` is mandatory even when actionlint passes: actionlint does not check inputs against a remote reusable workflow, so an invalid key only fails at dispatch. Done when it exits 0.
+`validate-caller.py` is mandatory even when actionlint passes: actionlint does not look into a remote reusable workflow, so an invalid key fails only at dispatch and a missing permission only as a log-less `startup_failure`. Done when it exits 0.
 
 Report what was written, which publishing targets are active, and which registry setup (Trusted Publishing) the user still has to do by hand.
