@@ -36,8 +36,10 @@ for k, v in w.items():
         print(("  ok    " if ok else "  BROKEN"), f"{k}: {v} (script '{n}' {'exists' if ok else 'missing'})")
 
 RANK = {"none": 0, "read": 1, "write": 2}
-if not isinstance(granted, dict):
-    granted = {}  # write-all / read-all are not used here; treat as unlisted so they get flagged
+if granted in ("read-all", "write-all"):
+    granted = {scope: granted.removesuffix("-all") for scope in required}
+elif not isinstance(granted, dict):
+    granted = {}  # anything else grants nothing, so every required scope is flagged
 for scope, level in required.items():
     ok = RANK.get(granted.get(scope, "none"), 0) >= RANK[level]
     bad |= not ok

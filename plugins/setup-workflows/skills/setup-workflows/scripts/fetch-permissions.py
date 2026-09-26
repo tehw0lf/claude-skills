@@ -27,8 +27,8 @@ def fetch(path: str) -> dict:
 def scopes(block) -> dict:
     if isinstance(block, dict):
         return {k: v for k, v in block.items() if v in RANK}
-    if block == "write-all":
-        sys.exit("a workflow requests write-all; list the scopes by hand -- stop")
+    if block in ("write-all", "read-all"):
+        sys.exit(f"a workflow requests {block}; list the scopes by hand -- stop")
     return {}
 
 
@@ -47,6 +47,10 @@ while todo:
         uses = job.get("uses", "")
         if uses.startswith("./"):
             todo.append(uses[2:])
+        elif uses:
+            # Skipping it would drop its scopes from the list without a word,
+            # which is the failure this script exists to prevent.
+            sys.exit(f"{path} calls {uses}; only ./ references are followed -- extend this script, stop")
     for block in blocks:
         for scope, level in scopes(block).items():
             if RANK[level] > RANK.get(required.get(scope, "none"), 0):
