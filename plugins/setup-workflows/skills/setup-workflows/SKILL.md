@@ -125,8 +125,10 @@ Set `head_ref: ${{ github.head_ref }}` if the build needs the triggering branch 
 
 ```bash
 actionlint .github/workflows/build.yml          # if installed
-uv run scripts/validate-caller.py <repo>        # input names, run-script values, permissions; exits 1 on any problem
+uv run scripts/validate-caller.py <repo>        # input names, `run` values, permissions; exits 1 on any problem
 ```
+
+`run` values are checked under `root_dir`, where the orchestrator runs them: for `npm`/`yarn` against the `package.json` scripts, for any other tool only when the command is a path (`uv run ./scripts/x.sh` must be an executable file). A bare command such as `uv run pytest` is listed as not checked, not as broken.
 
 `validate-caller.py` is mandatory even when actionlint passes: actionlint does not look into a remote reusable workflow, so an invalid key fails only at dispatch and a missing permission only as a log-less `startup_failure`. Done when it exits 0.
 
