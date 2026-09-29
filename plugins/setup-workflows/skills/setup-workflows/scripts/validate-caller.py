@@ -21,7 +21,8 @@ if not perms_file.exists():
 required = dict(line.split() for line in perms_file.read_text().splitlines() if line.strip())
 # Found by what it calls, not by name: callers written before this skill name the job `build`.
 jobs = yaml.safe_load((repo / ".github/workflows/build.yml").read_text())["jobs"]
-callers = [j for j in jobs.values() if "tehw0lf/workflows/.github/workflows/build-test-publish.yml" in str(j.get("uses", ""))]
+ORCHESTRATOR = "tehw0lf/workflows/.github/workflows/build-test-publish.yml@"  # any branch, tag or SHA
+callers = [j for j in jobs.values() if str(j.get("uses", "")).startswith(ORCHESTRATOR)]
 if len(callers) != 1:
     sys.exit(f"expected one job in build.yml calling build-test-publish.yml, found {len(callers)}")
 job = callers[0]
@@ -41,7 +42,12 @@ for k, v in w.items():
     print(("ok      " if ok else "INVALID "), k)
     if not (isinstance(v, str) and v.startswith("run ")):
         continue
-    n = v[4:].split()[0]
+    words = v[4:].split()
+    if not words:
+        bad = True
+        print("  BROKEN", f"{k}: {v!r} (run without a command)")
+        continue
+    n = words[0]
     if tool in ("npm", "yarn"):
         # `npm run <name>` only runs a package.json script.
         ok = n in scripts
