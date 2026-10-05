@@ -29,7 +29,7 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 
 `npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
 
-**Never `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`.** None of them resolves the conflict: the flag and the `.npmrc` setting stop npm from checking peer ranges at all, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
+**Never `--force`, `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`** — npm's own error message suggests the first two. None of them resolves the conflict: the flags and the `.npmrc` setting make npm install past the peer ranges instead of honouring them, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
 
 ### 5. Run migrations
 
