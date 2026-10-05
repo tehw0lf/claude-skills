@@ -27,7 +27,9 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 
 ### 4. Install
 
-`npm install`. On peer conflicts, try `--legacy-peer-deps`; otherwise fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
+`npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
+
+**Never `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`.** They make the install pass by ignoring the conflict, so the lockfile records a combination no package declared compatible — and the flag has to be repeated on every later install, CI included. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
 
 ### 5. Run migrations
 
@@ -76,7 +78,14 @@ Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore
 
 ### 10. Bump the version
 
-If CI keys artifact names on the package version (Docker tags via `nx affected`, published images), bump the patch version on every PR branch, run `npm install` to resync the lockfile, and re-run validation.
+Whether to bump depends only on whether there is a version for CI to read — never on whether the repo "looks like" it publishes anything:
+
+```bash
+jq -r '.version // empty' package.json    # non-empty → npm version patch --no-git-tag-version && npm install
+cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
+```
+
+CI derives image and release tags from that value and does not fail on a tag that already exists: it warns and publishes `latest` only, so a missing bump surfaces later as a job that cannot find the versioned artifact. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
 
 ### 11. Commit
 
