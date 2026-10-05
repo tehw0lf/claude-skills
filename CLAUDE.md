@@ -26,7 +26,7 @@ python3 $S/check-scripts.py <repo-with-package.json>
 
 bash plugins/prune-branches/skills/prune-branches/scripts/classify.sh <repo>     # deletes nothing, but runs git fetch --prune and writes probe commit objects
 python3 plugins/trivy-fix/skills/trivy-fix/scripts/parse-sarif.py <file.sarif>
-python3 plugins/inbox/skills/inbox/scripts/collect.py [--owner <login>]            # read-only on GitHub (needs gh auth), rewrites the inbox cache; --summary prints the hook JSON from that cache
+python3 plugins/inbox/skills/inbox/scripts/collect.py [--owner <login>]            # read-only on GitHub (needs gh auth), rewrites that owner's inbox cache; --summary prints the hook JSON from the default owner's cache
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
 ```
 
@@ -73,7 +73,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 
 - `setup-workflows` is bound to `tehw0lf/workflows` (checked out at `../../workflows`): the orchestrator path `.github/workflows/build-test-publish.yml`, its `workflow_call.inputs` block, and the fact that it only calls other workflows by `./` reference. `fetch-permissions.py` exits on any other kind of reference on purpose — extend the script when that changes, do not skip the reference. `validate-caller.py` expects the caller at `.github/workflows/build.yml` and finds the job by its `uses:`, not by name.
 - `prune-branches all` (`classify.sh --all`) scans `$CODING_ROOT` (default `~/Nextcloud/Coding`) for repositories up to two directory levels below it and reads keep rules from `$XDG_CONFIG_HOME/prune-branches-keep` and `.git/prune-branches-keep`.
-- `inbox` (`collect.py`) reads every non-archived, non-fork repository of the owner through `gh`, keeps its cache in `$XDG_CACHE_HOME/claude-inbox/inbox.tsv` and reads ignore rules from `$XDG_CONFIG_HOME/inbox-ignore`. Its SessionStart hook only ever reads that cache and starts a detached refresh when it is stale, so a session start never waits for GitHub; the hook prints JSON, and its line format is not parsed anywhere.
+- `inbox` (`collect.py`) reads every non-archived, non-fork repository of the owner through `gh`, keeps one cache per owner plus `default-owner`, `refresh.lock` and `refresh.error` in `$XDG_CACHE_HOME/claude-inbox/` and reads ignore rules from `$XDG_CONFIG_HOME/inbox-ignore`. Its SessionStart hook only ever reads the default owner's cache and starts a detached `--background` refresh when it is stale, so a session start never waits for GitHub; the lock keeps refreshes from overlapping, and a failed background refresh is shown by the next summary; the hook prints JSON, and its line format is not parsed anywhere.
 - `verify-nx-provenance.js` pins the expected publisher (`nrwl/nx`, `.github/workflows/publish.yml`, tag ref) — an upstream release-process change shows up there as a failed check.
 
 ## Working here

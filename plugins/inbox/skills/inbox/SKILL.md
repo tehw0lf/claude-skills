@@ -14,7 +14,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 ## Arguments
 
 - none — the account `gh` is logged in as (or `$INBOX_OWNER`)
-- `<owner>` — another user or organisation: `scripts/collect.py --owner <owner>`
+- `<owner>` — another user or organisation: `scripts/collect.py --owner <owner>`. Expect `# SKIPPED` lines there: alerts are readable only with admin permission on a repository.
 - `ignore <owner/repo#n>` — hide one item for good, see step 4
 
 ## Steps
@@ -23,7 +23,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 
    Output is tab-separated: `prio  kind  repo  ref  state  updated  title  url`, already sorted by priority and then by last update. Lines starting with `#` are status lines.
 
-2. **Report what is missing.** Every `# SKIPPED <source> <repo>: <reason>` line is a source that could not be read, so its items are absent, not zero. Name them before the list. Mention the `ignored=<n>` count from the first line when it is not 0.
+2. **Report what is missing.** Every `# SKIPPED <source> <repo>: <reason>` line is a source that could not be read, so its items are absent, not zero. Name them before the list. A `SKIPPED` line whose repository is `<owner>/*` concerns the whole source: `dependabot` when repositories without admin permission report no alerts, which cannot be told apart from unreadable, and `search` when there are more open issues and pull requests than the search returns, so the `PR`, `DEPS` and `ISSUE` groups are incomplete. Mention the `ignored=<n>` count from the first line when it is not 0.
 
 3. **Show the list**, grouped by kind in the order the script gives:
 
@@ -35,7 +35,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
    | `DEPS` | an open pull request from dependabot or renovate | as `PR` |
    | `ISSUE` | an open issue | its labels; `bot` first when a bot opened it |
 
-   One line per item: repository, ref, title, state, age. Keep every item — shortening the list is the user's call (step 4), not yours. Where a group is long, group it by repository instead of dropping lines.
+   One line per item: repository, ref, title, state, age. The age comes from the `updated` column, and what that is depends on the kind: the last activity for `PR`, `DEPS` and `ISSUE`, the creation of the newest open alert for `SECURITY`, the date of the failing commit for `CI`. Label it accordingly ("newest alert 4 days ago", "red since the commit of …") instead of calling all of them "updated". Keep every item — shortening the list is the user's call (step 4), not yours. Where a group is long, group it by repository instead of dropping lines.
 
    The script's order is a default, not a judgment. Say so where the list itself shows a better one: an issue that explains a red default branch belongs next to it, several repositories with the same Dependabot count usually share one upstream cause and are one task, and a PR with green checks that only waits for its review is cheaper to finish than anything new. Do not open the items to find out more at this point — each one read costs context for an item the user may not pick.
 
@@ -59,11 +59,14 @@ tehw0lf/some-archive
 tehw0lf/*code-scanning
 ```
 
-Add only what the user named. An ignored security alert or red branch stays invisible for good, so never ignore one to make the list shorter.
+Add only what the user named. An ignored security alert or red branch stays invisible for good, so never ignore one to make the list shorter. An ignored source is not queried at all, so it cannot show up as `SKIPPED` either.
 
 ## Not covered
 
 - repositories that are archived or forks, and anything outside GitHub
 - secret-scanning alerts
+- workflow runs that failed without being part of the head commit's check rollup, such as a failed Dependabot update run: `CI` is the rollup of the default branch's head commit and nothing else
+- open issues and pull requests beyond the first 1000 of an owner; the script prints a `# SKIPPED search` line when that happens
+- the worst Dependabot severity and the newest alert date are taken from a repository's first 100 open alerts
 - pull requests and issues in other owners' repositories that involve the user
 - more than 100 code-scanning alerts per repository are shown as `100+`
