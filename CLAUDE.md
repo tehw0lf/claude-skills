@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-A Claude Code plugin marketplace (`tehw0lf-claude-skills`), not an application. The "code" is mostly prompt text: skills and agents that other Claude sessions execute, plus small helper scripts those skills call. There is no build, no test suite, no CI and no package manifest.
+A Claude Code plugin marketplace (`tehw0lf-claude-skills`), not an application. The "code" is mostly prompt text: skills and agents that other Claude sessions execute, plus small helper scripts those skills call. There is no build, no test suite, no CI workflow in the repository and no package manifest.
 
 ## Commands
 
@@ -33,7 +33,7 @@ node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<vers
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
-Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/claude-skills`, then `claude plugin install <name>@tehw0lf-claude-skills --scope user`). The marketplace follows `main`, and an installed plugin is replaced only when its `version` changed, so a pushed branch or an unbumped change never reaches them. After a merge: `claude plugin marketplace update tehw0lf-claude-skills`, then `claude plugin update <plugin>` and a restart.
+Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/claude-skills`, then `claude plugin install <name>@tehw0lf-claude-skills --scope user`). The marketplace follows `main`, and an installed plugin is replaced only when its `version` changed, so a pushed branch or an unbumped change never reaches them. After a merge: `claude plugin marketplace update tehw0lf-claude-skills`, then `claude plugin update <name>@tehw0lf-claude-skills` and a restart.
 
 ## Layout
 
@@ -58,7 +58,7 @@ The split was established in the "reduce skills and agents, move mechanics into 
 
 - **Scripts hold the mechanics.** Anything deterministic — parsing SARIF, classifying branches, fetching the orchestrator's inputs — lives in `scripts/` and prints a stable tab- or line-oriented format. A script says what it could not do instead of guessing: the fetch, validation and provenance scripts exit non-zero, while `classify.sh` prints a `SKIPPED` line for that repository and carries on. Each script opens with a usage comment or docstring. `SKILL.md` relies on the output format, so change both together.
 - **`SKILL.md` holds judgment and order.** Numbered steps — where the end of a step is not obvious it closes with a checkable "Done when …" — plus the decisions a script cannot make (what to ask the user, when to stop). Skills refer to their scripts as `scripts/<file>` relative to the skill directory.
-- **Agents add only what running unsupervised needs.** `nx-migrator` and `branch-scanner` each say "invoke the skill and follow it" and then define what the skill leaves to a human: scope limits, the shape of the final report, and the step a person would otherwise decide. For `branch-scanner` that is the confirmation prompt, replaced by a report mode and a prune mode; for `nx-migrator` it is everything after the open PR — the independent review and the merge. Skill rules are not restated in the agent file; do not duplicate them there.
+- **Agents add only what running unsupervised needs.** `nx-migrator` and `branch-scanner` each say "invoke the skill and follow it" and then define what the skill leaves to a human: scope limits, the shape of the final report, and the step a person would otherwise decide. For `branch-scanner` that is the confirmation prompt, replaced by a report mode and a prune mode; for `nx-migrator` it is everything after the open PR — the independent review and the merge. An agent does not introduce or redefine skill rules. Where it repeats one, that is deliberate: it pins the rule down at the point where running unsupervised could tempt a session past it (in `branch-scanner`, that NEEDS REVIEW, KEPT and INELIGIBLE branches are never deleted even in prune mode). Keep those repetitions.
 
 Conventions to keep when editing or adding a skill. Only the first is found in all four; the others are named with the skill that sets the example:
 
@@ -70,7 +70,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in a
 ## Cross-repository coupling
 
 - `setup-workflows` is bound to `tehw0lf/workflows` (checked out at `../../workflows`): the orchestrator path `.github/workflows/build-test-publish.yml`, its `workflow_call.inputs` block, and the fact that it only calls other workflows by `./` reference. `fetch-permissions.py` exits on any other kind of reference on purpose — extend the script when that changes, do not skip the reference. `validate-caller.py` expects the caller at `.github/workflows/build.yml` and finds the job by its `uses:`, not by name.
-- `prune-branches all` (`classify.sh --all`) scans `$CODING_ROOT` (default `~/Nextcloud/Coding`) to depth 3 and reads keep rules from `$XDG_CONFIG_HOME/prune-branches-keep` and `.git/prune-branches-keep`.
+- `prune-branches all` (`classify.sh --all`) scans `$CODING_ROOT` (default `~/Nextcloud/Coding`) for repositories up to two directory levels below it and reads keep rules from `$XDG_CONFIG_HOME/prune-branches-keep` and `.git/prune-branches-keep`.
 - `verify-nx-provenance.js` pins the expected publisher (`nrwl/nx`, `.github/workflows/publish.yml`, tag ref) — an upstream release-process change shows up there as a failed check.
 
 ## Working here
