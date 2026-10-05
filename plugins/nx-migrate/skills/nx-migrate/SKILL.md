@@ -29,7 +29,7 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 
 `npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
 
-**Never `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`.** They make the install pass by ignoring the conflict, so the lockfile records a combination no package declared compatible — and the flag has to be repeated on every later install, CI included. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
+**Never `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`.** None of them resolves the conflict: the flag and the `.npmrc` setting stop npm from checking peer ranges at all, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
 
 ### 5. Run migrations
 
@@ -85,7 +85,7 @@ jq -r '.version // empty' package.json    # non-empty → npm version patch --no
 cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
 ```
 
-CI derives image and release tags from that value and does not fail on a tag that already exists: it warns and publishes `latest` only, so a missing bump surfaces later as a job that cannot find the versioned artifact. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
+CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
 
 ### 11. Commit
 

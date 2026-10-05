@@ -34,10 +34,10 @@ You wrote the change, so you do not get to judge it. Before merging, spawn a **f
 Post the file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body-file <file>`. The classification is the reviewer's: never reclassify, soften or drop a finding.
 
 - **`blocking`** → stop and report.
-- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer who is told about the earlier rounds and asked whether each earlier finding is resolved. If findings remain after the second round, stop and report.
+- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer who is told about the earlier rounds and asked whether each earlier finding is resolved. If `fix-in-PR` findings remain after the second round, stop and report.
 - **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive.
 
-**If you cannot spawn a reviewer, do not merge.** Report the open PR, its head SHA and the check state; whoever started you runs the review.
+**If you cannot spawn a reviewer, do not merge.** Subagents can spawn their own only down to a configured depth, and at the limit the `Agent` tool is withheld — possible whenever another subagent, not the main conversation, started you. Report the open PR, its head SHA and the check state; whoever started you runs the review.
 
 ## Merging
 
