@@ -1,0 +1,17 @@
+{
+  "description": "Show the cached inbox summary when a session starts",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/inbox/scripts/collect.py\" --summary",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
