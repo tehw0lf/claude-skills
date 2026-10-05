@@ -26,6 +26,7 @@ python3 $S/check-scripts.py <repo-with-package.json>
 
 bash plugins/prune-branches/skills/prune-branches/scripts/classify.sh <repo>     # deletes nothing, but runs git fetch --prune and writes probe commit objects
 python3 plugins/trivy-fix/skills/trivy-fix/scripts/parse-sarif.py <file.sarif>
+python3 plugins/inbox/skills/inbox/scripts/collect.py [--owner <login>]            # read-only on GitHub (needs gh auth), rewrites the inbox cache; --summary prints the hook JSON from that cache
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
 ```
 
@@ -42,6 +43,7 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it
 plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent
+plugins/<name>/hooks/hooks.json            # optional: hooks the plugin adds while it is enabled (inbox: the SessionStart summary)
 ```
 
 Three places describe each plugin and have to agree: the entry in `marketplace.json`, `plugin.json`, and the `description` in the `SKILL.md` front matter. The first two are the catalogue text; the third is what decides whether a session invokes the skill, so it carries the trigger phrases (including the German ones).
@@ -60,7 +62,7 @@ The split was established in the "reduce skills and agents, move mechanics into 
 - **`SKILL.md` holds judgment and order.** Numbered steps — where the end of a step is not obvious it closes with a checkable "Done when …" — plus the decisions a script cannot make (what to ask the user, when to stop). Skills refer to their scripts as `scripts/<file>` relative to the skill directory.
 - **Agents add only what running unsupervised needs.** `nx-migrator` and `branch-scanner` each say "invoke the skill and follow it" and then define what the skill leaves to a human: scope limits, the shape of the final report, and the step a person would otherwise decide. For `branch-scanner` that is the confirmation prompt, replaced by a report mode and a prune mode; for `nx-migrator` it is everything after the open PR — the independent review and the merge. An agent does not introduce or redefine skill rules. Where it repeats one, that is deliberate: it pins the rule down at the point where running unsupervised could tempt a session past it (in `branch-scanner`, that NEEDS REVIEW, KEPT and INELIGIBLE branches are never deleted even in prune mode). Keep those repetitions.
 
-Conventions to keep when editing or adding a skill. Only the first is found in all four; the others are named with the skill that sets the example:
+Conventions to keep when editing or adding a skill. Only the first is found in every skill; the others are named with the skill that sets the example:
 
 - **Stop-and-report beats guessing.** A skipped repository, an unverifiable provenance check or an ambiguous value ends in a report, not a best effort.
 - **Live data over remembered lists.** `setup-workflows` reads inputs and permission scopes from `tehw0lf/workflows` at run time because a list frozen into the skill went stale and broke a real run. When a fetch fails, the script stops; it never falls back.
@@ -71,6 +73,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in a
 
 - `setup-workflows` is bound to `tehw0lf/workflows` (checked out at `../../workflows`): the orchestrator path `.github/workflows/build-test-publish.yml`, its `workflow_call.inputs` block, and the fact that it only calls other workflows by `./` reference. `fetch-permissions.py` exits on any other kind of reference on purpose — extend the script when that changes, do not skip the reference. `validate-caller.py` expects the caller at `.github/workflows/build.yml` and finds the job by its `uses:`, not by name.
 - `prune-branches all` (`classify.sh --all`) scans `$CODING_ROOT` (default `~/Nextcloud/Coding`) for repositories up to two directory levels below it and reads keep rules from `$XDG_CONFIG_HOME/prune-branches-keep` and `.git/prune-branches-keep`.
+- `inbox` (`collect.py`) reads every non-archived, non-fork repository of the owner through `gh`, keeps its cache in `$XDG_CACHE_HOME/claude-inbox/inbox.tsv` and reads ignore rules from `$XDG_CONFIG_HOME/inbox-ignore`. Its SessionStart hook only ever reads that cache and starts a detached refresh when it is stale, so a session start never waits for GitHub; the hook prints JSON, and its line format is not parsed anywhere.
 - `verify-nx-provenance.js` pins the expected publisher (`nrwl/nx`, `.github/workflows/publish.yml`, tag ref) — an upstream release-process change shows up there as a failed check.
 
 ## Working here
