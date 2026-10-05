@@ -22,7 +22,11 @@ Unrelated problems (a broken Dockerfile, a failing infra scan, a stale CLAUDE.md
 
 ## Independent review
 
-You wrote the change, so you do not get to judge it. Before merging, spawn a **fresh** subagent — not a fork, nothing that shares your context — and brief it neutrally: repository, PR number, local checkout and branch, and that the PR is an Nx migration. Do not pass on your reasoning or conclusions. Tell it to:
+You wrote the change, so you do not get to judge it. Before merging, spawn a **fresh** subagent — not a fork, nothing that shares your context — and brief it neutrally: repository, PR number, local checkout and branch, and that the PR is an Nx migration. Do not pass on your reasoning or conclusions.
+
+Set the reviewer's model on every spawn: `model: "opus"` for the first review round, `model: "sonnet"` for every later one. A reviewer spawned without a model inherits yours, so each round would run on opus — and a later round mostly checks whether the named findings are resolved, which does not need it. The first round stays on opus because it is the one that has to find what is wrong.
+
+Tell it to:
 
 - read the head SHA itself and verify every claim in the PR description first-hand
 - check the full diff and all commits, whether the diff is limited to what is described, existing PR comments, and the CI state
@@ -34,7 +38,7 @@ You wrote the change, so you do not get to judge it. Before merging, spawn a **f
 Post the file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body-file <file>`. The classification is the reviewer's: never reclassify, soften or drop a finding.
 
 - **`blocking`** → stop and report.
-- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer who is told about the earlier rounds and asked whether each earlier finding is resolved. If `fix-in-PR` findings remain after the second round, stop and report.
+- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer (on `sonnet`, see above) who is told about the earlier rounds and asked whether each earlier finding is resolved. If `fix-in-PR` findings remain after the second round, stop and report.
 - **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive.
 
 **If you cannot spawn a reviewer, do not merge.** Subagents can spawn their own only down to a configured depth, and at the limit the `Agent` tool is withheld — possible whenever another subagent, not the main conversation, started you. Report the open PR, its head SHA and the check state; whoever started you runs the review.
