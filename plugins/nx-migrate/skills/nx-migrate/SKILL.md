@@ -27,7 +27,9 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 
 ### 4. Install
 
-`npm install`. On peer conflicts, try `--legacy-peer-deps`; otherwise fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
+`npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
+
+**Never `--force`, `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`** — npm's own error message suggests the first two. None of them resolves the conflict: the flags and the `.npmrc` setting make npm install past the peer ranges instead of honouring them, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
 
 ### 5. Run migrations
 
@@ -76,7 +78,14 @@ Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore
 
 ### 10. Bump the version
 
-If CI keys artifact names on the package version (Docker tags via `nx affected`, published images), bump the patch version on every PR branch, run `npm install` to resync the lockfile, and re-run validation.
+Whether to bump depends only on whether there is a version for CI to read — never on whether the repo "looks like" it publishes anything:
+
+```bash
+jq -r '.version // empty' package.json    # non-empty → npm version patch --no-git-tag-version && npm install
+cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
+```
+
+CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
 
 ### 11. Commit
 
