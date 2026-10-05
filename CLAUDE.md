@@ -20,11 +20,11 @@ There is nothing else to run before a commit, so a changed script has to be exer
 
 ```bash
 S=plugins/setup-workflows/skills/setup-workflows/scripts
-$S/fetch-inputs.sh && $S/fetch-permissions.py    # need gh auth; write /tmp/valid_inputs.txt, /tmp/required_permissions.txt
+$S/fetch-inputs.sh && $S/fetch-permissions.py    # write /tmp/valid_inputs.txt (and /tmp/btp.yml), /tmp/required_permissions.txt; the second needs gh auth
 uv run $S/validate-caller.py <repo-with-build.yml>
 python3 $S/check-scripts.py <repo-with-package.json>
 
-bash plugins/prune-branches/skills/prune-branches/scripts/classify.sh <repo>     # read-only, but runs git fetch --prune
+bash plugins/prune-branches/skills/prune-branches/scripts/classify.sh <repo>     # deletes nothing, but runs git fetch --prune and writes probe commit objects
 python3 plugins/trivy-fix/skills/trivy-fix/scripts/parse-sarif.py <file.sarif>
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
 ```
@@ -60,11 +60,11 @@ The split was established in the "reduce skills and agents, move mechanics into 
 - **`SKILL.md` holds judgment and order.** Numbered steps — where the end of a step is not obvious it closes with a checkable "Done when …" — plus the decisions a script cannot make (what to ask the user, when to stop). Skills refer to their scripts as `scripts/<file>` relative to the skill directory.
 - **Agents add only what running unsupervised needs.** `nx-migrator` and `branch-scanner` each say "invoke the skill and follow it" and then define what the skill leaves to a human: scope limits, the shape of the final report, and the step a person would otherwise decide. For `branch-scanner` that is the confirmation prompt, replaced by a report mode and a prune mode; for `nx-migrator` it is everything after the open PR — the independent review and the merge. Skill rules are not restated in the agent file; do not duplicate them there.
 
-Conventions that recur across all four skills and should be kept when editing or adding one:
+Conventions to keep when editing or adding a skill. Only the first is found in all four; the others are named with the skill that sets the example:
 
-- **Live data over remembered lists.** `setup-workflows` reads inputs and permission scopes from `tehw0lf/workflows` at run time because a list frozen into the skill went stale and broke a real run. When a fetch fails, the script stops; it never falls back.
 - **Stop-and-report beats guessing.** A skipped repository, an unverifiable provenance check or an ambiguous value ends in a report, not a best effort.
-- **Rules carry their reason.** Most hard rules name the incident behind them (the `[a-z_]+` regex that dropped `e2e`, the six-scope list that produced `startup_failure` in `yaft-java`). Keep that when adding a rule: an unexplained prohibition gets argued away by the session reading it.
+- **Live data over remembered lists.** `setup-workflows` reads inputs and permission scopes from `tehw0lf/workflows` at run time because a list frozen into the skill went stale and broke a real run. When a fetch fails, the script stops; it never falls back.
+- **Rules carry their reason.** A hard rule states the mechanism that makes the shortcut fail, and `setup-workflows` also names the incident behind it (the `[a-z_]+` regex that dropped `e2e`, the six-scope list that produced `startup_failure` in `yaft-java`). Keep that when adding a rule: an unexplained prohibition gets argued away by the session reading it.
 - **Destructive steps are gated by classification, not by the confirmation flag.** In `prune-branches`, `--yes` skips the prompt and nothing else; the agent's prune mode needs the word in its prompt.
 
 ## Cross-repository coupling
