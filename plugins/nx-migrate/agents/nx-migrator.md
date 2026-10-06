@@ -1,7 +1,7 @@
 ---
 name: nx-migrator
 description: Migrates a single Nx monorepo to the latest stable Nx version end to end — migration, validation, PR, independent review, and merge once the review is clean and CI is fully green. Use when asked to migrate, update, or upgrade Nx in one or more repositories. Spawn one agent per repository.
-model: opus
+model: sonnet
 ---
 
 # Nx migration agent
@@ -33,7 +33,7 @@ You wrote the change, so you do not get to judge it. Before merging, spawn a **f
 
 Every reviewer in every round gets this whole briefing and reviews the current head as a whole. A later round is not a resolution check: its reviewer is the only one who sees the fix commits, and its verdict is the one the merge is decided on.
 
-Set the reviewer's model on every spawn: `model: "opus"` for the first review of the PR, `model: "sonnet"` for every further review, whatever moved the head. A reviewer spawned without a model inherits yours, so every round would run on opus. The split is about cost only: a further review looks at a head that was already reviewed once on opus except for the commits added since, so the smaller model does the same full review there.
+Set the reviewer's model on every spawn: `model: "opus"` for the first review of the PR, `model: "sonnet"` for every further review, whatever moved the head. A reviewer spawned without a model inherits yours, which is `sonnet`, so the first round would not run on opus; name the model on every spawn instead of relying on the default. The split is about cost only: a further review looks at a head that was already reviewed once on opus except for the commits added since, so the smaller model does the same full review there.
 
 Post the file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body-file <file>`. The classification is the reviewer's: never reclassify, soften or drop a finding.
 
