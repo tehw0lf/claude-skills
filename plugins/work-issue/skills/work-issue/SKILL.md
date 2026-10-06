@@ -112,7 +112,7 @@ Say which source the commands came from, and that a fallback was used when it wa
 - **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree outside the checkout, so that this one stays as it is: `git worktree add --detach <temporary directory>/base origin/<default>`, install and run there, then `git worktree remove --force <temporary directory>/base`. Not `git stash` and not `git switch`: both change the tree that is being validated.
 - **It cannot run** (a missing tool, a missing service, no browser for an e2e suite). That is not a pass and not a failure of the change. The PR may be opened, with the command and the reason under **Not verified**; say so in the report as well. Whoever merges decides what that is worth, and the `issue-worker` agent does not merge such a PR.
 
-For a defect, show that the new test fails without the fix: take the pre-fix file from the base (`git show origin/<default>:<path>`) into a scratch copy and run the test against it. `git stash` proves nothing once the fix is committed.
+For a defect, show that the new test fails without the fix. Use the same kind of separate working tree as above, which holds the code of `origin/<default>` without the fix: copy the new or changed test files into it, install, run that test there and see it fail, then remove the working tree. Do not produce the pre-fix state inside the checkout, neither with `git stash` nor by overwriting the fixed files with their old versions: until step 8 commits, the working tree is the only copy of the fix.
 
 Done when every validation command either exited 0 on the tree that will be pushed or is recorded as not runnable. Any change after that, including a fix from a review, means running the validation again before the push.
 
@@ -134,7 +134,7 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, what
 A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
 
 ```bash
-git add -N . && git diff > <temporary directory>/abandoned.diff   # only when there is work worth showing: -N makes new files part of the diff. Outside the checkout, or the next line deletes it; name the file in the report
+git add -N . && git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: -N makes new files part of the diff, HEAD includes what is already staged (a `git mv`, a `git rm`). Outside the checkout, or the next line deletes it; name the file in the report
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
