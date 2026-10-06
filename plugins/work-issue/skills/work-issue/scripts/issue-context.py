@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print what has to be known before work on one GitHub issue starts. Writes nothing, on GitHub or locally.
 
-usage: issue-context.py <n | #n | owner/repo#n>
+usage: issue-context.py <n | '#n' | 'owner/repo#n'>     (quote a "#": unquoted it starts a shell comment)
 
 Run it inside the checkout of the repository the issue belongs to. A bare number is resolved against
 the repository `gh` sees in the current directory. With owner/repo#n that repository is read on
@@ -16,6 +16,7 @@ Output, one tab-separated line per fact, in this order:
   DEFAULT   <default branch or ->
   CHECKOUT  <owner/repo of the current directory or ->  <match|mismatch|unknown>
               unknown: the current directory is not a checkout `gh` can resolve
+  ACCOUNT   <login `gh` is authenticated as>
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
               mentions it
@@ -32,15 +33,16 @@ Output, one tab-separated line per fact, in this order:
   WORKTREE  <clean|dirty>  <current branch or (detached)>
 Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
-                                   lines are missing or incomplete, not empty. Sources: pull-requests,
-                                   comments, refs, remote-branches, local-branches, manifests, worktree
+                                   lines are missing or incomplete, not empty. Sources: account,
+                                   pull-requests, comments, refs, remote-branches, local-branches,
+                                   manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
 issue, the newest 100 cross-references, the newest 100 comments, the first 30 mentioned numbers and
 the first 40 manifests.
 
-Exits non-zero, with the reason on stderr and nothing on stdout, when the argument is not an issue
-reference, `gh` is missing or cannot resolve the repository of the current directory, the issue
+Exits non-zero, with the reason on stderr and nothing on stdout, when the argument is missing or not
+an issue reference, `gh` is missing or cannot resolve the repository of the current directory, the issue
 cannot be read, or the number belongs to a pull request. Every `gh` call is given 60 seconds.
 """
 import json
@@ -265,9 +267,11 @@ def print_worktree():
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
+    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
-        sys.exit(0 if len(sys.argv) == 2 else 1)
+        sys.exit(0)
+    if len(sys.argv) != 2:
+        die("expected one argument: n, '#n' or 'owner/repo#n' (an unquoted # starts a shell comment)")
     typed, number = parse_argument(sys.argv[1])
     local, local_reason = local_repository()
     if not typed and not local:
@@ -297,6 +301,12 @@ def main():
     emit("TITLE", issue["title"])
     emit("DEFAULT", (repository.get("defaultBranchRef") or {}).get("name"))
     emit("CHECKOUT", local or "-", ("match" if local.lower() == repo.lower() else "mismatch") if local else "unknown")
+
+    login, login_reason = run(["gh", "api", "user", "-q", ".login"])
+    if login_reason is None and login.strip():
+        emit("ACCOUNT", login.strip())
+    else:
+        skipped("account", login_reason or "no login")
 
     closing = issue["closedByPullRequestsReferences"]
     crossrefs = issue["timelineItems"]
