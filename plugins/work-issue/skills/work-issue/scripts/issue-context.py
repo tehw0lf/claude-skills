@@ -197,7 +197,7 @@ def print_refs(owner, name, numbers):
 
 
 def print_branches(repo, number):
-    # the form step 4 of the skill creates, plus the common "issue-<n>"; a number elsewhere in a
+    # the form step 2 of the skill creates, plus the common "issue-<n>"; a number elsewhere in a
     # name (release/2.19, v19, lodash-4.17.19) is a version, not this issue
     pattern = re.compile(rf"(?:^|/)(?:issue[-_]?)?{number}(?:[-_]|$)", re.IGNORECASE)
     out, reason = run(["gh", "api", f"repos/{repo}/branches", "--paginate", "-q", ".[].name"])

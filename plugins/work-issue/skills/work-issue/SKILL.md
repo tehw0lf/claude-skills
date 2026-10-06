@@ -19,7 +19,7 @@ One issue, one branch, one pull request. Run it inside the checkout of the repos
 git rev-parse HEAD                                               # keep it: the commit to return to after a stop
 ```
 
-The working directory stays the repository's checkout for every command of this skill: the script describes the directory it is run in. Call it by its full path, the base directory of this skill plus `scripts/issue-context.py`; do not change into the skill directory.
+The working directory stays the repository's checkout for every command of this skill: the script describes the directory it is run in. Every file this skill writes that is not part of the change (a saved diff, the PR body, a second working tree) goes into a temporary directory outside the checkout, `mktemp -d` or the scratch directory the session was given: inside the checkout it would be an untracked file, which makes the working tree dirty and is deleted by the clean-up after a stop. Call it by its full path, the base directory of this skill plus `scripts/issue-context.py`; do not change into the skill directory.
 
 Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
 
@@ -109,7 +109,7 @@ Run the repository's own pre-commit validation: the command its `CLAUDE.md` or R
 Say which source the commands came from, and that a fallback was used when it was. Each command ends in one of three ways:
 
 - **It exits 0.** That is a pass.
-- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree, so that this one stays as it is: `git worktree add --detach <scratch dir> origin/<default>`, install and run there, then `git worktree remove --force <scratch dir>`. Not `git stash` and not `git switch`: both change the tree that is being validated.
+- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree outside the checkout, so that this one stays as it is: `git worktree add --detach <temporary directory>/base origin/<default>`, install and run there, then `git worktree remove --force <temporary directory>/base`. Not `git stash` and not `git switch`: both change the tree that is being validated.
 - **It cannot run** (a missing tool, a missing service, no browser for an e2e suite). That is not a pass and not a failure of the change. The PR may be opened, with the command and the reason under **Not verified**; say so in the report as well. Whoever merges decides what that is worth, and the `issue-worker` agent does not merge such a PR.
 
 For a defect, show that the new test fails without the fix: take the pre-fix file from the base (`git show origin/<default>:<path>`) into a scratch copy and run the test against it. `git stash` proves nothing once the fix is committed.
@@ -122,7 +122,7 @@ Commit only the files you changed on purpose, with conventional-commit subjects 
 
 ```bash
 git push -u origin HEAD
-gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <file>
+gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <temporary directory>/pr-body.md
 ```
 
 The body has `Closes #<n>`, then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
@@ -134,7 +134,7 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, what
 A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
 
 ```bash
-git add -N . && git diff > <scratch file>   # only when there is work worth showing: -N makes new files part of the diff; name the file in the report
+git add -N . && git diff > <temporary directory>/abandoned.diff   # only when there is work worth showing: -N makes new files part of the diff. Outside the checkout, or the next line deletes it; name the file in the report
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
