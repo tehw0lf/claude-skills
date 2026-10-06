@@ -35,7 +35,7 @@ node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<vers
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
-Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/claude-skills`, then `claude plugin install <name>@tehw0lf-claude-skills --scope user`). The marketplace follows `main`, and an installed plugin is replaced only when its `version` changed, so a pushed branch or an unbumped change never reaches them. After a merge: `claude plugin marketplace update tehw0lf-claude-skills`, then `claude plugin update <name>@tehw0lf-claude-skills` and a restart.
+Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/claude-skills`, then `claude plugin install <name>@tehw0lf-claude-skills --scope user`). Add it from GitHub, never as a local directory: a directory marketplace installs whatever the working tree holds (any branch, uncommitted edits), so unmerged changes would reach the installed copies. The GitHub marketplace follows `main`, and an installed plugin is replaced only when its `version` changed, so a pushed branch or an unbumped change never reaches them. After a merge: `claude plugin marketplace update tehw0lf-claude-skills`, then `claude plugin update <name>@tehw0lf-claude-skills` and a restart.
 
 ## Layout
 
