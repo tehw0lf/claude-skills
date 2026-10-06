@@ -1,6 +1,6 @@
 {
   "name": "work-issue",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Work one GitHub issue from reading it to an open pull request, or unsupervised through independent review and merge: checks that it can be implemented as written, finds the cause, makes the smallest change, validates.",
   "author": {
     "name": "tehw0lf",

@@ -1,6 +1,7 @@
 ---
 name: issue-worker
 description: "Works one GitHub issue end to end, unsupervised — reads it, implements the smallest change that resolves it, validates, opens the PR, gets an independent review and merges once the review is clean and CI is fully green. Stops and reports instead of guessing when the issue cannot be implemented as written. Spawn one agent per issue, with the repository's local checkout and the issue reference."
+model: sonnet
 ---
 
 # Issue worker
