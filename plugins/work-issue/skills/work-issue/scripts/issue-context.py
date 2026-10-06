@@ -7,7 +7,8 @@ Run it inside the checkout of the repository the issue belongs to. A bare number
 the repository `gh` sees in the current directory. With owner/repo#n that repository is read on
 GitHub, and the CHECKOUT line says whether the current directory is a checkout of it; the BRANCH
 (local), MANIFEST and WORKTREE lines always describe the current directory. Needs `gh` with the
-`repo` scope. Does not print the issue's text: read that with `gh issue view <n> --comments`.
+`repo` scope. Does not print the issue's text: read that with
+`gh issue view <n> --json title,body,comments` (without --json, gh prints the body only to a terminal).
 
 Output, one tab-separated line per fact, in this order:
   ISSUE     <owner/repo#n>  <open|closed>  <author>  <human|bot>  <labels, comma-separated or ->  <assignees or ->
@@ -33,9 +34,10 @@ Output, one tab-separated line per fact, in this order:
   WORKTREE  <clean|dirty>  <current branch or (detached)>
 Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
-                                   lines are missing or incomplete, not empty. Sources: account,
-                                   pull-requests, comments, refs, remote-branches, local-branches,
-                                   manifests, worktree
+                                   lines are missing or incomplete, not empty. Sources: query (GitHub
+                                   answered with an error next to the data), labels, assignees,
+                                   account, pull-requests, comments, refs, remote-branches,
+                                   local-branches, manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
 issue, the newest 100 cross-references, the newest 100 comments, the first 30 mentioned numbers and
@@ -287,6 +289,29 @@ def main():
     if issue["__typename"] != "Issue":
         die(f"{repo}#{number} is a pull request, not an issue")
     owner, name = repo.split("/", 1)
+    # GitHub can answer with the issue and an error for a single field, which is then null. The
+    # fields the first lines need are checked before anything is printed; a missing list is
+    # replaced by an empty one and reported as SKIPPED where its lines would have been.
+    if not isinstance(issue.get("title"), str) or not isinstance(issue.get("state"), str):
+        die(f"cannot read {repo}#{number}: {reason or 'incomplete answer'}")
+    empty = {"totalCount": 0, "nodes": []}
+    partial = {}
+    for field, source in (
+        ("closedByPullRequestsReferences", "pull-requests"),
+        ("timelineItems", "pull-requests"),
+        ("comments", "comments"),
+        ("labels", "labels"),
+        ("assignees", "assignees"),
+    ):
+        value = issue.get(field)
+        if not isinstance(value, dict) or not isinstance(value.get("nodes"), list):
+            issue[field] = dict(empty)
+            partial[source] = reason or "GitHub returned no data for this part"
+        else:
+            value["nodes"] = [node for node in value["nodes"] if node]
+            value.setdefault("totalCount", len(value["nodes"]))
+    if reason and not partial:
+        partial["query"] = reason
 
     author = issue["author"] or {"login": "ghost", "__typename": "User"}
     emit(
@@ -298,6 +323,9 @@ def main():
         ",".join(label["name"] for label in issue["labels"]["nodes"]),
         ",".join(user["login"] for user in issue["assignees"]["nodes"]),
     )
+    for source in ("labels", "assignees", "query"):
+        if source in partial:
+            skipped(source, partial[source])
     emit("TITLE", issue["title"])
     emit("DEFAULT", (repository.get("defaultBranchRef") or {}).get("name"))
     emit("CHECKOUT", local or "-", ("match" if local.lower() == repo.lower() else "mismatch") if local else "unknown")
@@ -310,6 +338,8 @@ def main():
 
     closing = issue["closedByPullRequestsReferences"]
     crossrefs = issue["timelineItems"]
+    if "pull-requests" in partial:
+        skipped("pull-requests", partial["pull-requests"])
     for connection, what in ((closing, "pull requests that close the issue"), (crossrefs, "cross-references")):
         if connection["totalCount"] > len(connection["nodes"]):
             skipped("pull-requests", f"only the newest {PAGE} of {connection['totalCount']} {what} were read")
@@ -326,9 +356,11 @@ def main():
         emit("PR", f"#{pull_number}", node["state"].lower(), relation, node["headRefName"], node["title"])
 
     comments = issue["comments"]
+    if "comments" in partial:
+        skipped("comments", partial["comments"])
     if comments["totalCount"] > len(comments["nodes"]):
         skipped("comments", f"only the newest {PAGE} of {comments['totalCount']} comments were searched for mentions")
-    texts = [issue["body"]] + [comment["body"] for comment in comments["nodes"]]
+    texts = [issue.get("body")] + [comment.get("body") for comment in comments["nodes"]]
     print_refs(owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls])
     print_branches(repo, number)
     print_manifests()

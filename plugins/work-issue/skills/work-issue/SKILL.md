@@ -14,14 +14,16 @@ One issue, one branch, one pull request. Run it inside the checkout of the repos
 ### 1. Context
 
 ```bash
-scripts/issue-context.py 12                    # an issue of the current directory's repository
-scripts/issue-context.py 'owner/repo#12'       # quoted: an unquoted # starts a shell comment
-git rev-parse HEAD                             # keep it: the commit to return to after a stop
+<skill directory>/scripts/issue-context.py 12                    # an issue of the current directory's repository
+<skill directory>/scripts/issue-context.py 'owner/repo#12'       # quoted: an unquoted # starts a shell comment
+git rev-parse HEAD                                               # keep it: the commit to return to after a stop
 ```
+
+The working directory stays the repository's checkout for every command of this skill: the script describes the directory it is run in. Call it by its full path, the base directory of this skill plus `scripts/issue-context.py`; do not change into the skill directory.
 
 Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
 
-A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`account`, `pull-requests`, `remote-branches`, `local-branches`, `worktree`), the condition could not be evaluated: stop and report rather than treat it as passed.
+A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`query`, `assignees`, `pull-requests`, `remote-branches`, `local-branches`, `worktree`), the condition could not be evaluated: stop and report rather than treat it as passed. A skipped `account` stops the run only when the issue has assignees and the run is unsupervised, the one case that needs the `ACCOUNT` line.
 
 Stop and report, without touching anything, when:
 
@@ -34,7 +36,7 @@ Stop and report, without touching anything, when:
 Look before deciding, when:
 
 - a `PR` line is `open` and `mentions`: read it (`gh pr view`). It stops the work only if it implements this issue; a PR that merely names the issue, for instance as out of its scope, does not
-- a `BRANCH` line exists: `git fetch origin`, then list what the branch holds beyond the default branch. For a `remote` line that is `git log --oneline origin/<default>..origin/<branch>`, for a `local` line `git log --oneline origin/<default>..<branch>`; a name printed as both gets both commands, the two can differ. Commits that are not on the default branch are somebody's started work: stop and name the branch. A branch without such commits is left over and does not stop the work; say that it exists
+- a `BRANCH` line exists: `git fetch origin`, then list what the branch holds beyond the default branch. For a `remote` line that is `git log --oneline origin/<default>..origin/<branch>`, for a `local` line `git log --oneline origin/<default>..<branch>`; a name printed as both gets both commands, the two can differ. Commits that are not on the default branch are somebody's started work: stop and name the branch. A branch without such commits is left over and does not stop the work; say that it exists, leave it alone, and give the branch of step 2 a slug that differs from it
 - a `PR` line is `merged` or `closed` while the issue is still `open`: read that PR in step 3, the issue may be half done
 
 The labels and the author kind in `ISSUE` are for step 3: a `bot` author means the text was generated, and a label may say that the issue waits for a decision.
@@ -55,8 +57,10 @@ Nothing is committed before step 8. Every stop from here to there ends with the 
 ### 3. Read, and decide whether it can be done as written
 
 ```bash
-gh issue view <n> -R <owner/repo> --comments
+gh issue view <n> -R <owner/repo> --json title,body,comments
 ```
+
+The `--json` form is deliberate: without it `gh` prints the title and the body only to a terminal, and a session that captures the output gets the comments alone.
 
 Read every `REF` and `PR` the issue leans on (`gh issue view`, `gh pr view`); an open `REF` that the issue says it waits for is a reason to stop.
 
@@ -105,7 +109,7 @@ Run the repository's own pre-commit validation: the command its `CLAUDE.md` or R
 Say which source the commands came from, and that a fallback was used when it was. Each command ends in one of three ways:
 
 - **It exits 0.** That is a pass.
-- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation.
+- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree, so that this one stays as it is: `git worktree add --detach <scratch dir> origin/<default>`, install and run there, then `git worktree remove --force <scratch dir>`. Not `git stash` and not `git switch`: both change the tree that is being validated.
 - **It cannot run** (a missing tool, a missing service, no browser for an e2e suite). That is not a pass and not a failure of the change. The PR may be opened, with the command and the reason under **Not verified**; say so in the report as well. Whoever merges decides what that is worth, and the `issue-worker` agent does not merge such a PR.
 
 For a defect, show that the new test fails without the fix: take the pre-fix file from the base (`git show origin/<default>:<path>`) into a scratch copy and run the test against it. `git stash` proves nothing once the fix is committed.
@@ -130,10 +134,10 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, what
 A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
 
 ```bash
-git diff > <scratch file>              # only when there is a change worth showing; name the file in the report
-git reset --hard && git clean -fd      # ignored files (dependencies, build output) stay
+git add -N . && git diff > <scratch file>   # only when there is work worth showing: -N makes new files part of the diff; name the file in the report
+git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
-git branch -D <the branch from step 2>
+git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
 ```
 
 A branch left behind would make the next run look for started work, and files left behind would make it stop on a dirty working tree. Once step 8 has committed, nothing is discarded any more: a stop after that reports the branch and the PR as they are.
