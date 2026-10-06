@@ -42,11 +42,11 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it
-plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent
+plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent is the whole plugin)
 plugins/<name>/hooks/hooks.json            # optional: hooks the plugin adds while it is enabled (inbox: the SessionStart summary)
 ```
 
-Three places describe each plugin and have to agree: the entry in `marketplace.json`, `plugin.json`, and the `description` in the `SKILL.md` front matter. The first two are the catalogue text; the third is what decides whether a session invokes the skill, so it carries the trigger phrases (including the German ones).
+Three places describe each plugin and have to agree: the entry in `marketplace.json`, `plugin.json`, and the `description` in the `SKILL.md` front matter. The first two are the catalogue text; the third is what decides whether a session invokes the skill, so it carries the trigger phrases (including the German ones). `pr-review` has no skill: its third place is the `description` in the front matter of `agents/pr-reviewer.md`, which is what a session reads when it picks an agent type.
 
 Adding a plugin means a new `plugins/<name>/` tree **and** an entry in `marketplace.json`.
 
@@ -61,6 +61,7 @@ The split was established in the "reduce skills and agents, move mechanics into 
 - **Scripts hold the mechanics.** Anything deterministic — parsing SARIF, classifying branches, fetching the orchestrator's inputs — lives in `scripts/` and prints a stable tab- or line-oriented format. A script says what it could not do instead of guessing: the fetch, validation and provenance scripts exit non-zero, while `classify.sh` prints a `SKIPPED` line for that repository and carries on. Each script opens with a usage comment or docstring. `SKILL.md` relies on the output format, so change both together.
 - **`SKILL.md` holds judgment and order.** Numbered steps — where the end of a step is not obvious it closes with a checkable "Done when …" — plus the decisions a script cannot make (what to ask the user, when to stop). Skills refer to their scripts as `scripts/<file>` relative to the skill directory.
 - **Agents add only what running unsupervised needs.** `nx-migrator` and `branch-scanner` each say "invoke the skill and follow it" and then define what the skill leaves to a human: scope limits, the shape of the final report, and the step a person would otherwise decide. For `branch-scanner` that is the confirmation prompt, replaced by a report mode and a prune mode; for `nx-migrator` it is everything after the open PR — the independent review and the merge. An agent does not introduce or redefine skill rules. Where it repeats one, that is deliberate: it pins the rule down at the point where running unsupervised could tempt a session past it (in `branch-scanner`, that NEEDS REVIEW, KEPT and INELIGIBLE branches are never deleted even in prune mode). Keep those repetitions.
+- **`pr-reviewer` is the exception: an agent without a skill.** A review has to come from a context that did not write the change, so there is nothing for a session to run inline. Installed from the plugin, the agent type is `pr-review:pr-reviewer`. The agent says how one review is done (read-only, first-hand, the three classes, the verdict file); when a review is required, which model a round runs on and when a PR may be merged stay with whoever spawns it.
 
 Conventions to keep when editing or adding a skill. Only the first is found in every skill; the others are named with the skill that sets the example:
 
