@@ -1,6 +1,6 @@
 {
   "name": "pr-review",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Independent, read-only review of one pull request before it is merged: verifies the PR first-hand, classifies every finding as blocking, fix-in-PR or follow-up and writes the verdict as a comment file.",
   "author": {
     "name": "tehw0lf",
