@@ -17,17 +17,38 @@ One issue, one branch, one pull request. Run it inside the checkout of the repos
 scripts/issue-context.py <n | #n | owner/repo#n>
 ```
 
-A non-zero exit means the issue is not readable or the number is a pull request: report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `PR`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`); a `# SKIPPED <source>` line is a source that could not be read, so say what is unknown instead of treating it as empty.
+A non-zero exit prints its reason on stderr and nothing else: a malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `PR`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
+
+A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`pull-requests`, `remote-branches`, `local-branches`, `worktree`), the condition could not be evaluated: stop and report rather than treat it as passed.
 
 Stop and report, without touching anything, when:
 
+- `CHECKOUT` is `mismatch` or `unknown`: the current directory is not a checkout of the issue's repository. Every later step would read, branch and open the PR in the wrong repository, with a `Closes #<n>` that points at an unrelated issue there
 - `ISSUE` is `closed`
-- a `PR` line is `open`, or a `BRANCH` line exists: somebody is on it, or was. Name the PR or branch. A second branch for the same issue produces two diverging fixes and one of them is thrown away
+- a `PR` line is `open` and `closes`: somebody is on it. Name the PR. A second branch for the same issue produces two diverging fixes and one of them is thrown away
+- the issue has assignees and the user who asked for this work is not one of them (running unsupervised: any assignee other than the account `gh` is logged in as): the issue is claimed. Name the assignee
 - `WORKTREE` is `dirty`: the uncommitted work is not yours to move or stash. Ask the user, or report when running unsupervised
 
-A `merged` or `closed` `PR` line with the issue still `open` is not a stop: read that PR in step 2, the issue may be half done.
+Look before deciding, when:
 
-### 2. Read, and decide whether it can be done as written
+- a `PR` line is `open` and `mentions`: read it (`gh pr view`). It stops the work only if it implements this issue; a PR that merely names the issue, for instance as out of its scope, does not
+- a `BRANCH` line exists: `git fetch origin`, then `git log --oneline origin/<default>..<branch>` (for a local branch without a remote, the branch name itself). Commits that are not on the default branch are somebody's started work: stop and name the branch. A branch without such commits is left over and does not stop the work; say that it exists
+- a `PR` line is `merged` or `closed` while the issue is still `open`: read that PR in step 3, the issue may be half done
+
+The labels and the author kind in `ISSUE` are for step 3: a `bot` author means the text was generated, and a label may say that the issue waits for a decision.
+
+### 2. Bring the checkout up to date
+
+Everything from here on reads the code, so it has to be the current code: an analysis of a stale tree ends in "the issue's diagnosis does not hold" for code that has since moved.
+
+```bash
+git fetch origin
+git switch -c <type>/<n>-<short-slug> origin/<default>
+```
+
+`<default>` is the `DEFAULT` line; the type is `fix`, `feat`, `chore`, `docs` or `ci`. The issue number at the start of the last path segment is what step 1 of the next run looks for. If step 3 or 4 ends in a stop, switch back to the branch `WORKTREE` named and delete this one (`git switch <previous>`, `git branch -D <branch>`): nothing was committed on it, and a leftover branch would make the next run look for started work.
+
+### 3. Read, and decide whether it can be done as written
 
 ```bash
 gh issue view <n> -R <owner/repo> --comments
@@ -43,19 +64,15 @@ The issue can be implemented when all three hold:
 - what "done" means is stated or follows from the code (a failing behaviour, a named file, a named check)
 - no decision is left that belongs to the repository's owner: a trade-off between approaches, a change of public behaviour or of a version range, anything the issue itself lists as "decide whether …"
 
-If one does not hold, **stop before creating a branch**. Give the open questions, the options for each and a recommendation: ask the user when a user is there, otherwise put them in the report. Write nothing to GitHub. An issue that is an idea or collects several changes is not implemented as one PR: propose how to split it and stop.
+If one does not hold, **stop**, and clean up the branch as step 2 says. Give the open questions, the options for each and a recommendation: ask the user when a user is there, otherwise put them in the report. Write nothing to GitHub. An issue that is an idea or collects several changes is not implemented as one PR: propose how to split it and stop.
 
 Done when you can state in two sentences what will change and how it will be verified, or have stopped.
 
-### 3. Find the cause
+### 4. Find the cause
 
 Locate the cause in the code before changing anything, and reproduce the problem where it can be reproduced (a failing command, a failing test, a real run). For a defect in a repository with a test suite, write the failing test first. A fix whose cause was never seen fixes a symptom, and the next variant of the same defect opens the next issue.
 
 When the issue's own diagnosis does not hold in the code, say so and stop: the fix it asks for is then the wrong change.
-
-### 4. Branch
-
-From the up-to-date default branch (`DEFAULT`): `git fetch origin`, `git switch -c <type>/<n>-<short-slug> origin/<default>` with `fix`, `feat`, `chore`, `docs` or `ci` as the type. The issue number in the name is what step 1 of the next run looks for.
 
 ### 5. Change
 
@@ -63,7 +80,13 @@ The smallest change that resolves the issue, in the style of the surrounding cod
 
 Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps`, `overrides` or `resolutions`: they make the install succeed on a combination no package declared support for, and the lockfile records it. If no released version fits, stop and report the conflicting ranges.
 
-### 6. Validate
+### 6. Version
+
+Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install`, `uv lock`, `cargo update -w`). Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
+
+The bump comes before validation so that the tree that is validated is the tree that is pushed. Keep it in a commit of its own, the last one of the branch.
+
+### 7. Validate
 
 Run the repository's own pre-commit validation: the command its `CLAUDE.md` or README names, otherwise the lint, test, build and e2e commands its CI workflow runs. Only when the repository names none:
 
@@ -79,11 +102,7 @@ Every command must exit 0. A command that cannot run (missing tool, missing serv
 
 For a defect, show that the new test fails without the fix: take the pre-fix file from the base (`git show origin/<default>:<path>`) into a scratch copy and run the test against it. `git stash` proves nothing once the fix is committed.
 
-Done when every validation command exited 0 on the final tree.
-
-### 7. Version
-
-Follow the repository's versioning rule. Where it names none and a `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml` at the root): bump the patch version as the last commit and sync the lockfile (`npm version patch --no-git-tag-version && npm install`, `uv lock`, `cargo update -w`). Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
+Done when every validation command exited 0 on the tree that will be pushed. Any change after that, including a fix from a review, means running the validation again before the push.
 
 ### 8. Commit, push, open the PR
 
@@ -96,7 +115,7 @@ gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-f
 
 The body has `Closes #<n>`, then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
 
-Done when the PR is open and step 6 passed on the pushed head. Report the PR, what was verified, what was not, and the list from step 5.
+Done when the PR is open and step 7 passed on the pushed head. Report the PR, what was verified, what was not, and the list from step 5.
 
 ## Not part of this skill
 
