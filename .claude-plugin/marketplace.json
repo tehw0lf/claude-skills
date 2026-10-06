@@ -60,6 +60,15 @@
       },
       "category": "development",
       "source": "./plugins/pr-review"
+    },
+    {
+      "name": "work-issue",
+      "description": "Work one GitHub issue from reading it to an open pull request, or unsupervised through independent review and merge: checks that it can be implemented as written, finds the cause, makes the smallest change, validates.",
+      "author": {
+        "name": "tehw0lf"
+      },
+      "category": "development",
+      "source": "./plugins/work-issue"
     }
   ]
 }
