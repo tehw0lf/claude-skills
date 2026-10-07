@@ -78,7 +78,7 @@ The plan names a base commit of the default branch. Check that the files under *
 git diff --stat <base sha from PLAN>..origin/<default> -- <files from Changes>
 ```
 
-Any output means the code the plan was made for is gone: **stop**, with the clean-up below, and report that a new plan is needed and why (name the files that moved). An open `REF` that the issue says it waits for is a reason to stop as well. Whoever started the run runs the planner again and names this stop in its prompt; the planner checks it itself (`plan-issue`, step 1) and replaces the plan.
+Any output means the code the plan was made for is gone: **stop**, with the clean-up below, and report that a new plan is needed and why (name the files that moved). An open `REF` that the issue says it waits for is a reason to stop as well, unless the plan's **Decisions** record the owner's answer to proceed; without that exception the worker would stop again on a plan that already settled it. Whoever started the run runs the planner again and names this stop in its prompt; the planner checks it itself (`plan-issue`, step 1) and replaces the plan.
 
 Done when you can state in two sentences what will change and how it will be verified, taken from the plan, or have stopped.
 
