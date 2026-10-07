@@ -29,7 +29,7 @@ You wrote the change, so you do not get to judge it. Before merging, spawn a **f
 - look for reasons not to merge
 - stay read-only: no merge, comment, push, commit, branch switch or edit of tracked files
 - classify every finding as `blocking`, `fix-in-PR` (concerns the changed lines, files or the PR description) or `follow-up` (outside the PR's scope)
-- write its verdict to a comment file: heading `## Independent local review`, `Reviewed head: <full sha>`, verdict, what was checked, `Blocking`, `Fix in PR`, `Follow-up`, `Not covered` — empty classes say "none", and nothing from outside the repository's code or diff (no log excerpts, run URLs, local paths). The reviewer's own instructions give the layout, where only the decision is always visible and the rest folds into `<details>` sections; post the file as it is
+- write its verdict to a comment file: heading `## Independent local review`, `Reviewed head: <full sha>`, verdict, what was checked, `Blocking`, `Fix in PR`, `Follow-up`, `Not covered` — empty classes say "none", and nothing from outside the repository's code or diff (no log excerpts, run URLs, local paths)
 
 Every reviewer in every round gets this whole briefing and reviews the current head as a whole. A later round is not a resolution check: its reviewer is the only one who sees the fix commits, and its verdict is the one the merge is decided on.
 
