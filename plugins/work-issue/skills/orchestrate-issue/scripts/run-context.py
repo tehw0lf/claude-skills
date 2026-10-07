@@ -269,7 +269,7 @@ def last_edit(repo, number, events):
     for event in events:
         if event.get("event") == "renamed":
             edits.append((event.get("created_at"), (event.get("actor") or {}).get("login")))
-    return max(edits, default=(None, None))
+    return max(edits, key=lambda edit: edit[0] or "", default=(None, None))
 
 
 def labeler(repo, number, label):
@@ -316,7 +316,7 @@ def main():
         emit("REPO", full, default)
         if default:
             names, source = required_checks(full, default)
-            emit("CHECKS", full, "\t".join(names), source)
+            print("\t".join(["CHECKS", full, "\t".join(clean(n) for n in names) or "-", source]))
         else:
             skipped("rules", f"{full} has no default branch")
         print_checkouts(full, given.get(full.lower()))
