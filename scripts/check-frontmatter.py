@@ -12,7 +12,7 @@ Output: one line per finding, `<path>\t<key or ->\t<message>`. Exit 1 on any fin
 Why: `claude plugin validate` reads plugin.json only, and Claude Code ignores an unknown or
 misspelled key silently at run time. The key and value lists below are copied from the Claude Code
 documentation; when it adds a field or a value, add it here (one line)."""
-import re, sys, pathlib
+import collections.abc, re, sys, pathlib
 import yaml
 
 COMMON = {"name", "description", "model", "effort", "background"}
@@ -24,8 +24,9 @@ SKILL_KEYS = COMMON | {"when_to_use", "argument-hint", "arguments", "disable-mod
                        "user-invocable", "allowed-tools", "disallowed-tools", "context", "agent",
                        "hooks", "paths", "shell", "metadata", "license", "compatibility"}
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
-MODELS = {"sonnet", "opus", "haiku", "fable", "inherit"}
-MODEL_ID = re.compile(r"^claude-[a-z0-9.-]+$")
+MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "default", "best", "opusplan"}
+# an alias or a full id, optionally with the 1M-context suffix
+MODEL_ID = re.compile(r"^(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?$")
 TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\(.+\))?$")
 
 
@@ -37,6 +38,8 @@ def _mapping(loader, node, deep=False):
     seen = set()
     for k, _ in node.value:
         key = loader.construct_object(k, deep=True)
+        if not isinstance(key, collections.abc.Hashable):
+            raise yaml.constructor.ConstructorError(None, None, "unhashable mapping key", k.start_mark)
         if key in seen:
             raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", k.start_mark)
         seen.add(key)
@@ -107,7 +110,7 @@ def check(path, kind):
         find("-", "front matter is not closed by a --- line")
         return out
     try:
-        fm = yaml.load("\n".join(lines[1:end]), Loader=Loader)
+        fm = yaml.load("\n" + "\n".join(lines[1:end]), Loader=Loader)
     except yaml.YAMLError as e:
         find("-", "front matter does not parse: " + " ".join(str(e).split()))
         return out
@@ -131,7 +134,7 @@ def check(path, kind):
         m = fm["model"]
         if not isinstance(m, str) or not (m in MODELS or MODEL_ID.match(m)):
             find("model", f"unknown model {m!r}")
-    if "effort" in fm and fm["effort"] not in EFFORTS:
+    if "effort" in fm and not (isinstance(fm["effort"], str) and fm["effort"] in EFFORTS):
         find("effort", f"unknown effort {fm['effort']!r}")
     tool_keys = ("tools", "disallowedTools") if kind == "agent" else ("allowed-tools", "disallowed-tools")
     for k in tool_keys:
@@ -147,7 +150,8 @@ def check(path, kind):
 def main():
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".")
     if not root.is_dir():
-        sys.exit(f"root not found: {root}")
+        print(f"root not found: {root}", file=sys.stderr)
+        sys.exit(2)
     files = [(p, "agent") for p in sorted(root.glob("plugins/*/agents/**/*.md"))]
     files += [(p, "skill") for p in sorted(root.glob("plugins/*/skills/*/SKILL.md"))]
     if not files:
