@@ -21,6 +21,18 @@ Output, one tab-separated line per fact, in this order:
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
               mentions it
+  QUESTIONS <comment id>  <createdAt>  <open|answered>
+              the newest question comment written by ACCOUNT: its first line is
+              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator; an edit of the issue text is not an answer, the
+              script cannot tell who made it. Comments whose first line is either marker
+              never count as answers or as owner comments, whoever wrote them: ACCOUNT is usually the
+              owner's own login
+  PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
+              the newest plan comment written by ACCOUNT: its first line is
+              `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
+              (reason issue-edited), a comment by an owner, member or collaborator came after it
+              (owner-comment), or questions were posted after it (newer-questions). Whether the code
+              moved since <base sha> is not checked here: that needs the plan's file list
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
               an issue or pull request of the same repository that the issue's body or comments
               mention as #n outside code spans, in order of first mention
@@ -36,8 +48,9 @@ Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
                                    lines are missing or incomplete, not empty. Sources: query (GitHub
                                    answered with an error next to the data), labels, assignees,
-                                   account, pull-requests, comments, refs, remote-branches,
-                                   local-branches, manifests, worktree
+                                   account, pull-requests, comments, plan (ACCOUNT is unknown, so
+                                   plan and question comments were not evaluated), refs,
+                                   remote-branches, local-branches, manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
 issue, the newest 100 cross-references, the newest 100 comments, the first 30 mentioned numbers and
@@ -68,11 +81,14 @@ query($owner: String!, $name: String!, $number: Int!) {
     issueOrPullRequest(number: $number) {
       __typename
       ... on Issue {
-        title state body
+        title state body lastEditedAt
         author { __typename login }
         labels(first: 50) { nodes { name } }
         assignees(first: 20) { nodes { login } }
-        comments(last: %(page)d) { totalCount nodes { body } }
+        comments(last: %(page)d) {
+          totalCount
+          nodes { databaseId body createdAt authorAssociation author { login } }
+        }
         closedByPullRequestsReferences(last: %(page)d, includeClosedPrs: true) {
           totalCount
           nodes { number state title headRefName repository { nameWithOwner } }
@@ -165,6 +181,58 @@ def mentioned_numbers(texts, own):
             if number != own and number not in seen:
                 seen.append(number)
     return seen
+
+
+PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})\s*-->")
+QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
+OWNER_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+
+
+def print_plan_state(issue, comments, login):
+    """PLAN and QUESTIONS lines. Anyone can comment on an issue, so only comments written by `login`
+    (the account the agents act as) count as plan or questions, and only owner, member or collaborator
+    comments that carry no marker count as answers."""
+    if not login:
+        skipped("plan", "the account is unknown, so plan and question comments cannot be attributed")
+        return
+    plan = questions = None
+    for comment in comments:  # oldest first: the last match is the newest
+        first = (comment.get("body") or "").lstrip().split("\n", 1)[0]
+        author = (comment.get("author") or {}).get("login") or ""
+        if author.lower() != login.lower():
+            continue
+        match = PLAN_MARKER.fullmatch(first.strip())
+        if match:
+            plan = (comment, match.group(1))
+        elif QUESTIONS_MARKER.fullmatch(first.strip()):
+            questions = comment
+
+    def is_marker(comment):
+        first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
+        return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first))
+
+    def owner_comments_after(since):
+        return [
+            c
+            for c in comments
+            if c.get("authorAssociation") in OWNER_ASSOCIATIONS
+            and not is_marker(c)
+            and (c.get("createdAt") or "") > since
+        ]
+
+    if questions:
+        state = "answered" if owner_comments_after(questions["createdAt"]) else "open"
+        emit("QUESTIONS", questions["databaseId"], questions["createdAt"], state)
+    if plan:
+        comment, base = plan
+        reason = "-"
+        if (issue.get("lastEditedAt") or "") > comment["createdAt"]:
+            reason = "issue-edited"
+        elif owner_comments_after(comment["createdAt"]):
+            reason = "owner-comment"
+        elif questions and questions["createdAt"] > comment["createdAt"]:
+            reason = "newer-questions"
+        emit("PLAN", comment["databaseId"], comment["createdAt"], base, "current" if reason == "-" else "stale", reason)
 
 
 def print_refs(owner, name, numbers):
@@ -361,6 +429,7 @@ def main():
     if comments["totalCount"] > len(comments["nodes"]):
         skipped("comments", f"only the newest {PAGE} of {comments['totalCount']} comments were searched for mentions")
     texts = [issue.get("body")] + [comment.get("body") for comment in comments["nodes"]]
+    print_plan_state(issue, [c for c in comments["nodes"] if c], login.strip() if login_reason is None and login.strip() else None)
     print_refs(owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls])
     print_branches(repo, number)
     print_manifests()

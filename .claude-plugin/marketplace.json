@@ -63,7 +63,7 @@
     },
     {
       "name": "work-issue",
-      "description": "Work one GitHub issue from reading it to an open pull request, or unsupervised through independent review and merge: checks that it can be implemented as written, finds the cause, makes the smallest change, validates.",
+      "description": "Work one GitHub issue: a planner (Opus) first reads it and the code and posts an implementation plan or the open owner questions on the issue, then the worker implements the current plan to an open pull request, or unsupervised through independent review and merge.",
       "author": {
         "name": "tehw0lf"
       },
