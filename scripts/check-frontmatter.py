@@ -98,7 +98,8 @@ def check_tools(key, val, find, whitespace=True):
     else:
         return find(key, "must be a string or a list of strings")
     for it in items:
-        if not TOOL.match(it):
+        # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
+        if not TOOL.match(it) or (not whitespace and len([p for p in split_tools(it) if p]) > 1):
             find(key, f"invalid tool name {it!r}")
 
 
