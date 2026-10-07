@@ -5,7 +5,9 @@
 """Check the front matter of every plugin agent (plugins/*/agents/**/*.md) and skill
 (plugins/*/skills/*/SKILL.md): delimiters, strict YAML parse (repeated keys are errors), a mapping,
 `name` and `description` non-empty strings, keys against the documented field sets, `model` and
-`effort` against fixed values, and the shape (not the existence) of tool names.
+`effort` against fixed values, and the shape (not the existence) of tool names. Agent tool strings
+(`tools`, `disallowedTools`) are comma-separated only; skill tool strings (`allowed-tools`,
+`disallowed-tools`) are comma- or whitespace-separated.
 usage: check-frontmatter.py [<repo-root>]      default: .
 Output: one line per finding, `<path>\t<key or ->\t<message>`. Exit 1 on any finding, 0 on none,
 2 when the root is missing or holds no agent or skill (a check that found nothing must not pass).
@@ -64,8 +66,8 @@ def split_tools(s):
     return parts
 
 
-def tool_entries(s):
-    # split on commas first so that an empty entry between commas is seen, then on whitespace
+def tool_entries(s, whitespace=True):
+    # split on commas first so that an empty entry between commas is seen, then (skills only) on whitespace
     out, depth, cur, entries = [], 0, "", []
     for ch in s:
         depth += ch == "("
@@ -81,19 +83,23 @@ def tool_entries(s):
         if not e:
             out.append("")
             continue
+        if not whitespace:
+            out.append(e)
+            continue
         out.extend(p for p in split_tools(e) if p)
     return out
 
 
-def check_tools(key, val, find):
+def check_tools(key, val, find, whitespace=True):
     if isinstance(val, str):
-        items = tool_entries(val)
+        items = tool_entries(val, whitespace)
     elif isinstance(val, list) and all(isinstance(x, str) for x in val):
         items = val
     else:
         return find(key, "must be a string or a list of strings")
     for it in items:
-        if not TOOL.match(it):
+        # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
+        if not TOOL.match(it) or (not whitespace and len([p for p in split_tools(it) if p]) > 1):
             find(key, f"invalid tool name {it!r}")
 
 
@@ -139,7 +145,7 @@ def check(path, kind):
     tool_keys = ("tools", "disallowedTools") if kind == "agent" else ("allowed-tools", "disallowed-tools")
     for k in tool_keys:
         if k in fm:
-            check_tools(k, fm[k], find)
+            check_tools(k, fm[k], find, whitespace=kind != "agent")
     if kind == "skill" and "argument-hint" in fm:
         h = fm["argument-hint"]
         if not (isinstance(h, str) or (isinstance(h, list) and all(isinstance(x, str) for x in h))):
