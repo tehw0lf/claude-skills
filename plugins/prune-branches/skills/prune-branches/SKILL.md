@@ -1,7 +1,7 @@
 ---
 name: prune-branches
 description: Prune local git branches whose content already landed on the default branch, including squash-merged ones `git branch -d` refuses. Previews every candidate with a verdict and deletes only after confirmation. Use when the user says "prune branches", "delete merged branches", "clean up branches", "tote branches löschen" or similar.
-argument-hint: [all] [--yes]
+argument-hint: "[all] [--yes]"
 allowed-tools: Bash, TodoWrite
 ---
 

@@ -11,12 +11,13 @@ A Claude Code plugin marketplace (`tehw0lf-claude-skills`), not an application. 
 ```bash
 claude plugin validate .                    # the marketplace manifest
 claude plugin validate plugins/<name>       # one plugin manifest
+uv run scripts/check-frontmatter.py         # front matter of every agent and SKILL.md; claude plugin validate reads plugin.json only
 
 bash -n plugins/prune-branches/skills/prune-branches/scripts/classify.sh
 python3 -m py_compile <script.py>           # syntax only; __pycache__ is gitignored
 ```
 
-There is nothing else to run before a commit, so a changed script has to be exercised by hand against a real target:
+Those are all the checks there are, so a changed script has to be exercised by hand against a real target:
 
 ```bash
 S=plugins/setup-workflows/skills/setup-workflows/scripts
@@ -31,7 +32,7 @@ python3 plugins/work-issue/skills/work-issue/scripts/issue-context.py <n | 'owne
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
 ```
 
-`fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
+`check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
@@ -41,6 +42,7 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 
 ```
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
+scripts/                                   # repository checks, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it
 plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent is the whole plugin)

@@ -1,7 +1,7 @@
 ---
 name: setup-workflows
 description: Set up tehw0lf/workflows reusable CI/CD in a repository — detects the project type and writes a validated caller workflow from the orchestrator's live input list. Use when the user says "set up workflows", "add CI", "workflows einrichten", "add the reusable workflow", or asks to wire a repo up to tehw0lf/workflows.
-argument-hint: [path] [--force]
+argument-hint: "[path] [--force]"
 allowed-tools: Bash, Read, Write, Edit, TodoWrite
 ---
 
