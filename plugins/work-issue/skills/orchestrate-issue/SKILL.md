@@ -23,7 +23,7 @@ Nothing is scheduled: an issue that waits for an owner answer ends this run at i
 
 Call it by its full path (`--help` describes the output). Arguments: `owner/repo#n` is an explicit issue (naming it is the consent); `owner/repo` takes every open issue of that repository that carries the label (`auto-work`); no argument means the repository of the current directory in label mode. Report every `# SKIPPED` line. A non-zero exit: report its reason and stop.
 
-A labelled issue is taken only when its `ISSUE` line shows a labeler with permission `admin`, `maintain` or `write`. Reason: triage users can add labels without having merge rights, and an issue form can apply labels automatically (the labeler is then whoever opened the issue); without the check anyone who can open an issue could start an unattended merge. A labeler or permission shown as `-` (unreadable) is not taken. Name every issue dropped this way in the report.
+A labelled issue is taken only when its `ISSUE` line shows a labeler with permission `admin`, `maintain` or `write`. Reason: triage users can add labels without having merge rights, and an issue form can apply labels automatically (the labeler is then whoever opened the issue); without the check anyone who can open an issue could start an unattended merge. A labeler or permission shown as `-` (unreadable) is not taken. The same holds for the `edit` field: an issue whose body or title was edited after the label event by an account without `admin`, `maintain` or `write` (`untrusted`), or whose edits could not be read (`-`), is not taken. Reason: the author of an issue can edit it at any time, and an edit after a plan makes the plan stale, so the planner would replan on text nobody with write access agreed to under the old label. Explicit references are exempt (naming the issue is the consent). An issue that is both named and labelled appears once, as `ref`. Name every issue dropped this way in the report.
 
 The label is not created by this skill; a missing label finds nothing, and the report says so.
 
@@ -49,10 +49,10 @@ For each taken issue without `PLAN … current`, spawn `work-issue:issue-planner
 
 ### 5. Work
 
-Read the required status checks from the `CHECKS` line of the issue's repository and spawn `work-issue:issue-worker` with the issue reference, the checkout path and, in its prompt:
+Read the required status checks from the `CHECKS` line of the issue's repository (names are tab-separated) and spawn `work-issue:issue-worker` with the issue reference, the checkout path and, in its prompt:
 
 - **at least one required check:** the names, and that in addition to its own merge rules each named check must appear as `pass` in `gh pr checks <PR> --required` on the reviewed head; a named check that does not appear is not green. Reason: the worker's own rule covers only checks that report, and a merge by an account that may bypass a ruleset would not be held by GitHub.
-- **no required check, or the source could not be read:** that it must not merge. It runs its review rounds, opens follow-up issues as its file says and stops where it would merge. Reason: a check that reports on a PR but is not required (an installed app) can be green without verifying the change, and a green status alone is not a required check. The report then names the open PR, its reviewed head and the verdict for a person to merge, and the skipped source when there was one.
+- **no required check, or any `# SKIPPED rules` / `# SKIPPED protection` line for the repository** (the script then prints `- -`, since a list from one source may be incomplete): that it must not merge. It runs its review rounds, opens follow-up issues as its file says and stops where it would merge. Reason: a check that reports on a PR but is not required (an installed app) can be green without verifying the change, and a green status alone is not a required check. The report then names the open PR, its reviewed head and the verdict for a person to merge, and the skipped source when there was one.
 
 One worker per repository at a time; repositories may run in parallel. Reason: workers of one repository touch the same manifests and collide on rebase and version numbers.
 

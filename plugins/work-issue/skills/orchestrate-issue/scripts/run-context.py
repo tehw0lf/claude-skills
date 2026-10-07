@@ -7,6 +7,7 @@ usage: run-context.py [--label <name>] [--checkout owner/repo=<path>]... [<owner
                    (default `auto-work`), oldest first
   'owner/repo#n'   an explicit issue; naming it is the consent (quote the "#")
   no argument      the repository of the current directory, in label mode
+  --max <n>        accepted and ignored (the limit is applied by the skill)
   --checkout       a local checkout the caller names for a repository; used as given
 
 Needs `gh` with the `repo` scope. Does not apply the per-run limit (it depends on the context check
@@ -15,23 +16,29 @@ of each issue) and does not read the issues themselves: that is issue-context.py
 Output, one tab-separated line per fact:
   REPO      <owner/repo>  <default branch or ->
               owner/repo is the name GitHub stores
-  CHECKS    <owner/repo>  <required status check names, comma-separated, or ->  <ruleset|protection|both|->
+  CHECKS    <owner/repo>  <required status check names, tab-separated, or ->  <ruleset|protection|both|->
               the checks the default branch requires, from the active rulesets
-              (repos/<o>/<r>/rules/branches/<default>) and from classic branch protection. `-` with
-              source `-` means none is required, or no source could be read (see # SKIPPED)
+              (repos/<o>/<r>/rules/branches/<default>) and from classic branch protection. Names are
+              tab-separated because a name can contain a comma. `-` with source `-` means none is
+              required. When either source could not be read (# SKIPPED rules / protection) the line
+              is always `- -`: a list from one source may be incomplete
   CHECKOUT  <owner/repo>  <path or ->  <given|found|none>  <clean|dirty|->  <branch or (detached) or ->
               one line per local checkout whose `origin` is the repository, found under $CODING_ROOT
               (default ~/Nextcloud/Coding) up to two directory levels below it; `none` when there is
               no candidate. A path given with --checkout is the only line
-  ISSUE     <owner/repo#n>  <ref|label>  <labeler or ->  <permission or ->  <createdAt or ->
+  ISSUE     <owner/repo#n>  <ref|label>  <labeler or ->  <permission or ->  <createdAt or ->  <edit>
               explicit references first, in the given order, then labelled issues oldest first.
               labeler: the actor of the newest `labeled` event for the label; permission: that
               actor's role on the repository (admin, maintain, write, triage, read). Both are `-`
               for an explicit reference. An issue whose labeler cannot be determined shows `-` and a
-              # SKIPPED line
+              # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
+              as `ref`.
+              edit: `none` when neither the body nor the title was edited after the label event,
+              `trusted` when the editor has admin, maintain or write, `untrusted` when not, `-` for
+              a reference or when it could not be determined
 Status lines start with "#":
   # SKIPPED <source>: <reason>   a source that could not be read; its lines are missing, not empty.
-                                 Sources: rules, protection, issues, labeler, permission, checkouts
+                                 Sources: rules, protection, issues, labeler, permission, edits, checkouts
 
 Exits non-zero, with the reason on stderr and nothing on stdout, for a malformed argument, `gh`
 missing, or a repository that cannot be resolved. Every `gh` and `git` call is given 60 seconds.
@@ -96,7 +103,7 @@ def clean(text):
 
 
 def emit(*fields):
-    print("\t".join(clean(str(field)) or "-" for field in fields))
+    print("\t".join("-" if field is None else clean(str(field)) or "-" for field in fields))
 
 
 def skipped(source, reason):
@@ -111,13 +118,16 @@ def parse_args(argv):
         if arg in ("-h", "--help"):
             print(__doc__.strip())
             sys.exit(0)
-        if arg in ("--label", "--checkout"):
+        if arg in ("--label", "--checkout", "--max"):
             if index + 1 >= len(argv):
                 die(f"{arg} needs a value")
             value = argv[index + 1]
             index += 2
-            if arg == "--label":
-                if not re.fullmatch(r"[^\s,]+", value):
+            if arg == "--max":
+                if not value.isdigit():
+                    die(f"--max needs a number: {value!r}")
+            elif arg == "--label":
+                if not value.strip() or "," in value:
                     die(f"not a label name: {value!r}")
                 label = value
             else:
@@ -154,10 +164,11 @@ def repo_info(name):
 
 def required_checks(repo, default):
     """Return (names, source) with source in ruleset, protection, both or '-'."""
-    ruleset, protection = set(), set()
+    ruleset, protection, incomplete = set(), set(), False
     rules, reason = api(f"repos/{repo}/rules/branches/{default}", "--paginate")
     if rules is None:
         skipped("rules", reason)
+        incomplete = True
     else:
         for rule in rules:
             if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
@@ -167,12 +178,15 @@ def required_checks(repo, default):
     branch, reason = api(f"repos/{repo}/branches/{default}")
     if not isinstance(branch, dict):
         skipped("protection", reason)
+        incomplete = True
     else:
         status = (branch.get("protection") or {}).get("required_status_checks") or {}
         for check in status.get("checks") or []:
             if check.get("context"):
                 protection.add(check["context"])
         protection.update(c for c in status.get("contexts") or [] if c)
+    if incomplete:
+        return [], "-"
     names = sorted(ruleset | protection)
     source = "both" if ruleset and protection else "ruleset" if ruleset else "protection" if protection else "-"
     return names, source
@@ -225,24 +239,69 @@ def print_checkouts(repo, given):
         emit("CHECKOUT", repo, path, "found", state, branch)
 
 
+_roles = {}
+
+
+def role_of(repo, login):
+    """(role, None) or (None, reason); cached per repository and login."""
+    key = (repo.lower(), login.lower())
+    if key not in _roles:
+        perm, reason = api(f"repos/{repo}/collaborators/{login}/permission")
+        _roles[key] = (perm.get("role_name") or perm.get("permission"), None) if isinstance(perm, dict) else (None, reason)
+    return _roles[key]
+
+
+def last_edit(repo, number, events):
+    """(time, editor) of the newest edit of body or title, or (None, None); raises ValueError if unreadable."""
+    owner, name = repo.split("/", 1)
+    out, reason = run([
+        "gh", "api", "graphql", "-f",
+        "query=query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt editor{login}}}}",
+        "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}",
+    ])
+    try:
+        issue = json.loads(out)["data"]["repository"]["issue"]
+    except (TypeError, ValueError, KeyError):
+        raise ValueError(reason or "unexpected answer")
+    edits = []
+    if issue.get("lastEditedAt"):
+        edits.append((issue["lastEditedAt"], (issue.get("editor") or {}).get("login")))
+    for event in events:
+        if event.get("event") == "renamed":
+            edits.append((event.get("created_at"), (event.get("actor") or {}).get("login")))
+    return max(edits, default=(None, None))
+
+
 def labeler(repo, number, label):
-    """(actor login, role) of the newest `labeled` event for the label, or (None, None) with a SKIPPED line."""
+    """(actor, role, edit state) for the newest `labeled` event; Nones with a SKIPPED line when unreadable."""
     events, reason = api(f"repos/{repo}/issues/{number}/events", "--paginate")
     if events is None:
         skipped("labeler", f"{repo}#{number}: {reason}")
-        return None, None
-    actor = None
+        return None, None, None
+    actor, since = None, None
     for event in events:
         if event.get("event") == "labeled" and (event.get("label") or {}).get("name") == label:
-            actor = (event.get("actor") or {}).get("login")
+            actor, since = (event.get("actor") or {}).get("login"), event.get("created_at")
     if not actor:
         skipped("labeler", f"{repo}#{number}: no `labeled` event for {label}")
-        return None, None
-    perm, reason = api(f"repos/{repo}/collaborators/{actor}/permission")
-    if not isinstance(perm, dict):
+        return None, None, None
+    role, reason = role_of(repo, actor)
+    if role is None:
         skipped("permission", f"{repo}#{number}: {actor}: {reason}")
-        return actor, None
-    return actor, perm.get("role_name") or perm.get("permission")
+    try:
+        when, editor = last_edit(repo, number, events)
+    except ValueError as error:
+        skipped("edits", f"{repo}#{number}: {error}")
+        return actor, role, None
+    if not when or when <= since:
+        return actor, role, "none"
+    if not editor:
+        return actor, role, "untrusted"
+    editor_role, reason = role_of(repo, editor)
+    if editor_role is None:
+        skipped("permission", f"{repo}#{number}: {editor}: {reason}")
+        return actor, role, None
+    return actor, role, "trusted" if editor_role in ("admin", "maintain", "write") else "untrusted"
 
 
 def main():
@@ -257,12 +316,13 @@ def main():
         emit("REPO", full, default)
         if default:
             names, source = required_checks(full, default)
-            emit("CHECKS", full, ",".join(names), source)
+            emit("CHECKS", full, "\t".join(names), source)
         else:
             skipped("rules", f"{full} has no default branch")
         print_checkouts(full, given.get(full.lower()))
     for name, number in explicit:
-        emit("ISSUE", f"{resolved[name.lower()][0]}#{number}", "ref", "-", "-", "-")
+        emit("ISSUE", f"{resolved[name.lower()][0]}#{number}", "ref", "-", "-", "-", "-")
+    printed = {(resolved[n.lower()][0].lower(), i) for n, i in explicit}
     for name in repos:
         full = resolved[name.lower()][0]
         issues, reason = api(
@@ -273,10 +333,11 @@ def main():
             skipped("issues", f"{full}: {reason}")
             continue
         for issue in issues:
-            if "pull_request" in issue:
+            if "pull_request" in issue or (full.lower(), issue["number"]) in printed:
                 continue
-            actor, role = labeler(full, issue["number"], label)
-            emit("ISSUE", f"{full}#{issue['number']}", "label", actor, role, issue.get("created_at"))
+            printed.add((full.lower(), issue["number"]))
+            actor, role, edit = labeler(full, issue["number"], label)
+            emit("ISSUE", f"{full}#{issue['number']}", "label", actor, role, issue.get("created_at"), edit)
 
 
 if __name__ == "__main__":
