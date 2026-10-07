@@ -41,7 +41,8 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 
 4. **Ask what to work on** with a short recommendation of one to three items and the reason for each. Then:
 
-   - the user picks an item → read it (`gh issue view`, `gh pr view`, `gh api repos/<repo>/dependabot/alerts`) and work on it in that repository under its own rules
+   - the user picks an `ISSUE` item and the session's skill list names `work-issue:work-issue` → hand it to that skill as `'owner/repo#n'` (quoted), run from the checkout of that repository; do not read the issue beforehand, the skill reads it itself. The skill stops on a directory that is not a checkout of the issue's repository, so when the current directory is not one, ask the user for the checkout's path (the inbox reads GitHub only and cannot find it)
+   - the user picks any other item (`SECURITY`, `CI`, `PR`, `DEPS`), or an `ISSUE` while the session's skill list does not name `work-issue:work-issue` → read it (`gh issue view`, `gh pr view`, `gh api repos/<repo>/dependabot/alerts`) and work on it in that repository under its own rules
    - the user never wants to see an item again → append its `owner/repo#n` to the ignore file as its own line and say so. `ignore <owner/repo#n>` as the argument does only this, without collecting first.
 
    **Done when** the user has picked something or said that nothing is to be done now.
