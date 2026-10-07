@@ -21,9 +21,9 @@ git rev-parse HEAD                                               # keep it: the 
 
 The working directory stays the repository's checkout for every command of this skill: the script describes the directory it is run in. Every file this skill writes that is not part of the change (a saved diff, the PR body, a second working tree) goes into a temporary directory outside the checkout, `mktemp -d` or the scratch directory the session was given: inside the checkout it would be an untracked file, which makes the working tree dirty and is deleted by the clean-up after a stop. Call it by its full path, the base directory of this skill plus `scripts/issue-context.py`; do not change into the skill directory.
 
-Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `PLAN`, `QUESTIONS`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
+Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `QUESTIONS`, `PLAN`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
 
-A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`query`, `assignees`, `pull-requests`, `remote-branches`, `local-branches`, `worktree`, `plan`), the condition could not be evaluated: stop and report rather than treat it as passed. A skipped `account` stops the run only when the issue has assignees and the run is unsupervised, the one case that needs the `ACCOUNT` line.
+A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`query`, `assignees`, `pull-requests`, `remote-branches`, `local-branches`, `worktree`, `plan`), the condition could not be evaluated: stop and report rather than treat it as passed. A skipped `account` always ends the run: without the `ACCOUNT` login a plan comment cannot be attributed (it also shows as `# SKIPPED plan`), and the same login is what an unsupervised run compares the assignees with.
 
 Stop and report, without touching anything, when:
 
@@ -37,13 +37,13 @@ Look before deciding, when:
 
 - a `PR` line is `open` and `mentions`: read it (`gh pr view`). It stops the work only if it implements this issue; a PR that merely names the issue, for instance as out of its scope, does not
 - a `BRANCH` line exists: `git fetch origin`, then list what the branch holds beyond the default branch. For a `remote` line that is `git log --oneline origin/<default>..origin/<branch>`, for a `local` line `git log --oneline origin/<default>..<branch>`; a name printed as both gets both commands, the two can differ. Commits that are not on the default branch are somebody's started work: stop and name the branch. A branch without such commits is left over and does not stop the work; say that it exists, leave it alone, and give the branch of step 2 a slug that differs from it
-- a `PR` line is `merged` or `closed` while the issue is still `open`: read that PR in step 3, the issue may be half done
+- a `PR` line is `merged` or `closed` while the issue is still `open`: read that PR now (`gh pr view`): the issue may be half done, and the plan has to account for it
 
-The labels and the author kind in `ISSUE` are for step 3: a `bot` author means the text was generated, and a label may say that the issue waits for a decision.
+The labels and the author kind in `ISSUE` say how to read the issue text: a `bot` author means it was generated, and a `needs-decision` label means the issue waits for an owner decision, which `QUESTIONS` reports.
 
 **The plan.** The skill implements a plan, it does not make one: deciding what an issue means, what the owner still has to answer and where the cause lies is the `plan-issue` skill's job (agent `work-issue:issue-planner`, on Opus), and its result is a comment on the issue that `PLAN` reports. A plan from a context that also implements has no one to check it, and a planner that runs inside the worker takes the spawn depth the worker needs for its reviewer. Without a `PLAN … current` line there is nothing to implement:
 
-- **With a user present:** invoke `plan-issue` (or spawn `work-issue:issue-planner`). A plan it posts is shown to the user in a few lines, then implemented. Questions are put to the user; the answer is posted as a comment on the issue (an answer given only in the conversation is not seen by the next run), then the planner runs again.
+- **With a user present:** spawn `work-issue:issue-planner`, so that the plan is made by a context that does not implement it, on Opus. A plan it posts is shown to the user in a few lines, then implemented. Questions are put to the user; the answer is posted as a comment on the issue (an answer given only in the conversation is not seen by the next run), then the planner runs again.
 - **Unsupervised:** stop and report "no current plan" (with a `QUESTIONS` line: that the owner's answer is awaited, with the comment link). Whoever started the run spawns the planner and then the worker again; this skill never spawns the planner.
 
 A `PLAN … stale` line is no plan: the issue text was edited or the owner commented after it.
@@ -78,7 +78,7 @@ The plan names a base commit of the default branch. Check that the files under *
 git diff --stat <base sha from PLAN>..origin/<default> -- <files from Changes>
 ```
 
-Any output means the code the plan was made for is gone: **stop**, with the clean-up below, and report that a new plan is needed. The same holds when an open `REF` that the issue waits for appeared after the plan.
+Any output means the code the plan was made for is gone: **stop**, with the clean-up below, and report that a new plan is needed and why (name the files that moved). An open `REF` that the issue says it waits for is a reason to stop as well. Whoever started the run runs the planner again and names this stop in its prompt; the planner checks it itself (`plan-issue`, step 1) and replaces the plan.
 
 Done when you can state in two sentences what will change and how it will be verified, taken from the plan, or have stopped.
 

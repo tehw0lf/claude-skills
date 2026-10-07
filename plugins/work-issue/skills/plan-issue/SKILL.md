@@ -26,8 +26,8 @@ Stop and report, without writing anything, under the same conditions as step 1 o
 
 Then look at `PLAN` and `QUESTIONS`:
 
-- `PLAN … current`: there is nothing to plan. Report the existing plan with its comment link.
-- `QUESTIONS … open`: the owner has not answered yet. Report the questions with the comment link and stop.
+- `PLAN … current`: the plan stands unless it no longer holds. The script does not see the code move, so check it here: `git fetch origin`, then `git diff --stat <base sha from PLAN>..origin/<default> -- <files under Changes of that plan>` (read the plan comment with `gh api repos/<owner/repo>/issues/comments/<comment id> -q .body`). Output, or a prompt that names a stop of the worker (code or cause did not match the plan), means the plan is stale: continue and replace it. Otherwise there is nothing to plan: report the existing plan with its comment link.
+- `QUESTIONS … open`: the owner has not answered yet (an answer is a comment on the issue, or an edit of the issue text). Report the questions with the comment link and stop.
 - `PLAN … stale`, `QUESTIONS … answered` or neither line: continue. A stale plan is replaced by a new comment, the old one stays as history.
 - `# SKIPPED plan`: plan and question comments could not be attributed to the account. Stop and report: a plan from an unknown author must not steer the worker.
 
@@ -50,6 +50,7 @@ A question costs the owner time and delays the work. Whatever the code, the repo
 Fixed rules:
 
 - **A bot issue is a contract on the state it was created on.** A generated issue ("spec update available: v4.1.3") names a state of the outside world at creation time. Plan what it names. What has appeared since (the upstream is already at 4.3.0) is a different issue: say so under **Out of scope** and propose it in the report; the planner opens no issues itself. Planning against the newer state silently changes what the owner agreed to, and the same issue can never be finished while upstream keeps moving. Whether the older target is still worth implementing is a question only when the newer state makes the named target meaningless.
+- **An issue that waits for something open gets no plan.** When the issue says it waits for an open `REF` (another issue or PR), planning it now builds on a state that is about to change: ask whether to wait or proceed, as a question, and do not plan.
 - **The repository's own rules decide.** Validation commands, versioning, branch names and PR texts come from its `CLAUDE.md`, README and workflows, not from a question.
 
 These stay questions: a trade-off between approaches, a change of public behaviour or of a version range, anything the issue lists as "decide whether …", the scope of an issue that collects several changes.
@@ -63,7 +64,7 @@ git fetch origin
 git worktree add --detach <temporary directory>/base origin/<default>   # DEFAULT line; remove it at the end: git worktree remove --force
 ```
 
-Locate the cause with `datei:zeile`, and reproduce a defect (a failing command, a failing test, a real run). Dependencies may be installed and tests run in that tree; nothing is installed in the checkout. When the issue's own diagnosis does not hold in the code, that is the finding: the plan says so, or the owner is asked what is actually wanted.
+Locate the cause with `file:line`, and reproduce a defect (a failing command, a failing test, a real run). Dependencies may be installed and tests run in that tree; nothing is installed in the checkout. When the issue's own diagnosis does not hold in the code, that is the finding: the plan says so, or the owner is asked what is actually wanted.
 
 ### 5. Scope
 
@@ -85,7 +86,7 @@ Post exactly one comment, with `gh issue comment <n> -R <owner/repo> --body-file
   - Version: which manifest is bumped
   - Out of scope: what is deliberately not part of the change
 
-**Questions** start with the line `<!-- work-issue:questions -->`, then `## Decision needed` and numbered questions. Each question names the options, a recommendation and the reason for it; the options and the reasoning of each question go in a `<details>` block, the question itself stays open.
+**Questions** start with the line `<!-- work-issue:questions -->`, then `## Decision needed`, one sentence saying that the answer goes in a comment on this issue, and numbered questions. Each question names the options, a recommendation and the reason for it; the options and the reasoning of each question go in a `<details>` block, the question itself stays open.
 
 Rules for the folded blocks: a blank line after every `<summary>` and before every `</details>`, otherwise GitHub does not render the Markdown inside; no deeper nesting than one level.
 

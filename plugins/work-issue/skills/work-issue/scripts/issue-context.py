@@ -21,6 +21,18 @@ Output, one tab-separated line per fact, in this order:
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
               mentions it
+  QUESTIONS <comment id>  <createdAt>  <open|answered>
+              the newest question comment written by ACCOUNT: its first line is
+              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator,
+              or an edit of the issue text, came after it. Comments whose first line is either marker
+              never count as answers or as owner comments, whoever wrote them: ACCOUNT is usually the
+              owner's own login
+  PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
+              the newest plan comment written by ACCOUNT: its first line is
+              `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
+              (reason issue-edited), a comment by an owner, member or collaborator came after it
+              (owner-comment), or questions were posted after it (newer-questions). Whether the code
+              moved since <base sha> is not checked here: that needs the plan's file list
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
               an issue or pull request of the same repository that the issue's body or comments
               mention as #n outside code spans, in order of first mention
@@ -32,17 +44,6 @@ Output, one tab-separated line per fact, in this order:
               below it; node_modules, dist, build, target, coverage, vendor and hidden directories
               are skipped
   WORKTREE  <clean|dirty>  <current branch or (detached)>
-  PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
-              the newest plan comment written by ACCOUNT: its first line is
-              `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
-              (reason issue-edited), a comment by an owner, member or collaborator came after it
-              (owner-comment), or questions were posted after it (newer-questions). Whether the code
-              moved since <base sha> is not checked here: that needs the plan's file list
-  QUESTIONS <comment id>  <createdAt>  <open|answered>
-              the newest question comment written by ACCOUNT: its first line is
-              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator
-              came after it. Comments that carry either marker never count as answers or as owner
-              comments, whoever wrote them: ACCOUNT is usually the owner's own login
 Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
                                    lines are missing or incomplete, not empty. Sources: query (GitHub
@@ -206,18 +207,22 @@ def print_plan_state(issue, comments, login):
         elif QUESTIONS_MARKER.fullmatch(first.strip()):
             questions = comment
 
+    def is_marker(comment):
+        first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
+        return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first))
+
     def owner_comments_after(since):
         return [
             c
             for c in comments
             if c.get("authorAssociation") in OWNER_ASSOCIATIONS
-            and not PLAN_MARKER.search(c.get("body") or "")
-            and not QUESTIONS_MARKER.search(c.get("body") or "")
+            and not is_marker(c)
             and (c.get("createdAt") or "") > since
         ]
 
     if questions:
-        state = "answered" if owner_comments_after(questions["createdAt"]) else "open"
+        edited = (issue.get("lastEditedAt") or "") > questions["createdAt"]
+        state = "answered" if edited or owner_comments_after(questions["createdAt"]) else "open"
         emit("QUESTIONS", questions["databaseId"], questions["createdAt"], state)
     if plan:
         comment, base = plan
