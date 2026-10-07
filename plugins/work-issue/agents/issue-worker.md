@@ -35,7 +35,7 @@ Post the verdict file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body
 
 - **`blocking`** → stop and report.
 - **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer. If `fix-in-PR` findings remain after the third round, stop and report: a change that does not converge needs a person.
-- **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive. The issue text follows the same rule as a PR text: only what is in the repository's code or the diff.
+- **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive. The reviewer's verdict folds each finding behind a `<summary>` line: write the link there as a bare `#<n>` before `</summary>` (in a summary GitHub renders a bare `#<n>` as a link, shows a Markdown link with its brackets and garbles a full URL; after `</summary>` the link would sit in the folded body). A verdict in the older flat layout gets it at the end of the finding. The issue text follows the same rule as a PR text: only what is in the repository's code or the diff.
 
 **If you cannot spawn that reviewer, do not merge.** The `pr-review` plugin may not be installed, and subagents can spawn their own only down to a configured depth: at the limit the `Agent` tool is withheld — possible whenever another subagent, not the main conversation, started you. Do not substitute a general agent or review the change yourself. Report the open PR, its head SHA and the check state; whoever started you runs the review.
 
