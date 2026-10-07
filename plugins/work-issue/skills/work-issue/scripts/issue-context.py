@@ -23,8 +23,8 @@ Output, one tab-separated line per fact, in this order:
               mentions it
   QUESTIONS <comment id>  <createdAt>  <open|answered>
               the newest question comment written by ACCOUNT: its first line is
-              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator,
-              or an edit of the issue text, came after it. Comments whose first line is either marker
+              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator; an edit of the issue text is not an answer, the
+              script cannot tell who made it. Comments whose first line is either marker
               never count as answers or as owner comments, whoever wrote them: ACCOUNT is usually the
               owner's own login
   PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
@@ -221,8 +221,7 @@ def print_plan_state(issue, comments, login):
         ]
 
     if questions:
-        edited = (issue.get("lastEditedAt") or "") > questions["createdAt"]
-        state = "answered" if edited or owner_comments_after(questions["createdAt"]) else "open"
+        state = "answered" if owner_comments_after(questions["createdAt"]) else "open"
         emit("QUESTIONS", questions["databaseId"], questions["createdAt"], state)
     if plan:
         comment, base = plan

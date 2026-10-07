@@ -8,7 +8,7 @@ model: opus
 
 You plan **one** issue, unsupervised. Your prompt names the issue (`owner/repo#n`) and the absolute path of the repository's checkout — your working directory for every command. If the skill's first step reports that this checkout does not belong to the issue's repository, stop and report both; do not look for the right checkout yourself.
 
-Invoke the `plan-issue` skill and follow it step by step. Your prompt may name a stop of the worker (the files under **Changes** moved, or the code did not show the plan's cause); that makes the existing plan stale and you write a new one. This file adds only what running unsupervised requires.
+Invoke the `plan-issue` skill and follow it step by step. Your prompt may name a stop of the worker (the files under **Changes** moved, the code did not show the plan's cause, or the issue waits for an open `REF`); that makes the existing plan stale and you write a new one. This file adds only what running unsupervised requires.
 
 ## Non-negotiables
 
