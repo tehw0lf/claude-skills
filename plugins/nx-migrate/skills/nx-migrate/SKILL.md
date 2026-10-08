@@ -93,7 +93,7 @@ Sub-packages are bumped the same way. Every `libs/*/package.json` and `apps/*/pa
 <skill directory>/scripts/bump-subpackages.sh    # run in the workspace root, before the commit in step 11
 ```
 
-It prints one line per bumped package (directory, old version, new version), runs one `npm install` after all bumps, and exits non-zero on a failure. "Changed" is measured against `HEAD`: step 1 requires a clean tree and nothing is committed before step 11. A package it already bumped is skipped, so running it twice is safe. Stop and report on a non-zero exit. The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing, so the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Put the printed lines in the PR body. After a bump, re-run validation.
+It prints one line per bumped package (directory, old version, new version), runs one `npm install` after all bumps, and exits non-zero on a failure. "Changed" is measured against `HEAD`: step 1 requires a clean tree and nothing is committed before step 11. A package it already bumped is not bumped again but is reported and synced again, so running it twice is safe. Stop and report on a non-zero exit. The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing, so the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Put the printed lines in the PR body. After a bump, re-run validation.
 
 ### 11. Commit
 
