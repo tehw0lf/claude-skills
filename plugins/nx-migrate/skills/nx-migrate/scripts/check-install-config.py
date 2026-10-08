@@ -33,7 +33,8 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               field that is present but not an object (also null) is printed as one line
   SKIPPED   <source>  <reason>
               a source that could not be read: package.json, .npmrc, npm, npm config ls. Its
-              findings are missing, not empty. The other sources are still checked.
+              findings are missing, not empty. The other sources are still checked. For npm the
+              reason is npm's first `npm error` line, or its whole stderr when it printed none.
 Exit codes: 0 every source was read (with or without finding lines), 1 at least one SKIPPED line,
 2 usage error (no or too many arguments, not a directory). Finding lines do not change the exit code:
 the caller stops on any output line.
@@ -129,7 +130,12 @@ def check_npm_config(directory):
             emit("SKIPPED", "npm", error)
             return False
         if result.returncode != 0:
-            reason = next((l.strip() for l in result.stderr.splitlines() if l.strip()), "exit %d" % result.returncode)
+            # npm may print warnings first (`npm warn using --force ...`): the reason is its first error line
+            reason = (
+                next((l.strip() for l in result.stderr.splitlines() if l.strip().startswith("npm error")), None)
+                or clean(result.stderr)
+                or "exit %d" % result.returncode
+            )
             emit("SKIPPED", "npm", "npm config get %s failed: %s" % (key, reason))
             return False
         values[key] = result.stdout.strip()
