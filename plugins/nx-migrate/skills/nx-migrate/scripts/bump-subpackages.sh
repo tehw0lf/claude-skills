@@ -30,8 +30,10 @@
 #
 # Output on stdout, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
 # Preconditions (exit 1, each with its own message): git, jq and npm on PATH; HEAD resolvable; nx.json
-#   present and non-empty; package.json one valid JSON object with a usable "workspaces" field (array of
-#   strings, or an object with a "packages" array of strings); libs and apps, where they exist, real
+#   present and non-empty; package.json one valid JSON object (its own "version" is not checked) whose "workspaces"
+#   field, if present, is an array of strings or an object with a "packages" array of strings (null, a
+#   string, a boolean or an object without "packages" is rejected; an absent field or [] is accepted on
+#   purpose, because publishable libraries need not be npm workspaces and the scan uses libs/* and apps/*); libs and apps, where they exist, real
 #   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (git, jq or
 #   npm missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
@@ -60,15 +62,20 @@ manifest_version() {
 [ -e nx.json ] && [ ! -f nx.json ] && die "nx.json is not a file"
 [ -f nx.json ] || die "no nx.json in $(pwd): run it in the root of the Nx workspace, not inside a package"
 [ -s nx.json ] || die "nx.json is empty"
-# (a) the root manifest: one valid JSON object, and a usable "workspaces" field.
+# (a) the root manifest: one valid JSON object (its own "version" is not read or checked: the script
+#     never bumps the root), and a usable "workspaces" field when there is one.
 [ -f package.json ] || die "no package.json in $(pwd): run it in the root of the Nx workspace"
-msg=$(manifest_version < package.json) || die "package.json $msg"
-ok=$(jq -r 'if .workspaces == null then true
+msg=$(jq -s -r 'if length == 0 then error("is empty")
+                elif length > 1 then error("holds more than one JSON document")
+                elif (.[0] | type) != "object" then error("is not a JSON object")
+                else "ok" end' package.json 2>&1 | sed 's/^jq: error (at [^)]*): //') && [ "$msg" = ok ] \
+  || die "package.json ${msg:-is invalid}"
+ok=$(jq -r 'if has("workspaces") | not then true
             elif (.workspaces | type) == "array" then all(.workspaces[]; type == "string")
             elif (.workspaces | type) == "object" and (.workspaces.packages | type) == "array"
               then all(.workspaces.packages[]; type == "string")
             else false end' package.json) || die "cannot read the workspaces of package.json"
-[ "$ok" = true ] || die "package.json: workspaces must be an array of strings or an object with a packages array of strings"
+[ "$ok" = true ] || die "package.json: workspaces must be an array of strings or an object with a packages array of strings (null, a string, a boolean or an object without packages is not accepted)"
 # (c) libs and apps, where they exist, are real directories (a symlinked parent would hide every package).
 scanned=0
 for top in libs apps; do
