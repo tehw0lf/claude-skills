@@ -22,7 +22,8 @@ Ecosystems (recognised by file name in <directory>; every one found gets its own
            install  cargo fetch --locked
            re-lock  cargo fetch
   go     go.mod (go.mod is its own lock; go.sum is listed when present)
-           install  go mod download
+           install  go mod download      (NOT lockfile-faithful: it creates or extends go.sum and exits 0, so the
+                    caller compares the lockfiles before and after the install)
            re-lock  go mod tidy          (after `go get <module>@<version>` or a hand edit of go.mod)
 The re-lock command is for a run that itself changes dependencies; it is followed by the install.
 Recognised but not pinned (SKIPPED, "no pinned install for this ecosystem yet"): pnpm-lock.yaml, yarn.lock,
@@ -33,8 +34,8 @@ build.gradle.kts, settings.gradle, settings.gradle.kts.
 Output, one tab-separated line per finding on stdout:
   PIN      <ecosystem>  <lockfiles, comma-separated>  <install command>  <re-lock command>
   ENV      <NAME=value>
-             environment for the install and for validation of the PIN line before it (uv: UV_LOCKED=1,
-             which makes `uv run` fail on a stale uv.lock instead of re-locking it)
+             environment for the install and for validation of the PIN line before it, prefixed to each
+             command (uv: UV_LOCKED=1, which makes `uv run` fail on a stale uv.lock instead of re-locking it)
   SKIPPED  <source>  <reason>
              recognised but not pinned, a manifest without lockfile, more than one lockfile (or a
              `packageManager` that names another manager than the lockfile's: "ambiguous"), or a
