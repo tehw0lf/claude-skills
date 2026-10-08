@@ -92,7 +92,15 @@ When the code does not show what the plan says, **stop**, with the clean-up belo
 
 The smallest change that resolves the issue, in the style of the surrounding code. Everything else you notice (an unrelated defect, a stale comment, a dependency that could move) goes on a list for the report, not into this branch: a PR that does more than its issue cannot be reviewed against it and cannot be reverted alone.
 
-Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps`, `overrides` or `resolutions`: they make the install succeed on a combination no package declared support for, and the lockfile records it. If no released version fits, stop, with the clean-up below, and report the conflicting ranges.
+**Before the first install of a change that touches dependencies** (a dependency field of a `package.json`: `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`; `overrides` or `resolutions`; an `.npmrc`; or the lockfile beyond step 6's version sync), check for a setting that hides conflicts. A conflict that npm never reports cannot trigger the rule below. Check the tree as the change leaves it, so an issue whose change removes such a setting is not stopped by it:
+
+- the repository's `.npmrc` for `legacy-peer-deps` and `force`
+- the root `package.json` and every `package.json` the change edits for `overrides`, `resolutions` and `pnpm.overrides` (for example `jq '{overrides, resolutions, pnpm: .pnpm.overrides}' package.json`)
+- `npm config get legacy-peer-deps` and `npm config get force`, run in the checkout, so that a user-level setting or an `npm_config_*` environment variable is caught too (a `true` value makes `force` print a warning on stderr; the value is on stdout)
+
+On `true` for either value, or any override or resolution entry: **stop**, with the clean-up below, and report where it comes from (the repository's `.npmrc` or `package.json`, or "not part of the repository" when only `npm config get` shows it) and the entries found. Do not work around it with command-line flags. The setting lets the install pass on a combination no package declared compatible, without any message, so validation on that tree proves nothing about it; the repository has to fix the setting in its own change first. An issue whose change does not touch dependencies is not stopped by this check.
+
+Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps` (also not as `force=true` or `legacy-peer-deps=true` in an `.npmrc`), `overrides` or `resolutions`: they make the install succeed on a combination no package declared support for, and the lockfile records it. If no released version fits, stop, with the clean-up below, and report the conflicting ranges.
 
 ### 6. Version
 
