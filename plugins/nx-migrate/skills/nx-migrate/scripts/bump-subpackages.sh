@@ -9,22 +9,24 @@
 # package directory. Untracked build or test output that is not git-ignored therefore counts as a
 # change: ignore such output in .gitignore, or the package gets a (harmless) bump.
 #
-# Bumped:  a package that is in HEAD with a string "version", and is changed.
-# Skipped, each with a "# note" line on stderr (never silent): a symlinked package directory, a package
-#   that is not in HEAD (new or renamed in this run: it has no earlier version), a package whose
-#   HEAD manifest has no "version" (none is added), and workspace globs other than exactly libs/* and apps/* (libs/**, libs/group/*, packages/* ...), and a
-#   directory name containing a tab or newline (it would break the output format).
-# Skipped without a note (the only silent skips): a package without "version" in both HEAD and the
-#   working tree, an unchanged directory under libs/ or apps/ without a package.json (not a package), a plain file
-#   or a dot-directory under libs/ or apps/ (the glob does not match them, as for npm), and an unchanged package.
-# A directory with changes but no usable package.json (deleted, a directory, a dangling symlink) gets a note.
+# Bumped:  a package that is in HEAD with a non-empty string "version", and is changed.
+# Skipped, each with a "# note:" line on stderr: a symlinked package directory; a directory name with a
+#   tab or newline (it would break the output format); a package that is not in HEAD (new or renamed in
+#   this run: no earlier version); a package whose HEAD manifest has no "version" and whose directory
+#   has changes (none is added); a directory with changes but no regular package.json (deleted, a
+#   directory, a symlink); workspace globs other than exactly libs/* and apps/* (libs/**, libs/group/*,
+#   packages/* ...); neither libs/ nor apps/ existing.
+# Skipped silently (the only silent skips, none of them hides a change): an unchanged package (with or
+#   without "version"); an unchanged directory under libs/ or apps/ without a regular package.json (not
+#   a package); a plain file or a dot-directory under libs/ or apps/ (the glob does not match them, as
+#   for npm); a package directory that was deleted (it no longer exists, so it is not scanned).
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
 #   npm install) is safe.
 # No package scripts run: `npm version` and the lockfile sync use --ignore-scripts, so a library's
 #   preversion/version/postversion (or a root install script) cannot act during the migration.
 # Directory names are matched literally (git --literal-pathspecs), never as glob patterns.
-# Versions follow `npm version patch`: 1.2.3 -> 1.2.4, 2.0.0-rc.1 -> 2.0.0 (as for the root bump).
+# Versions follow `npm version patch`: 1.2.3 -> 1.2.4, 2.0.0-rc.1 -> 2.0.0, 1.0.0+build -> 1.0.1 (as for the root bump).
 #
 # Output on stdout, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
 # Preconditions (exit 1, each with its own message): git, jq and npm on PATH; HEAD resolvable; nx.json
@@ -33,7 +35,7 @@
 #   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (git, jq or
 #   npm missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
-#   empty or non-object manifest, non-string "version", npm not changing the version). Nothing is skipped silently on an error.
+#   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string), npm not changing the version). Nothing is skipped silently on an error.
 set -uo pipefail
 
 die() { echo "bump-subpackages: $*" >&2; exit 1; }
@@ -49,7 +51,7 @@ manifest_version() {
   jq -s -r 'if length == 0 then error("is empty")
             elif length > 1 then error("holds more than one JSON document")
             elif (.[0] | type) != "object" then error("is not a JSON object")
-            elif (.[0] | has("version")) and (.[0].version | type) != "string" then error("has a version that is not a string")
+            elif (.[0] | has("version")) and ((.[0].version | type) != "string" or .[0].version == "") then error("has a version that is not a non-empty string")
             else (.[0].version // empty) end' 2>&1 | sed 's/^jq: error (at [^)]*): //'
 }
 
@@ -108,8 +110,8 @@ for dir in libs/*/ apps/*/; do
   head_json=$(git show "HEAD:./$pkg") || die "cannot read HEAD:$pkg"
   head_ver=$(printf '%s' "$head_json" | manifest_version) || die "the committed $pkg ${head_ver:-is invalid}"
 
-  if [ -z "$head_ver" ]; then
-    [ -z "$old" ] || note "$pkg has no version in HEAD, skipped (none is added or bumped)"
+  if [ -z "$head_ver" ]; then   # unversioned in HEAD: nothing to bump, and none is added
+    [ -z "$tracked$untracked" ] || note "$pkg has no version in HEAD and $dir has changes, skipped (none is added or bumped)"
     continue
   fi
   [ -n "$old" ] || die "$pkg lost its version in this run (HEAD has $head_ver)"
