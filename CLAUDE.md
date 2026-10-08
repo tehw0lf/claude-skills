@@ -33,6 +33,7 @@ python3 plugins/work-issue/skills/work-issue/scripts/issue-context.py <n | 'owne
 python3 plugins/work-issue/skills/orchestrate-issue/scripts/run-context.py [owner/repo | 'owner/repo#n']...  # read-only (needs gh auth); prints repositories, required checks, local checkouts and the selected issues
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
 bash plugins/nx-migrate/skills/nx-migrate/scripts/bump-subpackages.sh   # run in an Nx workspace root with a clean tree plus changes: bumps changed libs/* and apps/* packages and runs npm install
+python3 plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py <repo>   # writes nothing itself; runs npm config get/ls (no log, no update check) in <repo>
 ```
 
 `check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
