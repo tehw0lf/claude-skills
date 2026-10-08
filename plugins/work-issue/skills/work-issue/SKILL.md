@@ -92,7 +92,26 @@ When the code does not show what the plan says, **stop**, with the clean-up belo
 
 The smallest change that resolves the issue, in the style of the surrounding code. Everything else you notice (an unrelated defect, a stale comment, a dependency that could move) goes on a list for the report, not into this branch: a PR that does more than its issue cannot be reviewed against it and cannot be reverted alone.
 
-Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps`, `overrides` or `resolutions`: they make the install succeed on a combination no package declared support for, and the lockfile records it. If no released version fits, stop, with the clean-up below, and report the conflicting ranges.
+**Before the first install of a change that touches dependencies**, check the install configuration. The change touches dependencies when the plan has it edit a dependency field of a `package.json` (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`), `overrides`, `resolutions` or `pnpm.overrides`, an `.npmrc` file, or an npm lockfile (`package-lock.json`, `npm-shrinkwrap.json`) beyond step 6's version sync. A change that does not touch dependencies, and a repository without an npm project (for example a Python or Rust one), is not checked, and a missing `npm` is then no reason to stop. The trigger is the intended change, not the edits already made: when npm itself carries the change out (`npm install <pkg>`, `npm update`, `npm audit fix`), run the check before that command, on the tree as it is; for hand edits, make them first and run the check before the first install, so that a change which removes such a setting from the repository is not stopped by that setting.
+
+```bash
+<skill directory>/scripts/check-install-config.py <directory the install runs in>
+```
+
+Call it by its full path, the base directory of this skill plus `scripts/check-install-config.py`; do not change into the skill directory. The argument is the directory the install actually runs in: the root of the npm project, which need not be the checkout root, and for a workspace member the workspace root (the directory whose `package.json` declares `workspaces`). Run it once for each npm project the change installs in. The script prints one line per finding and nothing when the directory is clean; the docstring of the script is the list of what it checks and of the line kinds. **Stop**, with the clean-up below (no commit, nothing written to GitHub), if it prints any line or exits non-zero, and report the lines. The one exception is a call with the wrong argument (see `SKIPPED` below): its output does not count, the call is repeated with the right directory, and only that output decides. Do not work around a finding with command-line flags, and do not edit the setting inside this run's branch unless the plan says to.
+
+The reason: with `legacy-peer-deps` or `force` in effect, npm reports no peer conflict, and an existing override pins a version without a message, so the ban below never gets the chance to fire. The install goes green on a combination no package declared compatible, and validation on that tree proves nothing about it.
+
+What follows from a line:
+
+- `NPMRC`, `OVERRIDE`, or `CONFIG … project`: the setting is the repository's own state when git tracks the file it comes from (`git ls-files --error-unmatch <file>`, for `NPMRC` and `CONFIG … project` the `.npmrc` in the argument directory, for `OVERRIDE` its `package.json`). It is then fixed in the repository's own change first; the issue waits for it. A file that git does not track (an ignored `.npmrc` holding a registry token, for example) is the configuration of whoever runs the skill, like the next bullet: no change to the repository removes it, so it is removed there and the run is repeated.
+- `CONFIG … user`, `global`, `builtin`, `env` or `cli`: the setting is the configuration of the machine or session that runs the skill, not of the repository. Report it; whoever runs the skill removes it there, then the run is repeated.
+- `CONFIG … unknown`: the origin could not be determined. Report it and decide nothing.
+- `SKIPPED`: a value could not be read, which is not a pass: stop and report the line. If the cause is the argument itself, the call was wrong and is repeated instead (see above): a workspace member (`SKIPPED npm` with `ENOWORKSPACES`; its `OVERRIDE` lines do not count either, npm reads overrides from the workspace root only) is repeated with the workspace root, and a directory without a `package.json` (`SKIPPED package.json`) is repeated with the root of the npm project the install runs in. A `SKIPPED` line that remains for the right directory stops the run.
+
+If the script cannot run at all (no `python3`, the file is missing or not executable), the check was not made: that is not a pass either. Stop the same way and report why.
+
+Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps`, `force` or `legacy-peer-deps` set to anything but `false` in an `.npmrc`, or `overrides`, `resolutions` or `pnpm.overrides`: they make the install succeed on a combination no package declared support for, and the lockfile records it. A setting that is already present is caught by the check above; this ban covers what the change itself would add. If no released version fits, stop, with the clean-up below, and report the conflicting ranges.
 
 ### 6. Version
 
