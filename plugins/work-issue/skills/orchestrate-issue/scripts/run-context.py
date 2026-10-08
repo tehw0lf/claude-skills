@@ -34,7 +34,7 @@ Output, one tab-separated line per fact:
               # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
               as `ref`.
               edit: `none` when neither the body nor the title was edited after the label event;
-              `trusted` when every such edit was made by an account with admin, maintain or write;
+              `trusted` when every such edit (at or after the label event, timestamps compared as instants) was made by an account with admin, maintain or write;
               `untrusted` when any was made by someone else or by a deleted account; `-` for a
               reference or when the history could not be read in full (userContentEdits(first: 100)
               plus the `renamed` events; a history longer than 100 is # SKIPPED edits)
@@ -50,6 +50,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 
 TIMEOUT = 60
 EDIT_PAGE = 100
@@ -254,9 +255,33 @@ def role_of(repo, login):
     return _roles[key]
 
 
+def parse_time(value):
+    """A timezone-aware datetime from an ISO 8601 string; ValueError for anything else."""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"missing or non-text timestamp {value!r}")
+    try:
+        moment = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+    except ValueError:
+        raise ValueError(f"unreadable timestamp {value!r}")
+    if moment.tzinfo is None:
+        raise ValueError(f"timestamp without a timezone {value!r}")
+    return moment
+
+
+def login_of(person):
+    """The login of a GraphQL editor or REST actor; None for null (a deleted account), ValueError for a non-object."""
+    if person is None:
+        return None
+    if not isinstance(person, dict):
+        raise ValueError(f"unexpected account entry {person!r}")
+    login = person.get("login")
+    return login if isinstance(login, str) and login else None
+
+
 def editors_after(repo, number, events, since):
-    """Logins (None for a deleted account) of every edit of the body or title made after `since`.
-    Raises ValueError when the history cannot be read in full."""
+    """Logins (None for a deleted or unnamed account) of every edit of the body or title made at or after
+    `since` (a datetime). Raises ValueError when the history cannot be read in full or holds an entry that
+    cannot be interpreted: an unreadable entry is never taken to mean "no edit"."""
     owner, name = repo.split("/", 1)
     out, reason = run([
         "gh", "api", "graphql", "-f",
@@ -267,22 +292,23 @@ def editors_after(repo, number, events, since):
     try:
         history = json.loads(out)["data"]["repository"]["issue"]["userContentEdits"]
         nodes, total = history["nodes"], history["totalCount"]
-        if not isinstance(nodes, list) or not isinstance(total, int):
+        if not isinstance(nodes, list) or not isinstance(total, int) or isinstance(total, bool):
             raise TypeError
     except (TypeError, ValueError, KeyError):
         raise ValueError(reason or "unexpected answer")
     if total > len(nodes):
         raise ValueError(f"only {len(nodes)} of {total} edits were read")
-    found = [(node.get("editedAt"), (node.get("editor") or {}).get("login")) for node in nodes if node]
+    found = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise ValueError(f"unexpected edit entry {node!r}")
+        found.append((parse_time(node.get("editedAt")), login_of(node.get("editor"))))
     # title edits are not part of userContentEdits: the `renamed` events carry them
-    found += [
-        (event.get("created_at"), (event.get("actor") or {}).get("login"))
-        for event in events
-        if event.get("event") == "renamed"
-    ]
-    if any(not when for when, _ in found):
-        raise ValueError("an edit without a timestamp")
-    return [login for when, login in found if when > since]
+    for event in events:
+        if event.get("event") == "renamed":
+            found.append((parse_time(event.get("created_at")), login_of(event.get("actor"))))
+    # >=: an edit in the same second as the label cannot be told from one before it, so it counts
+    return [login for when, login in found if when >= since]
 
 
 def labeler(repo, number, label):
@@ -291,12 +317,22 @@ def labeler(repo, number, label):
     if events is None:
         skipped("labeler", f"{repo}#{number}: {reason}")
         return None, None, None
+    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+        skipped("labeler", f"{repo}#{number}: unexpected answer")
+        return None, None, None
     actor, since = None, None
-    for event in events:
-        if event.get("event") == "labeled" and (event.get("label") or {}).get("name") == label:
-            actor, since = (event.get("actor") or {}).get("login"), event.get("created_at")
+    try:
+        # the newest by time, whatever the order of the answer
+        for event in events:
+            if event.get("event") == "labeled" and (event.get("label") or {}).get("name") == label:
+                when = parse_time(event.get("created_at"))
+                if since is None or when > since:
+                    actor, since = login_of(event.get("actor")), when
+    except (ValueError, AttributeError) as error:
+        skipped("labeler", f"{repo}#{number}: {error}")
+        return None, None, None
     if not actor:
-        skipped("labeler", f"{repo}#{number}: no `labeled` event for {label}")
+        skipped("labeler", f"{repo}#{number}: no usable `labeled` event for {label}")
         return None, None, None
     role, reason = role_of(repo, actor)
     if role is None:
@@ -347,11 +383,21 @@ def main():
         if issues is None:
             skipped("issues", f"{full}: {reason}")
             continue
+        if not isinstance(issues, list):
+            skipped("issues", f"{full}: unexpected answer")
+            continue
         for issue in issues:
+            if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
+                skipped("issues", f"{full}: an entry without an issue number")
+                continue
             if "pull_request" in issue or (full.lower(), issue["number"]) in printed:
                 continue
             printed.add((full.lower(), issue["number"]))
-            actor, role, edit = labeler(full, issue["number"], label)
+            try:
+                actor, role, edit = labeler(full, issue["number"], label)
+            except Exception as error:  # last resort: an unforeseen answer must not end the run mid-output
+                skipped("labeler", f"{full}#{issue['number']}: {type(error).__name__}: {error}")
+                actor = role = edit = None
             emit("ISSUE", f"{full}#{issue['number']}", "label", actor, role, issue.get("created_at"), edit)
 
 
