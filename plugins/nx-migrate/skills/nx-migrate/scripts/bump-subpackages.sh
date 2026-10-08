@@ -14,7 +14,10 @@
 #   that is not in HEAD (new or renamed in this run: it has no earlier version), a package whose
 #   HEAD manifest has no "version" (none is added), and workspace globs other than exactly libs/* and apps/* (libs/**, libs/group/*, packages/* ...), and a
 #   directory name containing a tab or newline (it would break the output format).
-# Skipped without a note: a package without "version" in both HEAD and the working tree.
+# Skipped without a note (the only silent skips): a package without "version" in both HEAD and the
+#   working tree, an unchanged directory under libs/ or apps/ without a package.json (not a package), a plain file
+#   or a dot-directory under libs/ or apps/ (the glob does not match them, as for npm), and an unchanged package.
+# A directory with changes but no usable package.json (deleted, a directory, a dangling symlink) gets a note.
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
 #   npm install) is safe.
@@ -82,12 +85,19 @@ extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages e
 [ -z "$extra" ] || note "workspace globs not scanned (only libs/* and apps/*): $extra"
 
 bumped=0
-for pkg in libs/*/package.json apps/*/package.json; do
-  [ -f "$pkg" ] || continue   # the unmatched glob itself, or a directory without a manifest
-  dir=$(dirname "$pkg")
-  if [ -L "$dir" ] || [ -L "$pkg" ]; then note "$dir is a symlink, skipped"; continue; fi
-
+for dir in libs/*/ apps/*/; do
+  dir=${dir%/}
+  [ -d "$dir" ] || continue   # the unmatched glob itself: not a package directory (the only silent skip)
+  pkg=$dir/package.json
+  if [ -L "$dir" ]; then note "$dir is a symlink, skipped"; continue; fi
   case "$dir" in *$'\t'* | *$'\n'*) note "$dir contains a tab or newline, skipped"; continue;; esac
+  tracked=$(git --literal-pathspecs diff --no-ext-diff --name-only HEAD -- "$dir") || die "git diff failed for $dir"
+  untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$dir") || die "git ls-files failed for $dir"
+  if [ -L "$pkg" ] || [ ! -f "$pkg" ]; then
+    # No usable manifest: deleted, a directory, a dangling symlink, or never there.
+    [ -z "$tracked$untracked" ] || note "$pkg is missing or not a regular file but $dir has changes, skipped"
+    continue   # without changes this is simply not a package
+  fi
   old=$(manifest_version < "$pkg") || die "$pkg ${old:-is invalid}"
 
   # The committed manifest. "HEAD:./path" is relative to the current directory, not to the git root.
@@ -110,8 +120,6 @@ for pkg in libs/*/package.json apps/*/package.json; do
     continue
   fi
 
-  tracked=$(git --literal-pathspecs diff --no-ext-diff --name-only HEAD -- "$dir") || die "git diff failed for $dir"
-  untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$dir") || die "git ls-files failed for $dir"
   [ -n "$tracked$untracked" ] || continue
 
   npm version patch --no-git-tag-version --ignore-scripts --prefix "$dir" >/dev/null || die "npm version failed for $dir"
