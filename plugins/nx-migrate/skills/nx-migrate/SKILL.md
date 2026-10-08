@@ -85,7 +85,25 @@ jq -r '.version // empty' package.json    # non-empty → npm version patch --no
 cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
 ```
 
-CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
+CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field.
+
+Sub-packages are bumped the same way. Every `libs/*/package.json` and `apps/*/package.json` (not under `node_modules`) that has a `version` and anything changed in its directory since the branch left the default branch — tracked or untracked, so changes from steps 5, 6 and 8 all count — gets a patch bump. This runs before the commit in step 11, so the check compares the working tree with the merge base:
+
+```bash
+default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+base=$(git merge-base HEAD "origin/$default")
+for pkg in libs/*/package.json apps/*/package.json; do
+  [ -f "$pkg" ] || continue
+  dir=$(dirname "$pkg")
+  [ -n "$(jq -r '.version // empty' "$pkg")" ] || continue
+  if [ -n "$(git diff --name-only "$base" -- "$dir"; git ls-files --others --exclude-standard -- "$dir")" ]; then
+    npm version patch --no-git-tag-version --prefix "$dir"
+  fi
+done
+npm install    # once, after all bumps, so package-lock.json records the new versions
+```
+
+The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing. So the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Name the bumped sub-packages in the PR body. After a bump, re-run validation.
 
 ### 11. Commit
 
@@ -101,6 +119,7 @@ chore(deps): migrate nx to vX.Y.Z
 - Apply generated migrations
 - Resolve peer dependency conflicts (if any)
 - Sync sub-package dependency versions (if any)
+- Bump patch versions of changed sub-packages (if any)
 - Fix lint/test/build issues (list specific fixes if any)
 ```
 
@@ -113,6 +132,7 @@ gh pr create --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
 
 - Migrated Nx workspace to vX.Y.Z
 - Applied all generated migrations
+- Bumped patch versions of changed sub-packages: <list, or none>
 - All lint, test, and build checks pass
 
 ## Test plan
