@@ -22,26 +22,21 @@ Unrelated problems (a broken Dockerfile, a failing infra scan, a stale CLAUDE.md
 
 ## Independent review
 
-You wrote the change, so you do not get to judge it. Before merging, spawn a **fresh** subagent — not a fork, nothing that shares your context — and brief it neutrally: repository, PR number, local checkout and branch, and that the PR is an Nx migration. Do not pass on your reasoning or conclusions. Tell it to:
+You wrote the change, so you do not get to judge it. Before merging, spawn a **fresh** `pr-review:pr-reviewer` subagent (from the `pr-review` plugin) — not a fork, nothing that shares your context. Its own instructions cover how a review is done; you give it only what it cannot know:
 
-- read the head SHA itself and verify every claim in the PR description first-hand
-- check the full diff and all commits, whether the diff is limited to what is described, existing PR comments, and the CI state
-- look for reasons not to merge
-- stay read-only: no merge, comment, push, commit, branch switch or edit of tracked files
-- classify every finding as `blocking`, `fix-in-PR` (concerns the changed lines, files or the PR description) or `follow-up` (outside the PR's scope)
-- write its verdict to a comment file: heading `## Independent local review`, `Reviewed head: <full sha>`, verdict, what was checked, `Blocking`, `Fix in PR`, `Follow-up`, `Not covered` — empty classes say "none", and nothing from outside the repository's code or diff (no log excerpts, run URLs, local paths)
+- repository, PR number, local checkout, branch, and in one neutral sentence that the PR is an Nx migration — not your reasoning, not your conclusions
+- where to write the verdict file (your scratch or temp directory)
+- from the second round on: that earlier rounds exist as comments on the PR, that it is to state for each earlier finding whether it is resolved, and that it still reviews the current head as a whole
 
-Every reviewer in every round gets this whole briefing and reviews the current head as a whole. A later round is not a resolution check: its reviewer is the only one who sees the fix commits, and its verdict is the one the merge is decided on.
+Only the first review of a PR is spawned with a model: `model: "opus"`. Every later round is spawned without one, so it runs on the reviewer's own default. A later round looks at a head that was reviewed once already except for the commits added since; the split is about cost, not about a smaller review.
 
-Set the reviewer's model on every spawn: `model: "opus"` for the first review of the PR, `model: "sonnet"` for every further review, whatever moved the head. A reviewer spawned without a model inherits yours, which is `sonnet`, so the first round would not run on opus; name the model on every spawn instead of relying on the default. The split is about cost only: a further review looks at a head that was already reviewed once on opus except for the commits added since, so the smaller model does the same full review there.
-
-Post the file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body-file <file>`. The classification is the reviewer's: never reclassify, soften or drop a finding.
+Post the verdict file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body-file <file>`. The classification is the reviewer's: never reclassify, soften or drop a finding.
 
 - **`blocking`** → stop and report.
-- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer (on `sonnet`, with the full briefing above) who is additionally told about the earlier rounds and asked whether each earlier finding is resolved. If `fix-in-PR` findings remain after the second round, stop and report.
-- **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive.
+- **`fix-in-PR`** → fix it, re-run the full validation, push, correct the PR description, then get a new review of the new head from another fresh reviewer. If `fix-in-PR` findings remain after the second round, stop and report.
+- **`follow-up`** → open a GitHub issue for each before merging and append its link to that finding in the posted comment — the only edit the comment may receive. The reviewer's verdict folds each finding behind a `<summary>` line: write the link there as a bare `#<n>` before `</summary>` (in a summary GitHub renders a bare `#<n>` as a link, shows a Markdown link with its brackets and garbles a full URL; after `</summary>` the link would sit in the folded body). A verdict in the older flat layout gets it at the end of the finding. The issue text follows the same rule as a PR text: only what is in the repository's code or the diff.
 
-**If you cannot spawn a reviewer, do not merge.** Subagents can spawn their own only down to a configured depth, and at the limit the `Agent` tool is withheld — possible whenever another subagent, not the main conversation, started you. Report the open PR, its head SHA and the check state; whoever started you runs the review.
+**If you cannot spawn that reviewer, do not merge.** The `pr-review` plugin may not be installed, and subagents can spawn their own only down to a configured depth: at the limit the `Agent` tool is withheld — possible whenever another subagent, not the main conversation, started you. Do not substitute a general agent or review the change yourself. Report the open PR, its head SHA and the check state; whoever started you runs the review.
 
 ## Merging
 
