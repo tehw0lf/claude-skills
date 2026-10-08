@@ -29,14 +29,15 @@ SKILL_KEYS = COMMON | {"when_to_use", "argument-hint", "arguments", "disable-mod
                        "hooks", "paths", "shell", "metadata", "license", "compatibility"}
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "default", "best", "opusplan"}
+# The four patterns below carry no anchors: they are applied with fullmatch, because `$` also matches before a trailing newline.
 # an alias or a full id, optionally with the 1M-context suffix
-MODEL_ID = re.compile(r"^(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?$")
-TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\(.+\))?$")
+MODEL_ID = re.compile(r"(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?")
+TOOL = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(\(.+\))?")
 # MCP globs: a `*` only after a literal, glob-free `mcp__<server>__` prefix. The sub-agents page names
 # only the server-level `mcp__<server>__*` for agent keys; partial globs (`mcp__<server>__get_*`)
 # are documented for permission rules only, so they are accepted in skill keys alone.
-MCP_SERVER_GLOB = re.compile(r"^mcp__[A-Za-z0-9_-]+__\*$")
-MCP_TOOL_GLOB = re.compile(r"^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_*-]+$")
+MCP_SERVER_GLOB = re.compile(r"mcp__[A-Za-z0-9_-]+__\*")
+MCP_TOOL_GLOB = re.compile(r"mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_*-]+")
 DENY_KEYS = ("disallowedTools", "disallowed-tools")
 
 
@@ -108,7 +109,7 @@ def check_tools(key, val, find, whitespace=True):
     deny = key in DENY_KEYS
     mcp_glob = MCP_TOOL_GLOB if whitespace else MCP_SERVER_GLOB  # whitespace=True means a skill key
     for it in items:
-        valid = TOOL.match(it) or mcp_glob.match(it) or (deny and it == "mcp__*")
+        valid = TOOL.fullmatch(it) or mcp_glob.fullmatch(it) or (deny and it == "mcp__*")
         # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
         if not valid and it == "mcp__*":
             find(key, "'mcp__*' is honoured only in a deny key; name the server: mcp__<server>__*")
@@ -151,7 +152,7 @@ def check(path, kind):
         find("name", "must not contain ':'")
     if "model" in fm:
         m = fm["model"]
-        if not isinstance(m, str) or not (m in MODELS or MODEL_ID.match(m)):
+        if not isinstance(m, str) or not (m in MODELS or MODEL_ID.fullmatch(m)):
             find("model", f"unknown model {m!r}")
     if "effort" in fm and not (isinstance(fm["effort"], str) and fm["effort"] in EFFORTS):
         find("effort", f"unknown effort {fm['effort']!r}")
