@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Patch-bump every libs/*/ and apps/*/ package that has a "version" and anything changed in its directory.
-# usage: bump-subpackages.sh   run in the workspace root (a subdirectory of the git root is fine),
-#                              before the migration commit (step 10)
+# usage: bump-subpackages.sh   run in the Nx workspace root (nx.json and package.json there; the root may
+#                              be a subdirectory of the git root), before the migration commit (step 10)
 #
 # Base: HEAD. Step 1 required a clean tree and nothing is committed before step 11, so what differs
 # from HEAD is exactly what the run changed.
@@ -24,6 +24,10 @@
 # Versions follow `npm version patch`: 1.2.3 -> 1.2.4, 2.0.0-rc.1 -> 2.0.0 (as for the root bump).
 #
 # Output on stdout, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
+# Preconditions (exit 1, each with its own message): git, jq and npm on PATH; HEAD resolvable; nx.json
+#   present and non-empty; package.json one valid JSON object with a usable "workspaces" field (array of
+#   strings, or an object with a "packages" array of strings); libs and apps, where they exist, real
+#   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (git, jq or
 #   npm missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
 #   empty or non-object manifest, non-string "version", npm not changing the version). Nothing is skipped silently on an error.
@@ -36,16 +40,6 @@ for tool in git jq npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool not found"
 done
 git rev-parse --verify -q HEAD >/dev/null || die "cannot resolve HEAD (not a git repository, or no commit yet)"
-[ -f package.json ] || die "no package.json in $(pwd): run it in the workspace root"
-
-# Workspace globs the scan does not cover: everything except exactly libs/* and apps/*
-# (a leading ./ and a trailing / are ignored).
-extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else (.packages // []) end)
-               | map(select(type == "string") | sub("^\\./"; "") | sub("/+$"; ""))
-               | map(select((. == "libs/*" or . == "apps/*") | not)) | join(" ")' package.json) \
-  || die "cannot read package.json"
-[ -z "$extra" ] || note "workspace globs not scanned (only libs/* and apps/*): $extra"
-
 # Version of a manifest read from stdin: empty output = no version. Fails (message on stdout) on an
 # empty or whitespace-only file, several documents, a non-object, or a version that is not a string.
 manifest_version() {
@@ -55,6 +49,37 @@ manifest_version() {
             elif (.[0] | has("version")) and (.[0].version | type) != "string" then error("has a version that is not a string")
             else (.[0].version // empty) end' 2>&1 | sed 's/^jq: error (at [^)]*): //'
 }
+
+# Preconditions. Each failure is exit 1 with its own message, before anything is bumped.
+# (b) the workspace root: nx.json (step 1 of the skill requires it) next to package.json.
+[ -e nx.json ] && [ ! -f nx.json ] && die "nx.json is not a file"
+[ -f nx.json ] || die "no nx.json in $(pwd): run it in the root of the Nx workspace, not inside a package"
+[ -s nx.json ] || die "nx.json is empty"
+# (a) the root manifest: one valid JSON object, and a usable "workspaces" field.
+[ -f package.json ] || die "no package.json in $(pwd): run it in the root of the Nx workspace"
+msg=$(manifest_version < package.json) || die "package.json $msg"
+ok=$(jq -r 'if .workspaces == null then true
+            elif (.workspaces | type) == "array" then all(.workspaces[]; type == "string")
+            elif (.workspaces | type) == "object" and (.workspaces.packages | type) == "array"
+              then all(.workspaces.packages[]; type == "string")
+            else false end' package.json) || die "cannot read the workspaces of package.json"
+[ "$ok" = true ] || die "package.json: workspaces must be an array of strings or an object with a packages array of strings"
+# (c) libs and apps, where they exist, are real directories (a symlinked parent would hide every package).
+scanned=0
+for top in libs apps; do
+  if [ -L "$top" ]; then die "$top is a symlink: the scan needs a real directory"; fi
+  if [ -e "$top" ] && [ ! -d "$top" ]; then die "$top exists but is not a directory"; fi
+  [ -d "$top" ] && scanned=1
+done
+[ "$scanned" -eq 1 ] || note "neither libs/ nor apps/ exists in $(pwd): nothing to scan"
+
+# Workspace globs the scan does not cover: everything except exactly libs/* and apps/*
+# (a leading ./ and a trailing / are ignored).
+extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
+               | map(sub("^\\./"; "") | sub("/+$"; ""))
+               | map(select((. == "libs/*" or . == "apps/*") | not)) | join(" ")' package.json) \
+  || die "cannot read the workspaces of package.json"
+[ -z "$extra" ] || note "workspace globs not scanned (only libs/* and apps/*): $extra"
 
 bumped=0
 for pkg in libs/*/package.json apps/*/package.json; do
