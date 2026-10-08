@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report settings that make `npm install` hide peer-dependency conflicts. Reads only, writes nothing.
+"""Report settings that make `npm install` hide peer-dependency conflicts. The script itself writes nothing.
 
 usage: check-install-config.py <directory>
 
@@ -11,16 +11,23 @@ usage: check-install-config.py <directory>
   - <directory>/package.json: `overrides`, `resolutions` and `pnpm.overrides`. npm reads overrides
     from the root package.json only, so no other package.json is looked at
 
+npm is started with --logs-max=0 --no-update-notifier, so it writes no debug log and runs no update
+check; neither option is one of the checked keys, so the reported values do not change.
+
 "Not exactly `false`" is deliberate: npm prints the configured string as written (`1`, `0`, `False`)
 and `true` for a bare key or an empty value; the script does not reproduce npm's own parsing of those
-strings, anything but `false` is reported and the caller stops.
+strings, anything but `false` is reported and the caller stops. That includes an .npmrc value with a
+trailing comment (`false ; note`): it is reported although npm reads it as `false`.
 
 Output, one tab-separated line per finding on stdout, nothing for a clean directory:
   NPMRC     <key>  <value as written, empty for a bare key>  .npmrc
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
               (an environment variable can override it, anyone else installing here gets the file)
-  CONFIG    <key>  <value printed by npm config get>  <project|user|global|env|cli|unknown>
-              the effective value and the origin `npm config ls` names for it (unknown: not found)
+  CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
+              the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
+              user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
+              npm installation; env: npm_config_* variables; cli: a command-line flag;
+              unknown: no uncommented line was found for it)
   OVERRIDE  <overrides|resolutions|pnpm.overrides>  <package or selector, - for a field that is not an object>  <value, compact JSON>
               one line per top-level entry of a non-empty field; an empty object prints nothing; a
               field that is present but not an object (also null) is printed as one line
@@ -38,6 +45,7 @@ import subprocess
 import sys
 
 KEYS = ("legacy-peer-deps", "force")
+NPM_FLAGS = ("--logs-max=0", "--no-update-notifier")
 OVERRIDE_FIELDS = ("overrides", "resolutions")  # pnpm.overrides is handled separately
 
 
@@ -87,7 +95,7 @@ def npm_origins(directory):
     """Maps key -> origin from `npm config ls` (uncommented lines only); None when it failed."""
     try:
         result = subprocess.run(
-            ["npm", "config", "ls"], cwd=directory, capture_output=True, text=True, timeout=120
+            ["npm", "config", "ls", *NPM_FLAGS], cwd=directory, capture_output=True, text=True, timeout=120
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -112,7 +120,7 @@ def check_npm_config(directory):
     for key in KEYS:
         try:
             result = subprocess.run(
-                ["npm", "config", "get", key], cwd=directory, capture_output=True, text=True, timeout=120
+                ["npm", "config", "get", key, *NPM_FLAGS], cwd=directory, capture_output=True, text=True, timeout=120
             )
         except FileNotFoundError:
             emit("SKIPPED", "npm", "not found")

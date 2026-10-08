@@ -16,17 +16,18 @@ Stop unless `nx.json` exists and `git status --short` is empty — ask the user 
 Then check the install configuration, before any branch or install exists:
 
 ```bash
-<skill directory>/scripts/check-install-config.py "$(git rev-parse --show-toplevel)"
+<skill directory>/scripts/check-install-config.py "$PWD"
 ```
 
-Call it by its full path, the base directory of this skill plus `scripts/check-install-config.py`. The script prints one line per finding and nothing when the repository is clean; the docstring of the script is the list of what it checks. **Stop before step 2 (no branch, no install) if it prints any line or exits non-zero**, and report the lines. Do not work around a finding with command-line flags or by editing the setting inside this run's branch.
+Call it by its full path, the base directory of this skill plus `scripts/check-install-config.py`; the argument is the working directory, the one holding `nx.json` and where every `npm install` of this skill runs. The script prints one line per finding and nothing when the repository is clean; the docstring of the script is the list of what it checks. **Stop before step 2 (no branch, no install) if it prints any line or exits non-zero**, and report the lines. Do not work around a finding with command-line flags or by editing the setting inside this run's branch.
 
 The reason: with `legacy-peer-deps` or `force` in effect, `npm install` in step 4 does not report peer conflicts, and an existing override pins a version without a message, so the ban in step 4 never gets the chance to fire. The install goes green on a combination no package declared compatible, and the migration's lockfile records it.
 
 What follows from a line:
 
 - `NPMRC`, `OVERRIDE`, or `CONFIG … project`: the setting is the repository's own state. It is fixed in the repository's own PR first; the migration waits for it.
-- `CONFIG … user`, `global`, `env`, `cli` or `unknown`: the setting is the configuration of whoever runs the skill (or its origin could not be determined). Report it; it is removed there and the run is repeated.
+- `CONFIG … user`, `global`, `builtin`, `env` or `cli`: the setting is the configuration of the machine or session that runs the skill, not of the repository. Report it; whoever runs the skill removes it there, then the run is repeated.
+- `CONFIG … unknown`: the origin could not be determined. Report it and decide nothing.
 - `SKIPPED`: the value could not be read, which is not a pass. Report the line.
 
 Then record the installed version: `node -p "require('./node_modules/nx/package.json').version"`.
