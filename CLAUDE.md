@@ -32,6 +32,7 @@ python3 plugins/inbox/skills/inbox/scripts/collect.py [--owner <login>]         
 python3 plugins/work-issue/skills/work-issue/scripts/issue-context.py <n | 'owner/repo#n'>  # read-only (needs gh auth); run it inside a checkout, the MANIFEST and WORKTREE lines describe the current directory
 python3 plugins/work-issue/skills/orchestrate-issue/scripts/run-context.py [owner/repo | 'owner/repo#n']...  # read-only (needs gh auth); prints repositories, required checks, local checkouts and the selected issues
 node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<version>]
+python3 plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py <repo>   # read-only; runs npm config get/ls in <repo>
 ```
 
 `check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.

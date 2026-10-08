@@ -11,7 +11,25 @@ allowed-tools: Bash, Read, Edit, Write, TodoWrite
 
 ### 1. Pre-flight
 
-Stop unless `nx.json` exists and `git status --short` is empty — ask the user to commit or stash. Record the installed version: `node -p "require('./node_modules/nx/package.json').version"`.
+Stop unless `nx.json` exists and `git status --short` is empty — ask the user to commit or stash.
+
+Then check the install configuration, before any branch or install exists:
+
+```bash
+<skill directory>/scripts/check-install-config.py "$(git rev-parse --show-toplevel)"
+```
+
+Call it by its full path, the base directory of this skill plus `scripts/check-install-config.py`. The script prints one line per finding and nothing when the repository is clean; the docstring of the script is the list of what it checks. **Stop before step 2 (no branch, no install) if it prints any line or exits non-zero**, and report the lines. Do not work around a finding with command-line flags or by editing the setting inside this run's branch.
+
+The reason: with `legacy-peer-deps` or `force` in effect, `npm install` in step 4 does not report peer conflicts, and an existing override pins a version without a message, so the ban in step 4 never gets the chance to fire. The install goes green on a combination no package declared compatible, and the migration's lockfile records it.
+
+What follows from a line:
+
+- `NPMRC`, `OVERRIDE`, or `CONFIG … project`: the setting is the repository's own state. It is fixed in the repository's own PR first; the migration waits for it.
+- `CONFIG … user`, `global`, `env`, `cli` or `unknown`: the setting is the configuration of whoever runs the skill (or its origin could not be determined). Report it; it is removed there and the run is repeated.
+- `SKIPPED`: the value could not be read, which is not a pass. Report the line.
+
+Then record the installed version: `node -p "require('./node_modules/nx/package.json').version"`.
 
 ### 2. Branch
 
@@ -28,6 +46,8 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 ### 4. Install
 
 `npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
+
+A `legacy-peer-deps` or `force` setting or an override that is already present is caught by step 1; this rule covers what the migration itself would add.
 
 **Never `--force`, `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`** — npm's own error message suggests the first two. None of them resolves the conflict: the flags and the `.npmrc` setting make npm install past the peer ranges instead of honouring them, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
 
