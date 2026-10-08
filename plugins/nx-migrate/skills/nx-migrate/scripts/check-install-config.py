@@ -34,7 +34,8 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
   SKIPPED   <source>  <reason>
               a source that could not be read: package.json, .npmrc, npm, npm config ls. Its
               findings are missing, not empty. The other sources are still checked. For npm the
-              reason is npm's first `npm error` line, or its whole stderr when it printed none.
+              reason is npm's first `npm error` line; without one, its whole stderr; with an
+              empty stderr, `exit <code>`.
 Exit codes: 0 every source was read (with or without finding lines), 1 at least one SKIPPED line,
 2 usage error (no or too many arguments, not a directory). Finding lines do not change the exit code:
 the caller stops on any output line.
