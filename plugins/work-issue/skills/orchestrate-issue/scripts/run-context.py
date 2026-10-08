@@ -33,9 +33,11 @@ Output, one tab-separated line per fact:
               for an explicit reference. An issue whose labeler cannot be determined shows `-` and a
               # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
               as `ref`.
-              edit: `none` when neither the body nor the title was edited after the label event,
-              `trusted` when the editor has admin, maintain or write, `untrusted` when not, `-` for
-              a reference or when it could not be determined
+              edit: `none` when neither the body nor the title was edited after the label event;
+              `trusted` when every such edit was made by an account with admin, maintain or write;
+              `untrusted` when any was made by someone else or by a deleted account; `-` for a
+              reference or when the history could not be read in full (userContentEdits(first: 100)
+              plus the `renamed` events; a history longer than 100 is # SKIPPED edits)
 Status lines start with "#":
   # SKIPPED <source>: <reason>   a source that could not be read; its lines are missing, not empty.
                                  Sources: rules, protection, issues, labeler, permission, edits, checkouts
@@ -50,6 +52,7 @@ import subprocess
 import sys
 
 TIMEOUT = 60
+EDIT_PAGE = 100
 DEFAULT_LABEL = "auto-work"
 SKIP_DIRS = {"node_modules", "dist", "build", "target", "coverage", "vendor"}
 
@@ -134,7 +137,7 @@ def parse_args(argv):
                 match = re.fullmatch(r"([\w.-]+/[\w.-]+)=(.+)", value)
                 if not match:
                     die(f"not owner/repo=<path>: {value!r}")
-                given[match.group(1).lower()] = match.group(2)
+                given[match.group(1).lower()] = os.path.abspath(os.path.expanduser(match.group(2)))
             continue
         issue = re.fullmatch(r"([\w.-]+/[\w.-]+)#(\d+)", arg)
         repo = re.fullmatch(r"[\w.-]+/[\w.-]+", arg)
@@ -230,7 +233,7 @@ def print_checkouts(repo, given):
         state, branch = checkout_state(given)
         emit("CHECKOUT", repo, given, "given", state, branch)
         return
-    root = os.environ.get("CODING_ROOT") or os.path.expanduser("~/Nextcloud/Coding")
+    root = os.path.abspath(os.path.expanduser(os.environ.get("CODING_ROOT") or "~/Nextcloud/Coding"))
     candidates = find_checkouts(repo, root)
     if not candidates:
         emit("CHECKOUT", repo, "-", "none", "-", "-")
@@ -251,25 +254,33 @@ def role_of(repo, login):
     return _roles[key]
 
 
-def last_edit(repo, number, events):
-    """(time, editor) of the newest edit of body or title, or (None, None); raises ValueError if unreadable."""
+def editors_after(repo, number, events, since):
+    """Logins (None for a deleted account) of every edit of the body or title made after `since`.
+    Raises ValueError when the history cannot be read in full."""
     owner, name = repo.split("/", 1)
     out, reason = run([
         "gh", "api", "graphql", "-f",
-        "query=query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt editor{login}}}}",
+        "query=query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i)"
+        "{userContentEdits(first: %d){totalCount nodes{editedAt editor{login}}}}}}" % EDIT_PAGE,
         "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}",
     ])
     try:
-        issue = json.loads(out)["data"]["repository"]["issue"]
+        history = json.loads(out)["data"]["repository"]["issue"]["userContentEdits"]
+        nodes, total = history["nodes"], history["totalCount"]
+        if not isinstance(nodes, list) or not isinstance(total, int):
+            raise TypeError
     except (TypeError, ValueError, KeyError):
         raise ValueError(reason or "unexpected answer")
-    edits = []
-    if issue.get("lastEditedAt"):
-        edits.append((issue["lastEditedAt"], (issue.get("editor") or {}).get("login")))
-    for event in events:
-        if event.get("event") == "renamed":
-            edits.append((event.get("created_at"), (event.get("actor") or {}).get("login")))
-    return max(edits, key=lambda edit: edit[0] or "", default=(None, None))
+    if total > len(nodes):
+        raise ValueError(f"only {len(nodes)} of {total} edits were read")
+    found = [(node.get("editedAt") or "", (node.get("editor") or {}).get("login")) for node in nodes if node]
+    # title edits are not part of userContentEdits: the `renamed` events carry them
+    found += [
+        (event.get("created_at") or "", (event.get("actor") or {}).get("login"))
+        for event in events
+        if event.get("event") == "renamed"
+    ]
+    return [login for when, login in found if when > since]
 
 
 def labeler(repo, number, label):
@@ -289,19 +300,21 @@ def labeler(repo, number, label):
     if role is None:
         skipped("permission", f"{repo}#{number}: {actor}: {reason}")
     try:
-        when, editor = last_edit(repo, number, events)
+        editors = editors_after(repo, number, events, since)
     except ValueError as error:
         skipped("edits", f"{repo}#{number}: {error}")
         return actor, role, None
-    if not when or when <= since:
-        return actor, role, "none"
-    if not editor:
-        return actor, role, "untrusted"
-    editor_role, reason = role_of(repo, editor)
-    if editor_role is None:
-        skipped("permission", f"{repo}#{number}: {editor}: {reason}")
-        return actor, role, None
-    return actor, role, "trusted" if editor_role in ("admin", "maintain", "write") else "untrusted"
+    state = "none" if not editors else "trusted"
+    for editor in set(editors):
+        if not editor:
+            return actor, role, "untrusted"
+        editor_role, reason = role_of(repo, editor)
+        if editor_role is None:
+            skipped("permission", f"{repo}#{number}: {editor}: {reason}")
+            return actor, role, None
+        if editor_role not in ("admin", "maintain", "write"):
+            return actor, role, "untrusted"
+    return actor, role, state
 
 
 def main():
