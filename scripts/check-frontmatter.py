@@ -7,7 +7,9 @@
 `name` and `description` non-empty strings, keys against the documented field sets, `model` and
 `effort` against fixed values, and the shape (not the existence) of tool names. Agent tool strings
 (`tools`, `disallowedTools`) are comma-separated only; skill tool strings (`allowed-tools`,
-`disallowed-tools`) are comma- or whitespace-separated.
+`disallowed-tools`) are comma- or whitespace-separated. MCP names and the documented MCP patterns
+are accepted: `mcp__<server>__*` in all tool keys, partial globs such as `mcp__<server>__get_*` in skill
+keys only (permission-rule semantics), `mcp__*` only in the deny keys.
 usage: check-frontmatter.py [<repo-root>]      default: .
 Output: one line per finding, `<path>\t<key or ->\t<message>`. Exit 1 on any finding, 0 on none,
 2 when the root is missing or holds no agent or skill (a check that found nothing must not pass).
@@ -30,6 +32,12 @@ MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "default", "best", "opu
 # an alias or a full id, optionally with the 1M-context suffix
 MODEL_ID = re.compile(r"^(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?$")
 TOOL = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\(.+\))?$")
+# MCP globs: a `*` only after a literal, glob-free `mcp__<server>__` prefix. The sub-agents page names
+# only the server-level `mcp__<server>__*` for agent keys; partial globs (`mcp__<server>__get_*`)
+# are documented for permission rules only, so they are accepted in skill keys alone.
+MCP_SERVER_GLOB = re.compile(r"^mcp__[A-Za-z0-9_-]+__\*$")
+MCP_TOOL_GLOB = re.compile(r"^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_*-]+$")
+DENY_KEYS = ("disallowedTools", "disallowed-tools")
 
 
 class Loader(yaml.SafeLoader):
@@ -97,9 +105,14 @@ def check_tools(key, val, find, whitespace=True):
         items = val
     else:
         return find(key, "must be a string or a list of strings")
+    deny = key in DENY_KEYS
+    mcp_glob = MCP_TOOL_GLOB if whitespace else MCP_SERVER_GLOB  # whitespace=True means a skill key
     for it in items:
+        valid = TOOL.match(it) or mcp_glob.match(it) or (deny and it == "mcp__*")
         # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
-        if not TOOL.match(it) or (not whitespace and len([p for p in split_tools(it) if p]) > 1):
+        if not valid and it == "mcp__*":
+            find(key, "'mcp__*' is honoured only in a deny key; name the server: mcp__<server>__*")
+        elif not valid or (not whitespace and len([p for p in split_tools(it) if p]) > 1):
             find(key, f"invalid tool name {it!r}")
 
 
