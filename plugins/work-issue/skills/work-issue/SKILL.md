@@ -84,6 +84,21 @@ Done when you can state in two sentences what will change and how it will be ver
 
 ### 4. Check the cause
 
+**Install the dependencies the pinned way, before the first command that needs them** (reproducing here, step 6's lockfile sync, validation in step 7). Every run does this once, because steps 6 and 7 need it. The repository's own install command is not used: it may carry a flag that hides a conflict (`npm install --legacy-peer-deps`), and a plain `npm install`, `uv sync` or `cargo build` may rewrite the lockfile. The pinned command is the lockfile-faithful one and fails on what the lockfile does not hold. A script recognises the ecosystem and prints it:
+
+```bash
+<skill directory>/scripts/install-commands.py <directory the install runs in>
+```
+
+Call it by its full path, the base directory of this skill plus `scripts/install-commands.py`; do not change into the skill directory. The argument is the root of one project (for a workspace member the workspace root), once for each project the run installs in. The script reads file names and `package.json` and runs nothing; its docstring is the list of ecosystems, commands and line kinds. What follows from its output:
+
+- `SKIPPED`, or an exit code other than 0: the ecosystem is recognised but has no pinned install, there is no lockfile, there is more than one, or `package.json` cannot be read. **Stop**, with the clean-up below, and report the lines: installing anyway would be a guess. The one exception is a call with the wrong argument (a `no lockfile` for a workspace member): it is repeated with the right directory, and only that output decides.
+- `NONE`: the directory holds no manifest the script knows; this rule installs nothing there. The repository's validation commands in step 7 still run as named.
+- `PIN <ecosystem> <lockfiles> <install> <re-lock>`: run the install command in that directory, with the `ENV` lines after it set in the environment. The `ENV` lines stay set for every later command of steps 4 to 7 in that directory, but not for the re-lock command (`UV_LOCKED=1` makes `uv lock` only check). A failure of the install before any change (`ERESOLVE` from `npm ci`, a stale `uv.lock`) is the repository's own state: **stop**, with the clean-up below, and report the output. Never retry with a flag.
+- A script that cannot run (no `python3`, the file is missing or not executable) means the install was not pinned: stop the same way and report why.
+
+The pinned command may take flags that only choose what is installed from the same lock, because they neither rewrite the lock nor bypass a peer or resolution check: npm `--workspace`, `--include`, `--omit`; uv `--extra`, `--all-extras`, `--group`, `--all-groups`, `--package`. Take them from the repository's install command when the tests need them (an extra the suite imports); drop every other flag of that command. A flag of the repository's install command that was dropped is named in the report and under **Not verified** in the PR: its CI installs on a check this run did not have.
+
 The plan names the cause with `file:line`. Look at that place before changing anything, and reproduce the problem where it can be reproduced (a failing command, a failing test, a real run). For a defect in a repository with a test suite, write the failing test first. A fix whose cause was never seen fixes a symptom, and the next variant of the same defect opens the next issue.
 
 When the code does not show what the plan says, **stop**, with the clean-up below, and report the difference. You never deviate from the plan silently, and you never decide on your own what the plan left open: the fix it describes is then the wrong change, and a new plan has to say what is right. The same holds for a deviation that only shows up while implementing: report it, do not post it as a question on the issue (questions are the planner's).
@@ -111,11 +126,13 @@ What follows from a line:
 
 If the script cannot run at all (no `python3`, the file is missing or not executable), the check was not made: that is not a pass either. Stop the same way and report why.
 
+How a dependency change is installed: after the check above, the `PIN` line of `install-commands.py` (step 4) names the re-lock command, and the install of step 4 follows it. npm: `npm install --package-lock-only --ignore-scripts` after a hand edit of `package.json`; when npm carries the change out, `npm install <pkg>@<range>`, `npm update` or `npm audit fix`, each with `--package-lock-only --ignore-scripts`. uv: `uv lock` (or `uv add` / `uv remove`). Cargo: `cargo fetch` (it keeps existing pins and adds only what is new). Go: `go get <module>@<version>` or a hand edit of `go.mod`, then `go mod tidy`. Reason: the re-lock writes the lockfile and nothing else; with `--ignore-scripts` it also runs none of the root package's `preinstall`, `postinstall` and `prepare`, which a plain `npm install` runs. The install after it is the pinned one, so a conflict the change introduced shows up there. The repository's own install command is not used for this either.
+
 Dependency conflicts are resolved by choosing versions that both sides declare compatible. Never `--force`, `--legacy-peer-deps`, `force` or `legacy-peer-deps` set to anything but `false` in an `.npmrc`, or `overrides`, `resolutions` or `pnpm.overrides`: they make the install succeed on a combination no package declared support for, and the lockfile records it. A setting that is already present is caught by the check above; this ban covers what the change itself would add. If no released version fits, stop, with the clean-up below, and report the conflicting ranges.
 
 ### 6. Version
 
-Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install`, `uv lock`, `cargo update -w`). Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
+Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install --package-lock-only --ignore-scripts`, `uv lock`, `cargo update -w`). The npm sync writes only the lockfile: a plain `npm install` would run lifecycle scripts, and in a pnpm or yarn repository would write a `package-lock.json` next to the real lockfile (the run has stopped before this point in such a repository, see step 4). `npm version` itself runs the root package's `preversion`, `version` and `postversion` scripts. Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
 
 The bump comes before validation so that the tree that is validated is the tree that is pushed. It is not committed here; step 8 commits it separately from the change.
 
@@ -128,16 +145,24 @@ Run the repository's own pre-commit validation: the command its `CLAUDE.md` or R
 | Nx workspace (`nx.json`) | `npx nx run-many -t lint,test,build`, then the e2e target if one exists |
 | Node (`package.json`) | `npm run lint && npm run test && npm run build`, each only if the script exists |
 | Python (`pyproject.toml`) | `uv run ruff check && uv run pytest && uv build` |
-| Go (`go.mod`) | `go mod tidy && go vet ./... && go test ./... && go build ./...` |
+| Go (`go.mod`) | `go mod tidy -diff && go vet ./... && go test ./... && go build ./...` (`go mod tidy` itself would rewrite `go.mod` and `go.sum`; `-diff` needs Go 1.23 or newer, an older Go cannot run it) |
 | Rust (`Cargo.toml`) | `cargo fmt --check && cargo clippy -- -D warnings && cargo test` |
+
+Install commands inside those commands (`npm install`, `npm ci`, `npm update`, `uv sync`, `uv lock`, `pip install`, `cargo fetch`, `cargo update`, `go get`, `go mod download`, `go mod tidy` and the like, also in a `package.json` script that only installs) are not run: the install of step 4 stands for them, because the repository's version of an install may carry a flag that hides a conflict. A line that mixes them (`npm install --legacy-peer-deps && npm test`) is run without the install part, and the flag is named in the report and under **Not verified**. Everything else runs as named, with the `ENV` lines of step 4 set. Build, test and run commands that resolve dependencies on their own (`cargo test`, `uv run`) are run too; the next check catches one that rewrites a lockfile.
+
+Before the first validation command, record the state of the lockfiles that the `PIN` lines name, in the project directory each belongs to; after the last one, record it again and compare. A difference stops the run, with the clean-up below: the validated tree is then not the pinned one, and the report names the lockfile and the command that changed it.
+
+```bash
+for f in <lockfiles of the PIN line, space-separated>; do sha256sum "$f" 2>/dev/null || echo "absent  $f"; done > <temporary directory>/locks.before   # and locks.after; cmp the two
+```
 
 Say which source the commands came from, and that a fallback was used when it was. Each command ends in one of three ways:
 
 - **It exits 0.** That is a pass.
-- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree outside the checkout, so that this one stays as it is: `git worktree add --detach <temporary directory>/base origin/<default>`, install and run there, then `git worktree remove --force <temporary directory>/base`. Not `git stash` and not `git switch`: both change the tree that is being validated.
+- **It fails.** Fix the cause and run the whole validation again. When the same failure is still there after the third attempt, or the failure also happens on the untouched default branch, stop without a PR, with the clean-up below; report the command, its output and what you tried. Never open a PR on a red validation. To see whether the default branch fails the same way, run the command in a separate working tree outside the checkout, so that this one stays as it is: `git worktree add --detach <temporary directory>/base origin/<default>`, install (step 4: `install-commands.py` on the directory in that working tree, then its `PIN` install with the `ENV` lines) and run there, then `git worktree remove --force <temporary directory>/base`. Not `git stash` and not `git switch`: both change the tree that is being validated.
 - **It cannot run** (a missing tool, a missing service, no browser for an e2e suite). That is not a pass and not a failure of the change. The PR may be opened, with the command and the reason under **Not verified**; say so in the report as well. Whoever merges decides what that is worth, and the `issue-worker` agent does not merge such a PR.
 
-For a defect, show that the new test fails without the fix. Use the same kind of separate working tree as above, which holds the code of `origin/<default>` without the fix: copy the new or changed test files into it, install, run that test there and see it fail, then remove the working tree. Do not produce the pre-fix state inside the checkout, neither with `git stash` nor by overwriting the fixed files with their old versions: until step 8 commits, the working tree is the only copy of the fix.
+For a defect, show that the new test fails without the fix. Use the same kind of separate working tree as above, which holds the code of `origin/<default>` without the fix: copy the new or changed test files into it, install the same pinned way, run that test there and see it fail, then remove the working tree. Do not produce the pre-fix state inside the checkout, neither with `git stash` nor by overwriting the fixed files with their old versions: until step 8 commits, the working tree is the only copy of the fix.
 
 Done when every validation command either exited 0 on the tree that will be pushed or is recorded as not runnable. Any change after that, including a fix from a review, means running the validation again before the push.
 
