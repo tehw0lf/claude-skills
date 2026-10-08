@@ -4,6 +4,7 @@
 #
 # "Changed" = tracked diff against HEAD or an untracked, non-ignored file; step 1 required a clean tree
 # and nothing is committed before step 11, so this is exactly what the run changed.
+# A package whose "version" already differs from HEAD is skipped, so a second run does not bump again.
 # A package without "version" is left alone (none is added). Runs one `npm install` after all bumps.
 # Output, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
 # Exits non-zero when HEAD cannot be resolved, the root package.json is missing, or a command fails.
@@ -18,6 +19,8 @@ for pkg in libs/*/package.json apps/*/package.json; do
   dir=$(dirname "$pkg")
   old=$(jq -r '.version // empty' "$pkg") || { echo "bump-subpackages: cannot read $pkg" >&2; exit 1; }
   [ -n "$old" ] || continue
+  # Already bumped by an earlier run: the working-tree version differs from the committed one.
+  [ "$old" = "$(git show "HEAD:$pkg" 2>/dev/null | jq -r '.version // empty')" ] || continue
   tracked=$(git diff --name-only HEAD -- "$dir") || { echo "bump-subpackages: git diff failed for $dir" >&2; exit 1; }
   untracked=$(git ls-files --others --exclude-standard -- "$dir") || { echo "bump-subpackages: git ls-files failed for $dir" >&2; exit 1; }
   [ -n "$tracked$untracked" ] || continue
