@@ -87,7 +87,7 @@ cat VERSION 2>/dev/null                   # only if package.json has none: bump 
 
 CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field.
 
-Sub-packages are bumped the same way. Every `libs/*/package.json` and `apps/*/package.json` that has a `version` and anything changed in its directory (tracked or untracked, so changes from steps 5, 6 and 8 all count) gets a patch bump:
+Sub-packages are bumped the same way. Every `libs/*/package.json` and `apps/*/package.json` that already exists on the base commit, has a `version` and anything changed in its directory (tracked or untracked, so changes from steps 5, 6 and 8 all count) gets a patch bump. A package the run created is left alone, since it has no earlier version to move on from:
 
 ```bash
 <skill directory>/scripts/bump-subpackages.sh    # run in the workspace root, before the commit in step 11

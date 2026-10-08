@@ -5,6 +5,7 @@
 # "Changed" = tracked diff against HEAD or an untracked, non-ignored file; step 1 required a clean tree
 # and nothing is committed before step 11, so this is exactly what the run changed.
 # A package whose "version" already differs from HEAD is not bumped again but is reported again and the lockfile is synced again, so a second run (for example after a failed npm install) is safe.
+# A package that is not in HEAD yet (new in this run) is left alone: it has no earlier version to bump.
 # A package without "version" is left alone (none is added). Runs one `npm install` after all bumps.
 # Output, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
 # Exits non-zero when HEAD cannot be resolved, the root package.json is missing, or a command fails.
@@ -19,6 +20,8 @@ for pkg in libs/*/package.json apps/*/package.json; do
   dir=$(dirname "$pkg")
   old=$(jq -r '.version // empty' "$pkg") || { echo "bump-subpackages: cannot read $pkg" >&2; exit 1; }
   [ -n "$old" ] || continue
+  # A package that is new in the working tree has no released version to move on from: leave it alone.
+  git cat-file -e "HEAD:$pkg" 2>/dev/null || continue
   # Already bumped by an earlier run: the working-tree version differs from the committed one.
   # Report it again and count it, so the lockfile sync below still runs after a failed first run.
   head_ver=$(git show "HEAD:$pkg" 2>/dev/null | jq -r '.version // empty')
