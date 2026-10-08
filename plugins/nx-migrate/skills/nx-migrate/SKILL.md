@@ -106,7 +106,23 @@ jq -r '.version // empty' package.json    # non-empty → npm version patch --no
 cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
 ```
 
-CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field. After a bump, re-run validation.
+CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field.
+
+Sub-packages are bumped the same way. Every package under `libs/*` and `apps/*` that already exists on the base commit, has a `version` and anything changed in its directory (so changes from steps 5, 6 and 8 all count) gets a patch bump. A package the run created is left alone, since it has no earlier version to move on from:
+
+```bash
+<skill directory>/scripts/bump-subpackages.sh    # run in the workspace root, before the commit in step 11
+```
+
+It prints one line per bumped package (directory, old version, new version) on stdout, runs one `npm install --ignore-scripts` after all bumps, and reports everything else on stderr or by its exit status:
+
+- **Bumped:** a package that is in `HEAD` with a non-empty string `version` and has changes in its directory: a tracked difference from `HEAD` (staged or not) or an untracked file that is not git-ignored. Build or test output that is not ignored therefore also counts, which at worst gives a harmless bump. Versions follow `npm version patch` (`2.0.0-rc.1` becomes `2.0.0`, `1.0.0+build` becomes `1.0.1`), as for the root bump. No package scripts run (`--ignore-scripts`), so a library's `preversion`/`postversion` cannot act during the migration.
+- **Already bumped** (the version differs from `HEAD`): not bumped again, but printed again and the lockfile is synced again, so running it twice, or rerunning after a failed `npm install`, is safe.
+- **Skipped with a `# note:` line:** a symlinked package directory; a directory name with a tab or newline; a package that is not in `HEAD` (new or renamed in this run); a package without a `version` in `HEAD` whose directory has changes (none is added); a directory with changes but no regular `package.json` (deleted, a directory, a symlink); workspace globs other than exactly `libs/*` and `apps/*` (nested packages are not covered); no `libs/` and no `apps/` at all.
+- **Skipped silently**, because nothing is hidden: an unchanged package, with or without a `version`; an unchanged directory without a `package.json`; a plain file or dot-directory under `libs/` or `apps/`; a package directory that was deleted.
+- **Exit 1 with a message** (stop and report): a missing `git`, `jq` or `npm`; `HEAD` unresolvable; no `nx.json` (the script must run in the Nx workspace root, not inside a package), or an empty or non-file one; a root `package.json` that is not one valid JSON object (its own `version` is not checked: the script never bumps the root), or whose `workspaces` field, if present, is not an array of strings or an object with a `packages` array of strings (`null`, a string, a boolean and an object without `packages` are rejected; a missing field or `[]` is accepted on purpose, because publishable libraries need not be npm workspaces); `libs` or `apps` as a symlink or a file; an empty, multi-document, non-object or invalid manifest in `HEAD` or in the working tree; a `version` that is not a non-empty string; a version removed in this run; `npm version` failing or not changing the version; a failing `npm install`.
+
+"Changed" is measured against `HEAD` because step 1 requires a clean tree and nothing is committed before step 11. The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing, so the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Put the printed lines and the notes in the PR body. After a bump, re-run validation.
 
 ### 11. Commit
 
@@ -122,6 +138,7 @@ chore(deps): migrate nx to vX.Y.Z
 - Apply generated migrations
 - Resolve peer dependency conflicts (if any)
 - Sync sub-package dependency versions (if any)
+- Bump patch versions of changed sub-packages (if any)
 - Fix lint/test/build issues (list specific fixes if any)
 ```
 
@@ -134,6 +151,7 @@ gh pr create --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
 
 - Migrated Nx workspace to vX.Y.Z
 - Applied all generated migrations
+- Bumped patch versions of changed sub-packages: <list, or none>
 - All lint, test, and build checks pass
 
 ## Test plan
