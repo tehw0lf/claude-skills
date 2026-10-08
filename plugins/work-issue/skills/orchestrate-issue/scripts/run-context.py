@@ -273,13 +273,15 @@ def editors_after(repo, number, events, since):
         raise ValueError(reason or "unexpected answer")
     if total > len(nodes):
         raise ValueError(f"only {len(nodes)} of {total} edits were read")
-    found = [(node.get("editedAt") or "", (node.get("editor") or {}).get("login")) for node in nodes if node]
+    found = [(node.get("editedAt"), (node.get("editor") or {}).get("login")) for node in nodes if node]
     # title edits are not part of userContentEdits: the `renamed` events carry them
     found += [
-        (event.get("created_at") or "", (event.get("actor") or {}).get("login"))
+        (event.get("created_at"), (event.get("actor") or {}).get("login"))
         for event in events
         if event.get("event") == "renamed"
     ]
+    if any(not when for when, _ in found):
+        raise ValueError("an edit without a timestamp")
     return [login for when, login in found if when > since]
 
 
