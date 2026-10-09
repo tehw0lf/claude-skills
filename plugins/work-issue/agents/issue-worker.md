@@ -68,9 +68,9 @@ It prints the latest verdict of this account (`VERDICT`, with the head it review
 - exit code other than 0 or a `SKIPPED` line → report, no merge: a source that could not be read leaves the condition unverified
 - the `VERDICT` head differs from the reviewed SHA → report, no merge
 - `BOT` lines → they were never read by a reviewer. Get a further review round as in "Independent review": a fresh reviewer without a model override, told about the earlier rounds and that automated-review activity appeared after the previous verdict, so that it verifies each of those findings first-hand. The round counts toward the limit above. Afterwards check all merge conditions again for the new verdict, including this script. If `BOT` lines appear again after a round that was triggered on the same, unchanged head, report and do not merge: nothing should keep writing without a new push, so a repeat is an unbounded loop
-- no `BOT` line, but the verdict's `Not covered` names an automated review as still running → report, no merge: the review never delivered, its findings are unknown
+- no `BOT` line, but the verdict's `Not covered` names an automated review as still running → report, no merge: no reviewer read its result. Either it never delivered, or it delivered after the reviewer's last read and before the verdict was posted; its findings are unknown either way
 
-A bot can still write in the seconds between this script and the merge; `--match-head-commit` covers the head only, so that window stays open.
+Two windows stay open. The script counts from the moment the verdict was posted, while the reviewer read the three places earlier, just before writing it: a bot entry in between is read by nobody and not listed, and only the verdict's `Not covered` can catch it. And a bot can write in the seconds between this script and the merge; `--match-head-commit` covers the head only.
 
 Then, as one plain command — not in a loop or a compound command:
 

@@ -14,7 +14,9 @@ stale. The cost is that a bot comment which is not a review, posted after the ve
 verdict's `created_at`. `updated_at` is needed because an automated reviewer posts a placeholder comment
 and edits it when its review is done, so the creation time alone misses the finished review. "At or
 after" because equal timestamps cannot be ordered and one round too many costs less than a missed
-review. The three places are read through the API: `gh pr view --comments`, run non-interactively,
+review. The reference time is when the verdict was posted, not when the reviewer last read the three
+places (just before writing it): a bot entry in between is neither read by the reviewer nor listed here;
+only the verdict's `Not covered` can catch it. The three places are read through the API: `gh pr view --comments`, run non-interactively,
 leaves out minimized comments without saying so.
 
 Output, one tab-separated line per fact on stdout:
