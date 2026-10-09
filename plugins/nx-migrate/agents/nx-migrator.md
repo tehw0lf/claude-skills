@@ -46,6 +46,7 @@ Merge only when all hold:
 - every required CI check has concluded **green** — not pending, not "failed but probably unrelated"
 - the PR has no merge conflicts
 - lint, test, build, and e2e (where targets exist) passed locally
+- no automated reviewer wrote anything at or after the latest verdict, and that verdict's `Not covered` names no automated review as still running (checked as described below)
 
 **If any check is red, stop and report — do not merge.** Judging a failure "unrelated" is not your call: a scan can go red from a vulnerability-database refresh, and only a human decides to merge past that. Report the failing check, a log excerpt, and your reading of the cause.
 
@@ -53,6 +54,21 @@ Merge only when all hold:
 gh pr checks <PR> --watch    # then confirm with: gh pr checks <PR>
 gh pr view <PR> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
+
+Then check what automated reviewers wrote after the verdict. This is the last check before the merge, after the checks are green: `--watch` has waited for the bot's pending check, so a review that was still running is finished and posted by now. `<skill directory>` is the `nx-migrate` skill directory shown when the skill was invoked.
+
+```bash
+<skill directory>/scripts/bot-activity.py <owner>/<repo> <PR>
+```
+
+It prints the latest verdict of this account (`VERDICT`, with the head it reviewed), the current head (`HEAD`) and one `BOT` line for each entry of an account of type `Bot` that was created or edited at or after the verdict (an automated reviewer edits its placeholder comment when it finishes, hence edits count). Any bot counts, not a list of names, so a bot comment that is not a review also triggers a round; do not argue that away. Act on the result:
+
+- exit code other than 0 or a `SKIPPED` line → report, no merge: a source that could not be read leaves the condition unverified
+- the `VERDICT` head differs from the reviewed SHA → report, no merge
+- `BOT` lines → they were never read by a reviewer. Get a further review round as in "Independent review": a fresh reviewer without a model override, told about the earlier rounds and that automated-review activity appeared after the previous verdict, so that it verifies each of those findings first-hand. The round counts toward the limit above. Afterwards check all merge conditions again for the new verdict, including this script. If `BOT` lines appear again after a round that was triggered on the same, unchanged head, report and do not merge: nothing should keep writing without a new push, so a repeat is an unbounded loop
+- no `BOT` line, but the verdict's `Not covered` names an automated review as still running → report, no merge: no reviewer read its result. Either it never delivered, or it delivered after the reviewer's last read and before the verdict was posted; its findings are unknown either way
+
+Two windows stay open. The script counts from the moment the verdict was posted, while the reviewer read the three places earlier, just before writing it: a bot entry in between is read by nobody and not listed, and only the verdict's `Not covered` can catch it. And a bot can write in the seconds between this script and the merge; `--match-head-commit` covers the head only.
 
 Then, as one plain command — not in a loop or a compound command:
 
@@ -70,5 +86,6 @@ Your final message is the only thing the user sees. Include:
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
 - validation results with real numbers (tests passed/total, lint errors)
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
-- whether the PR was merged, or what blocked it (a finding, a check, no reviewer)
+- whether the PR was merged, or what blocked it (a finding, a check, no reviewer, automated-review activity after the verdict)
+- whether automated-review activity after a verdict triggered a further round or a stop
 - anything out of scope you noticed and left alone
