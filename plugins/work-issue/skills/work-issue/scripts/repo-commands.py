@@ -16,7 +16,8 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
   CALLER   <workflow file> <job> <dir> <tool>
              a job whose `uses:` is tehw0lf/workflows/.github/workflows/build-test-publish.yml@<ref>.
              <tool> is "none" when the input is absent and "unknown" when it cannot be read as a plain
-             value (a SKIPPED line follows): CI may run commands for it, the file has to be read.
+             value (a SKIPPED line follows): CI may run commands for it, the file has to be read. <dir> is
+             "unknown" when root_dir cannot be read; no CI line is printed for such a caller.
   CI       <dir> <kind> <command> <workflow file>
              the command CI runs for that kind, composed as test-and-build.yml of tehw0lf/workflows does
              (see below), in CI's order. kind: install, format, lint, test, e2e, build. build is the
@@ -27,7 +28,8 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
              needs one that is missing is "cannot run".
   SCRIPT   <dir> <invocation> <body>
              a script of package.json (invocation `npm run x`, `yarn x`, `pnpm run x` or `bun run x`,
-             the manager taken from the lockfile, else `packageManager`, else npm) or of composer.json
+             the manager taken from the lockfile, else `packageManager`, else npm; `<manager unknown>`
+             for two lockfiles) or of composer.json
              (`composer run-script x`). <body> is the script text on one line.
   MAKE     <dir> <invocation>
              a Makefile target (`make test`), special targets starting with "." left out.
@@ -241,6 +243,8 @@ class Caller:
 
 def ci_lines(c, d):
     tool = c.get("tool", "none")
+    if c.flag("enable_lua", False):  # gated on enable_lua alone in CI, not on tool
+        emit("TOOLCHAIN", d, "lua %s" % (c.get("lua_version", "5.4.8") or "5.4.8"), c.rel)
     if tool is None or tool in ("", "none"):
         return
     ci = []
@@ -275,8 +279,6 @@ def ci_lines(c, d):
     for kind, cmd in ci:
         emit("CI", d, kind, cmd, c.rel)
     # toolchains
-    if c.flag("enable_lua", False):
-        emit("TOOLCHAIN", d, "lua %s" % (c.get("lua_version", "5.4.8") or "5.4.8"), c.rel)
     if tool in ("./gradlew", "mvn"):
         emit("TOOLCHAIN", d, "jdk %s" % (c.get("java_version", "25") or "25"), c.rel)
     elif tool == "go":
@@ -352,7 +354,7 @@ def project(root, d):
             try:
                 scripts = json.loads(text).get("scripts") or {}
                 if isinstance(scripts, dict):
-                    run = RUN.get(mgr, RUN["npm"])
+                    run = RUN.get(mgr, "<manager unknown> {}")  # ambiguous: the docs and CI decide
                     for name, body in scripts.items():
                         emit("SCRIPT", d, run.format(name), body)
             except (ValueError, AttributeError):
@@ -445,7 +447,11 @@ def main(argv):
         for job, inputs in callers:
             c = Caller(rel, job, inputs, root)
             rd = c.get("root_dir", ".")
-            d = safe_dir(root, rd) if rd is not None else "."  # unreadable root_dir: the checkout root
+            if rd is None:  # unreadable root_dir: the directory is unknown, so no command is printed
+                tool = c.get("tool", "none")
+                emit("CALLER", rel, job, "unknown", "unknown" if tool is None else (tool or "none"))
+                continue
+            d = safe_dir(root, rd)
             if d is None:
                 skipped("%s:%s" % (rel, job), "root_dir %s is outside the checkout" % rd)
                 continue
