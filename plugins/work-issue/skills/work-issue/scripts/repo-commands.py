@@ -15,7 +15,8 @@ Directories covered: the checkout root and the `root_dir` of every caller. Outpu
 per fact on stdout (<dir> is relative to the checkout root, "." for the root):
   CALLER   <workflow file> <job> <dir> <tool>
              a job whose `uses:` is tehw0lf/workflows/.github/workflows/build-test-publish.yml@<ref>.
-             <tool> is "none" when the input is absent.
+             <tool> is "none" when the input is absent and "unknown" when it cannot be read as a plain
+             value (a SKIPPED line follows): CI may run commands for it, the file has to be read.
   CI       <dir> <kind> <command> <workflow file>
              the command CI runs for that kind, composed as test-and-build.yml of tehw0lf/workflows does
              (see below), in CI's order. kind: install, format, lint, test, e2e, build. build is the
@@ -43,19 +44,19 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
   FALLBACK <dir> <kind> <command>
              the usual command of the ecosystem, for a kind no other source names. Rows:
                npm   install `npm ci` (package-lock.json or npm-shrinkwrap.json present) else `npm install`
-               yarn  `yarn install`        pnpm  `pnpm install`        bun  `bun install`
-               nx    `npx nx run-many -t lint,test,build` (kind validate), plus `npx nx run-many -t e2e`
-                     (kind e2e) when an e2e target is declared
+               yarn  `yarn install`        pnpm  `pnpm install`
+               nx    `npx nx run-many -t lint` / `-t test` / `-t build`, plus `-t e2e` when an e2e target
+                     is declared
                uv    `uv sync` / `uv run ruff check` / `uv run pytest` / `uv build`
                cargo `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test` / `cargo build`
                go    `go vet ./...` / `go test ./...` / `go build ./...`
-               gradle `./gradlew build` (wrapper) or `gradle build`, kind build
-               maven  `./mvnw verify` (wrapper) or `mvn verify`, kind build
-               composer `composer install`
-             Poetry, PDM, Pipenv, requirements-only and plain pyproject projects have no row: their
-             commands come from the sources above.
+               gradle `./gradlew build` (wrapper only), kind build
+             Only rows that were run against the real tool are listed. bun, Maven, Composer, Gradle
+             without a wrapper, Poetry, PDM, Pipenv, requirements-only and plain pyproject projects have
+             no row: their commands come from the sources above.
   SKIPPED  <source> <reason>
              an input that is not a plain scalar (a `${{ }}` expression, a block or multi-line scalar), a
+             `with:` that is not a block mapping (a flow mapping), a
              root_dir outside the checkout, or a file that cannot be read. The skill reads that file
              itself. Not a stop.
 
@@ -181,7 +182,7 @@ def parse_callers(rel, text):
     lines = text.splitlines()
     callers = []
     for i, line in enumerate(lines):
-        if line.rstrip() == "jobs:":
+        if re.match(r"jobs:\s*(#.*)?$", line):
             for job, _raw, _deeper, jidx in children(lines, i, 0):
                 props = children(lines, jidx, indent_of(lines[jidx]))
                 d = {k: (raw, deeper, idx) for k, raw, deeper, idx in props}
@@ -191,7 +192,9 @@ def parse_callers(rel, text):
                 if kind != "scalar" or not BTP.match(val):
                     continue
                 inputs = {}
-                if "with" in d:
+                if "with" in d and d["with"][0].strip() and not d["with"][0].strip().startswith("#"):
+                    inputs = None
+                elif "with" in d:
                     for k, raw, deeper, _ in children(lines, d["with"][2], indent_of(lines[d["with"][2]])):
                         inputs[k] = parse_value(raw, deeper)
                 callers.append((job, inputs))
@@ -215,12 +218,18 @@ class Caller:
         self.bad = set()
 
     def get(self, name, default=""):
+        if self.inputs is None:  # `with:` is not a block mapping (flow mapping, alias)
+            if "with" not in self.bad:
+                self.bad.add("with")
+                skipped("%s:%s" % (self.rel, self.job), "`with:` is not a block mapping, read the file")
+            return None
         kind, val = self.inputs.get(name, ("scalar", default))
         if kind == "scalar":
             return val
-        self.bad.add(name)
-        skipped("%s:%s" % (self.rel, self.job),
-                "input %s is %s, read the file" % (name, "an expression" if kind == "expr" else "not a plain scalar"))
+        if name not in self.bad:
+            self.bad.add(name)
+            skipped("%s:%s" % (self.rel, self.job),
+                    "input %s is %s, read the file" % (name, "an expression" if kind == "expr" else "not a plain scalar"))
         return None
 
     def flag(self, name, default):
@@ -335,7 +344,7 @@ def project(root, d):
         fb = []
         if mgr == "npm":
             fb = [("install", "npm ci" if {"package-lock.json", "npm-shrinkwrap.json"} & files else "npm install")]
-        elif mgr in RUN:
+        elif mgr in ("yarn", "pnpm"):
             fb = [("install", "%s install" % mgr)]
         line(mgr, "package.json", ",".join(locks), fb)
         text = read(os.path.join(path, "package.json"))
@@ -349,7 +358,7 @@ def project(root, d):
             except (ValueError, AttributeError):
                 skipped(os.path.join(d, "package.json"), "is not valid JSON")
         if "nx.json" in files:
-            fb = [("validate", "npx nx run-many -t lint,test,build")]
+            fb = [(k, "npx nx run-many -t %s" % k) for k in ("lint", "test", "build")]
             if has_e2e_target(path):
                 fb.append(("e2e", "npx nx run-many -t e2e"))
             line("nx", "nx.json", "", fb)
@@ -383,13 +392,12 @@ def project(root, d):
     if gradle:
         wrapper = "gradlew" in files
         line("gradle", ",".join(gradle), "gradlew" if wrapper else "",
-             [("build", "./gradlew build" if wrapper else "gradle build")])
+             [("build", "./gradlew build")] if wrapper else [])
     if "pom.xml" in files:
         wrapper = "mvnw" in files
-        line("maven", "pom.xml", "mvnw" if wrapper else "", [("build", "./mvnw verify" if wrapper else "mvn verify")])
+        line("maven", "pom.xml", "mvnw" if wrapper else "")
     if "composer.json" in files:
-        line("composer", "composer.json", "composer.lock" if "composer.lock" in files else "",
-             [("install", "composer install")])
+        line("composer", "composer.json", "composer.lock" if "composer.lock" in files else "")
         text = read(os.path.join(path, "composer.json"))
         if text is not None:
             try:
@@ -437,15 +445,12 @@ def main(argv):
         for job, inputs in callers:
             c = Caller(rel, job, inputs, root)
             rd = c.get("root_dir", ".")
-            d = safe_dir(root, rd) if rd is not None else None
-            if rd is not None and d is None:
-                skipped("%s:%s" % (rel, job), "root_dir %s is outside the checkout" % rd)
+            d = safe_dir(root, rd) if rd is not None else "."  # unreadable root_dir: the checkout root
             if d is None:
-                if rd is None:
-                    continue
+                skipped("%s:%s" % (rel, job), "root_dir %s is outside the checkout" % rd)
                 continue
             tool = c.get("tool", "none")
-            emit("CALLER", rel, job, d, tool if tool else "none")
+            emit("CALLER", rel, job, d, "unknown" if tool is None else (tool or "none"))
             ci_lines(c, d)
             if d not in dirs:
                 dirs.append(d)
