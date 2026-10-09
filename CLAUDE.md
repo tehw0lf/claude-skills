@@ -36,6 +36,7 @@ bash plugins/nx-migrate/skills/nx-migrate/scripts/bump-subpackages.sh   # run in
 python3 plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py <repo>   # writes nothing itself; runs npm config get/ls (no log, no update check) in <repo>
 python3 plugins/work-issue/skills/work-issue/scripts/repo-commands.py <checkout root>   # reads files only, runs no tool; prints the repository's commands with their source (CALLER/CI/SCRIPT/MAKE/PROJECT/DOC/FALLBACK/…)
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py plugins/work-issue/skills/work-issue/scripts/check-install-config.py   # the two copies must stay identical
+python3 scripts/review-rounds.py --since YYYY-MM-DD [--until YYYY-MM-DD] [--owner <login>]   # read-only (needs gh auth); counts review rounds and findings per round of the merged PRs in the range from their verdict comments
 ```
 
 `check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
@@ -48,7 +49,7 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 
 ```
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
-scripts/                                   # repository checks, not shipped by the marketplace
+scripts/                                   # repository checks and tools, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it
 plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent is the whole plugin)
