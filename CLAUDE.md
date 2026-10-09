@@ -36,6 +36,7 @@ bash plugins/nx-migrate/skills/nx-migrate/scripts/bump-subpackages.sh   # run in
 python3 plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py <repo>   # writes nothing itself; runs npm config get/ls (no log, no update check) in <repo>
 python3 plugins/work-issue/skills/work-issue/scripts/repo-commands.py <checkout root>   # reads files only, runs no tool; prints the repository's commands with their source (CALLER/CI/SCRIPT/MAKE/PROJECT/DOC/FALLBACK/…)
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py plugins/work-issue/skills/work-issue/scripts/check-install-config.py   # the two copies must stay identical
+python3 scripts/review-rounds.py --since YYYY-MM-DD [--until YYYY-MM-DD] [--owner <login>]   # read-only (needs gh auth); counts review rounds and findings per round of the merged PRs in the range from their verdict comments
 ```
 
 `check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
@@ -48,7 +49,7 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 
 ```
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
-scripts/                                   # repository checks, not shipped by the marketplace
+scripts/                                   # repository checks and tools, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it
 plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent is the whole plugin)
@@ -91,6 +92,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - `inbox` (`collect.py`) reads every non-archived, non-fork repository of the owner through `gh`, keeps one cache per owner plus `default-owner`, `refresh.lock` and `refresh.error` in `$XDG_CACHE_HOME/claude-inbox/` and reads ignore rules from `$XDG_CONFIG_HOME/inbox-ignore`. Its SessionStart hook only ever reads the default owner's cache and starts a detached `--background` refresh when it is stale, so a session start never waits for GitHub; the lock keeps refreshes from overlapping, and a failed background refresh is shown by the next summary; the hook prints JSON, and its line format is not parsed anywhere. Step 4 hands a picked `ISSUE` item to `work-issue:work-issue` when the session lists that skill and falls back to working it by hand otherwise, so the coupling is optional.
 - `check-install-config.py` exists in `nx-migrate` (step 1) and in `work-issue` (step 5) as byte-identical copies, because a skill calls only scripts of its own plugin and each skill works without the other plugin. A change to the script, its line kinds or its list goes into both copies in the same PR, bumps both plugins, and updates both `SKILL.md` files where they rely on the output; the `cmp` line under Commands checks it.
 - `repo-commands.py` (work-issue only, not shared with `nx-migrate`) composes the commands of a caller of `build-test-publish.yml` exactly as `test-and-build.yml` of `tehw0lf/workflows` runs them (`<tool> <input>` for install, format, lint, test, e2e and build_branch; `npm` always `npm ci`, `yarn` always `yarn install --frozen-lockfile`; `cargo` additionally `cargo fmt --all -- --check` and `cargo clippy --all-targets ...`; no commands for `tool` absent or `none`). A change in how that workflow composes or defaults these steps is mirrored in the script's docstring and code in the same PR. `work-issue` `SKILL.md` steps 4 to 7 rely on its line kinds (`CALLER`, `CI`, `TOOLCHAIN`, `SCRIPT`, `MAKE`, `PROJECT`, `DOC`, `WORKFLOW`, `FALLBACK`, `SKIPPED`). A new fallback row goes into the docstring and the code (not into `SKILL.md`), only after its commands were run against the real tool; the rows for bun, Maven, Composer and Gradle without a wrapper are missing for that reason.
+- `scripts/review-rounds.py` depends on the verdict layout of `plugins/pr-review/agents/pr-reviewer.md`: the first line `## Independent local review` (a comment with any other first line is not counted, so a renamed heading turns every new verdict into a `NOVERDICT` line without a warning), the count line `**Blocking: <n> · Fix in PR: <n> · Follow-up: <n>**` and, for the older flat layout, the `### Blocking`, `### Fix in PR` and `### Follow-up` headings. Change the layout and the script together.
 - `verify-nx-provenance.js` pins the expected publisher (`nrwl/nx`, `.github/workflows/publish.yml`, tag ref) — an upstream release-process change shows up there as a failed check.
 
 ## Working here
