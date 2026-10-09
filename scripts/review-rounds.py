@@ -116,6 +116,8 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", owner):
         die(f"invalid owner: {owner!r}", 2)
 
+    # the GraphQL search answers an unknown or invisible owner with 0 results and no error
+    gh(["api", f"users/{owner}", "-q", ".login"])
     q = f"is:pr is:merged user:{owner} merged:{since}..{until}"
     prs, after, count = [], None, 0
     while True:
