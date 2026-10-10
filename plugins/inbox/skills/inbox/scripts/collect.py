@@ -2,6 +2,11 @@
 """Collect everything on GitHub that a task can be derived from, for one owner. Read-only on GitHub.
 
 usage: collect.py [--owner <login>]   refresh from GitHub, write that owner's cache, print the list
+       collect.py --repo <owner/name> the same list for one repository, live; writes no cache and takes no
+                                      lock, so the owner's cache and the --summary line stay owner-wide
+       collect.py --here              --repo for the repository `gh repo view` resolves for the current
+                                      directory; exit 2 (message on stderr) when there is none. Every other
+                                      failure exits 1.
        collect.py --summary           SessionStart hook: print one line from the default owner's cache as
                                       hook JSON and, when that cache is missing or older than
                                       $INBOX_MAX_AGE_HOURS (default 6), start `collect.py --background`.
@@ -14,8 +19,9 @@ scope. Covers the owner's own repositories that are neither archived nor forks. 
 
 Output, tab-separated, sorted by priority and then by `updated`, newest first:
   prio  kind  repo  ref  state  updated  title  url
-kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severity>" or "<n> open";
-                   updated is when the newest open alert was created)
+kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severity>[, <k> without patch]"
+                   or "<n> open"; "without patch" counts alerts with no patched version, i.e. ones a
+                   dependency update cannot fix; updated is when the newest open alert was created)
        2 CI       (default branch whose head commit failed its checks; ref is the branch,
                    updated is that commit's date)
        3 PR       (ref #n, state "<checks>/<review decision>[/draft]", updated is the last activity)
@@ -23,7 +29,7 @@ kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severit
        5 ISSUE    (ref #n, state is the comma-separated labels, "bot" prepended for bot-opened issues,
                    updated is the last activity)
 Status lines start with "#":
-  # owner=<login> generated=<epoch> repos=<n> ignored=<n>
+  # owner=<login> scope=<login | owner/name> generated=<epoch> repos=<n> ignored=<n>
   # SKIPPED <source> <repo>: <reason>      a source that could not be read; its items are missing.
                                            <repo> is "<owner>/*" when the source spans repositories.
 
@@ -62,21 +68,27 @@ SEVERITIES = ["LOW", "MODERATE", "HIGH", "CRITICAL"]
 KINDS = [("SECURITY", "security"), ("CI", "failing default branches"), ("PR", "PRs"),
          ("DEPS", "dependency PRs"), ("ISSUE", "issues")]
 
+REPO_FIELDS = """
+        nameWithOwner url viewerCanAdminister
+        vulnerabilityAlerts(states: OPEN, first: 100) {
+          totalCount nodes { createdAt securityVulnerability { severity firstPatchedVersion { identifier } } }
+        }
+        defaultBranchRef { name target { ... on Commit { committedDate statusCheckRollup { state } } } }"""
+
 REPOS = """
 query($owner: String!, $cursor: String) {
   repositoryOwner(login: $owner) {
     repositories(first: 100, after: $cursor, ownerAffiliations: OWNER, isArchived: false, isFork: false) {
       pageInfo { hasNextPage endCursor }
-      nodes {
-        nameWithOwner url viewerCanAdminister
-        vulnerabilityAlerts(states: OPEN, first: 100) {
-          totalCount nodes { createdAt securityVulnerability { severity } }
-        }
-        defaultBranchRef { name target { ... on Commit { committedDate statusCheckRollup { state } } } }
-      }
+      nodes {%s}
     }
   }
-}"""
+}""" % REPO_FIELDS
+
+REPO = """
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {%s}
+}""" % REPO_FIELDS
 
 ITEMS = """
 query($q: String!, $cursor: String) {
@@ -130,6 +142,11 @@ def graphql(query, totals, **variables):
         if result.returncode != 0:
             sys.exit(f"collect.py: GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
         data = json.loads(result.stdout)["data"]
+        if "repository" in data:  # a single repository: no pages
+            if data["repository"] is None:
+                sys.exit(f"collect.py: no such repository: {variables.get('owner')}/{variables.get('name')}")
+            yield data["repository"]
+            return
         page = data.get("search") or (data.get("repositoryOwner") or {}).get("repositories")
         if page is None:
             sys.exit(f"collect.py: no such owner: {variables.get('owner')}")
@@ -170,9 +187,15 @@ def clean(text):
     return " ".join(str(text).split())
 
 
-def collect(owner):
+def collect(owner, only=None):
+    """The list for all of `owner`'s repositories, or, with `only` ("owner/name"), for that one."""
     rows, skipped, rules = [], [], ignore_rules()
-    repos = list(graphql(REPOS, {}, owner=owner))
+    if only:
+        repos = list(graphql(REPO, {}, owner=owner, name=only.partition("/")[2]))
+        scope, everywhere, search = only, only, f"repo:{only} is:open"
+    else:
+        repos = list(graphql(REPOS, {}, owner=owner))
+        scope, everywhere, search = owner, f"{owner}/*", f"user:{owner} is:open archived:false"
 
     unconfirmed = 0  # no alerts reported, but this token could not have read any
     for repo in repos:
@@ -182,7 +205,9 @@ def collect(owner):
             nodes = [node for node in alerts["nodes"] if node]
             found = [node["securityVulnerability"]["severity"] for node in nodes]
             worst = max(found, key=SEVERITIES.index).lower() if found else "unknown"
-            rows.append((1, "SECURITY", name, "dependabot", f"{alerts['totalCount']} open, max {worst}",
+            unpatched = sum(not node["securityVulnerability"]["firstPatchedVersion"] for node in nodes)
+            state = f"{alerts['totalCount']} open, max {worst}" + (f", {unpatched} without patch" if unpatched else "")
+            rows.append((1, "SECURITY", name, "dependabot", state,
                          max((node["createdAt"] for node in nodes), default=""),
                          "Dependabot alerts", f"{repo['url']}/security/dependabot"))
         elif not repo["viewerCanAdminister"] and not ignored(rules, name, "dependabot"):
@@ -194,7 +219,7 @@ def collect(owner):
             rows.append((2, "CI", name, branch["name"], rollup["state"].lower(), commit["committedDate"],
                          f"checks failed on {branch['name']}", f"{repo['url']}/actions"))
     if unconfirmed:
-        skipped.append(f"# SKIPPED dependabot {owner}/*: {unconfirmed} repositories report no alerts, but "
+        skipped.append(f"# SKIPPED dependabot {everywhere}: {unconfirmed} repositories report no alerts, but "
                        "without admin permission on them that cannot be told apart from unreadable")
 
     scanned = [repo for repo in repos if not ignored(rules, repo["nameWithOwner"], "code-scanning")]
@@ -210,7 +235,7 @@ def collect(owner):
 
     known = {repo["nameWithOwner"] for repo in repos}
     totals, received = {}, 0
-    for item in graphql(ITEMS, totals, q=f"user:{owner} is:open archived:false"):
+    for item in graphql(ITEMS, totals, q=search):
         received += 1
         if not item:
             continue
@@ -234,13 +259,13 @@ def collect(owner):
             prio, kind = 5, "ISSUE"
         rows.append((prio, kind, name, ref, state, item["updatedAt"], item["title"], item["url"]))
     if (totals.get("count") or 0) > received:
-        skipped.append(f"# SKIPPED search {owner}/*: only {received} of {totals['count']} open issues and "
+        skipped.append(f"# SKIPPED search {everywhere}: only {received} of {totals['count']} open issues and "
                        f"pull requests were read, the search stops at {SEARCH_LIMIT}")
 
     kept = [row for row in rows if not ignored(rules, row[2], row[3])]
     kept.sort(key=lambda row: row[5], reverse=True)
     kept.sort(key=lambda row: row[0])
-    header = f"# owner={owner} generated={int(time.time())} repos={len(repos)} ignored={len(rows) - len(kept)}"
+    header = f"# owner={owner} scope={scope} generated={int(time.time())} repos={len(repos)} ignored={len(rows) - len(kept)}"
     return "\n".join([header, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
 
 
@@ -323,6 +348,24 @@ def background():
         (DIR / "refresh.error").write_text(f"{int(time.time())} {clean(message)[:200]}\n")
 
 
+def local_repository():
+    """The repository `gh` resolves for the current directory, as GitHub names it; exit 2 when none."""
+    result = gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
+    if result.returncode != 0 or not result.stdout.strip():
+        reason = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "no repository"
+        print(f"collect.py: not a checkout of a GitHub repository: {reason}", file=sys.stderr)
+        sys.exit(2)
+    return result.stdout.strip()
+
+
+def single(repo):
+    """One repository's list, live. Writes no cache and takes no lock: the owner-wide cache stays what
+    the SessionStart summary reads."""
+    if repo.count("/") != 1 or not all(repo.split("/")):
+        sys.exit(f"collect.py: not owner/name: {repo}")
+    return collect(repo.partition("/")[0], only=repo)
+
+
 def main():
     args = sys.argv[1:]
     if args == ["--summary"]:
@@ -332,6 +375,10 @@ def main():
             print(json.dumps({"systemMessage": f"inbox: summary failed: {error}"}))
     elif args == ["--background"]:
         background()
+    elif args == ["--here"]:
+        sys.stdout.write(single(local_repository()))
+    elif len(args) == 2 and args[0] == "--repo":
+        sys.stdout.write(single(args[1]))
     elif len(args) == 2 and args[0] == "--owner":
         sys.stdout.write(refresh(args[1]))
     elif not args:
