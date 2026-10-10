@@ -1,7 +1,7 @@
 {
   "name": "inbox",
-  "version": "1.0.1",
-  "description": "List everything on GitHub that a task can be derived from across all of an owner's repositories: security alerts, failing default branches, open PRs, dependency PRs and issues, with a one-line summary at session start.",
+  "version": "1.0.2",
+  "description": "List everything on GitHub that a task can be derived from, for the current repository or across all of an owner's repositories: security alerts, failing default branches, open PRs, dependency PRs and issues, with a one-line summary at session start.",
   "author": {
     "name": "tehw0lf",
     "email": "tehwolf@protonmail.com"
