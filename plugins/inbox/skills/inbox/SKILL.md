@@ -13,7 +13,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 
 ## Arguments
 
-- none — the repository of the current directory: `scripts/collect.py --here`. When the directory is not a checkout of a GitHub repository the script exits 2; then run the owner-wide list (`all`) instead and say so.
+- none — the repository of the current directory: `scripts/collect.py --here`. That is the repository `gh` resolves (`gh repo set-default`, else the remote `upstream`, `github` or `origin`), so a fork checkout with an `upstream` remote lists the parent. When there is none (no work tree, no remote, no remote on a GitHub host) the script exits 2; then run the owner-wide list (`all`) instead and say so.
 - `all` — every repository of the account `gh` is logged in as (or `$INBOX_OWNER`): `scripts/collect.py`, also from inside a checkout. A login that is literally `all` needs `--owner all`.
 - `<owner/repo>` — one repository, wherever the session is: `scripts/collect.py --repo <owner/repo>`
 - `<owner>` — another user or organisation: `scripts/collect.py --owner <owner>`. Expect `# SKIPPED` lines there: alerts are readable only with admin permission on a repository.
@@ -21,7 +21,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 
 ## Steps
 
-1. **Collect.** Run `scripts/collect.py` with the mode the argument selects (see above). It always reads live and takes some seconds; the summary printed at session start comes from a cache and can be hours old, so never answer from it. A non-zero exit means the list is not available — report the message and stop; do not fall back to the cache or to memory.
+1. **Collect.** Run `scripts/collect.py` with the mode the argument selects (see above). It always reads live and takes some seconds; the summary printed at session start comes from a cache and can be hours old, so never answer from it. A non-zero exit means the list is not available — report the message and stop; do not fall back to the cache or to memory. The one exception is exit 2 of `--here`, which means "no repository here" and switches to the account-wide list (see Arguments); a failed `gh` call under `--here` exits 1 and stops like any other.
 
    The first line says what was read: `scope=<owner>` is the whole account, `scope=<owner/repo>` one repository. Name the scope before the list, and when it is one repository, say that `all` gives the overview of every repository. The single-repository modes read live and write no cache.
 
@@ -41,7 +41,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 
    One line per item: repository, ref, title, state, age. The age comes from the `updated` column, and what that is depends on the kind: the last activity for `PR`, `DEPS` and `ISSUE`, the creation of the newest open alert for `SECURITY`, the date of the failing commit for `CI`. Label it accordingly ("newest alert 4 days ago", "red since the commit of …") instead of calling all of them "updated". Keep every item — shortening the list is the user's call (step 4), not yours. Where a group is long, group it by repository instead of dropping lines.
 
-   Read a `SECURITY` Dependabot line like this: an alert has a patched version unless it is counted as `without patch`, so a dependency update fixes it. Without a `DEPS` item in the same repository no Dependabot PR exists for it, and the update is a task of its own. Alerts `without patch` wait for the upstream release: report them, never work around them (no overrides). The alert count is not a PR count: the alerts of an already merged update disappear on their own, the open ones are still open on GitHub.
+   Read a `SECURITY` Dependabot line like this: `without patch` alerts have no fixed release, so no update can fix them. All others have one, but that does not mean this repository can reach it: a parent package may pin the vulnerable version or cap its range below the fix. Without a `DEPS` item in the same repository no Dependabot PR exists, so check first whether a parent pins it; if so, wait for the parent's release. For every Dependabot alert, report what blocks it and never work around it (no overrides). The alert count is not a PR count: the alerts of an already merged update disappear on their own, the open ones are still open on GitHub.
 
    The script's order is a default, not a judgment. Say so where the list itself shows a better one: an issue that explains a red default branch belongs next to it, several repositories with the same Dependabot count usually share one upstream cause and are one task, and a PR with green checks that only waits for its review is cheaper to finish than anything new. Do not open the items to find out more at this point — each one read costs context for an item the user may not pick.
 
@@ -70,11 +70,11 @@ Add only what the user named. An ignored security alert or red branch stays invi
 
 ## Not covered
 
-- repositories that are archived or forks in the account-wide list (`--repo` and the current directory list them anyway), and anything outside GitHub
+- repositories that are archived or forks in the account-wide list (`--repo` lists them anyway), and anything outside GitHub
 - the session-start line: it stays account-wide and reads the cache, which the single-repository modes never touch
 - secret-scanning alerts
 - workflow runs that failed without being part of the head commit's check rollup, such as a failed Dependabot update run: `CI` is the rollup of the default branch's head commit and nothing else
 - open issues and pull requests beyond the first 1000 of an owner; the script prints a `# SKIPPED search` line when that happens
-- the worst Dependabot severity and the newest alert date are taken from a repository's first 100 open alerts
+- the worst Dependabot severity, the newest alert date and the `without patch` count are taken from a repository's first 100 open alerts
 - pull requests and issues in other owners' repositories that involve the user
 - more than 100 code-scanning alerts per repository are shown as `100+`

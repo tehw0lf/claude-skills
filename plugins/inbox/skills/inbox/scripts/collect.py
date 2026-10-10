@@ -5,8 +5,11 @@ usage: collect.py [--owner <login>]   refresh from GitHub, write that owner's ca
        collect.py --repo <owner/name> the same list for one repository, live; writes no cache and takes no
                                       lock, so the owner's cache and the --summary line stay owner-wide
        collect.py --here              --repo for the repository `gh repo view` resolves for the current
-                                      directory; exit 2 (message on stderr) when there is none. Every other
-                                      failure exits 1.
+                                      directory: the one set with `gh repo set-default`, else the remote
+                                      `upstream`, `github` or `origin`, in that order (a fork checkout with an
+                                      `upstream` remote lists the parent). Exit 2 (message on stderr) when gh
+                                      says there is none (no work tree, no remote, no remote on a GitHub
+                                      host); every other failure, a failed gh call included, exits 1.
        collect.py --summary           SessionStart hook: print one line from the default owner's cache as
                                       hook JSON and, when that cache is missing or older than
                                       $INBOX_MAX_AGE_HOURS (default 6), start `collect.py --background`.
@@ -21,7 +24,7 @@ Output, tab-separated, sorted by priority and then by `updated`, newest first:
   prio  kind  repo  ref  state  updated  title  url
 kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severity>[, <k> without patch]"
                    or "<n> open"; "without patch" counts alerts with no patched version, i.e. ones a
-                   dependency update cannot fix; updated is when the newest open alert was created)
+                   dependency update cannot fix, counted over the first 100 alerts; updated is when the newest open alert was created)
        2 CI       (default branch whose head commit failed its checks; ref is the branch,
                    updated is that commit's date)
        3 PR       (ref #n, state "<checks>/<review decision>[/draft]", updated is the last activity)
@@ -142,9 +145,7 @@ def graphql(query, totals, **variables):
         if result.returncode != 0:
             sys.exit(f"collect.py: GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
         data = json.loads(result.stdout)["data"]
-        if "repository" in data:  # a single repository: no pages
-            if data["repository"] is None:
-                sys.exit(f"collect.py: no such repository: {variables.get('owner')}/{variables.get('name')}")
+        if "repository" in data:  # a single repository: no pages; GitHub answers an unknown one with an error
             yield data["repository"]
             return
         page = data.get("search") or (data.get("repositoryOwner") or {}).get("repositories")
@@ -348,14 +349,21 @@ def background():
         (DIR / "refresh.error").write_text(f"{int(time.time())} {clean(message)[:200]}\n")
 
 
+NO_REPOSITORY = ("not a git repository", "no git remotes found", "none of the git remotes")  # gh's own words
+
+
 def local_repository():
-    """The repository `gh` resolves for the current directory, as GitHub names it; exit 2 when none."""
+    """The repository `gh repo view` resolves for the current directory, as GitHub names it. Exit 2 only
+    when gh says there is none (no work tree, no remote, no remote on a GitHub host); a failed call
+    (token, network, timeout, no gh) exits 1 like every other failure."""
     result = gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
-    if result.returncode != 0 or not result.stdout.strip():
-        reason = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "no repository"
-        print(f"collect.py: not a checkout of a GitHub repository: {reason}", file=sys.stderr)
+    message = result.stderr.strip()
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    if any(phrase in message for phrase in NO_REPOSITORY):
+        print(f"collect.py: not a checkout of a GitHub repository: {message.splitlines()[0]}", file=sys.stderr)
         sys.exit(2)
-    return result.stdout.strip()
+    sys.exit(f"collect.py: cannot resolve the current repository: {clean(message) or 'gh printed nothing'}")
 
 
 def single(repo):
