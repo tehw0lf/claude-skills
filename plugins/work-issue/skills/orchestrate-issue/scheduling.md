@@ -23,10 +23,10 @@ Description=Work auto-work issues of <owner>/<repo>
 
 [Service]
 Type=oneshot
-# gh, git, uv and claude must be on this PATH
+# gh, git and uv must be on this PATH; adjust the path of claude (`command -v claude`)
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 WorkingDirectory=%h
-ExecStart=/usr/bin/claude -p "/work-issue:orchestrate-issue --max 1 <owner>/<repo>" --permission-prompts none
+ExecStart=%h/.local/bin/claude -p "/work-issue:orchestrate-issue --max 1 <owner>/<repo>" --permission-prompts none
 ```
 
 `~/.config/systemd/user/work-issue.timer`:
