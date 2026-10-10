@@ -11,7 +11,7 @@ Drives the sequence a person otherwise runs by hand: for each issue the context 
 
 **Run it in the main session, never inside a subagent.** The worker needs its spawn depth for `pr-review:pr-reviewer`; an orchestrator that is itself a subagent takes a level of it, and at the limit the `Agent` tool is withheld.
 
-Nothing is scheduled: an issue that waits for an owner answer ends this run at its questions, and calling the skill again picks it up (`QUESTIONS … answered`).
+Nothing is scheduled: an issue that waits for an owner answer ends this run at its questions, and calling the skill again picks it up (`QUESTIONS … answered`). To start it from a timer or a routine, read `scheduling.md` first.
 
 ## Steps
 
