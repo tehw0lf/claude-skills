@@ -5,7 +5,7 @@
 ## What every trigger has to respect
 
 - Run it as a main session. A headless `claude -p` run is one; a subagent is not (the worker needs its spawn depth for `pr-review:pr-reviewer`).
-- Name the repository: `/work-issue:orchestrate-issue <owner>/<repo>`. Without an argument the skill takes the repository of the current directory. The example below starts in the home directory, which is not a checkout, and a checkout used as working directory can be left on a feature branch by the worker, so the repository is named explicitly.
+- Name the repository: `/work-issue:orchestrate-issue <owner>/<repo>`. The skill finds local checkouts only under `$CODING_ROOT` (default `~/Nextcloud/Coding`), not from the working directory, and a systemd service does not inherit the shell's environment: set `Environment=CODING_ROOT=<directory>` in the unit, or pass `--checkout <owner>/<repo>=<path>`. Otherwise every run clones, which is the path the verified run did not take (see below). Without an argument the skill takes the repository of the current directory. The example below starts in the home directory, which is not a checkout, and a checkout used as working directory can be left on a feature branch by the worker, so the repository is named explicitly.
 - The label `auto-work` is the consent to an unattended merge. It is not created by the skill; a missing label finds nothing. Only a labeler with `write`, `maintain` or `admin` counts, and an issue edited by anyone else after the label is skipped.
 - Three issues per run unless `--max` is given. A trigger that runs often with a high `--max` raises the number of unattended merges per day; choose both together.
 - Where the default branch has no required status check, or the checks could not be read, the worker stops at an open, reviewed PR and does not merge. That is by design.
@@ -25,6 +25,8 @@ Description=Work auto-work issues of <owner>/<repo>
 Type=oneshot
 # gh, git and python3 must be on this PATH (the skills' scripts start with `#!/usr/bin/env python3`), uv and node/npm only for a target that uses them; a per-user Node install is on none of these directories, add it. Adjust the path of claude (`command -v claude`)
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+# where the skill looks for local checkouts of the repository (default ~/Nextcloud/Coding)
+Environment=CODING_ROOT=%h/<directory with your checkouts>
 WorkingDirectory=%h
 ExecStart=%h/.local/bin/claude -p "/work-issue:orchestrate-issue --max 1 <owner>/<repo>" --permission-prompts none --permission-mode acceptEdits --settings %h/.config/work-issue/settings.json
 ```
@@ -85,7 +87,8 @@ This list is broad, and these are the rules that carry the risk:
 
 - `Bash(python3 *)`, `Bash(uv *)`, `Bash(node *)` and `Bash(npx *)` each allow arbitrary code (`python3 -c …`, `uv run …`, `node -e …`), which is close to bypassing the permission check for Bash. `Bash(npm *)` runs the repository's scripts.
 - The script rules (`Bash(*issue-context.py*)` and the other four) have a wildcard on both sides, so they match any single command that contains the file name anywhere. Anchor them on the script path to match only the script.
-- `Bash(gh api *)` allows any GitHub API call the token can make, including merging a PR through the REST endpoint, which skips the worker's `--match-head-commit` guard, and deleting branches. Together with `Bash(gh issue *)` it can add the `auto-work` label; `run-context.py` accepts a label added by an account with write access, and the running account has it, so a label the session adds itself counts as consent for the next run. The skills tell the agents not to act on issue text, so this is not a defect in them, but the permission list does not stop it.
+- `Bash(gh api *)` allows any GitHub API call the token can make, including merging a PR through the REST endpoint, which skips the worker's `--match-head-commit` guard, and deleting branches.
+- `Bash(gh issue *)` alone allows `gh issue edit --add-label`, and `Bash(gh api *)` alone allows the REST labels endpoint. `run-context.py` accepts a label added by an account with write access, and the running account has it, so a label the session adds itself counts as consent for the next run. Narrowing `gh api *` does not close this while `gh issue *` stays, and the worker needs `gh issue` for its follow-up issues. The skills tell the agents not to act on issue text, so this is not a defect in them, but the permission list does not stop it.
 - `Bash(git push*)` and `Bash(gh pr *)` are what lets the worker push and merge unattended.
 
 Narrow them to what the target repository needs; no narrowed list was run, so a narrower file needs the same run-once-and-read-the-denial test. `--permission-mode acceptEdits` lets the worker edit files. A mode that bypasses all checks combined with an unattended merge is a decision about that repository's risk, not a default. The list was built for one repository (an npm project); another ecosystem needs its own tool rules, found the same way: run once, read the denial, add one rule.
