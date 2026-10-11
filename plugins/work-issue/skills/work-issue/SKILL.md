@@ -54,7 +54,7 @@ For an own PR, steps 2, 3, 5, 6 and 8 do not apply: nothing is planned, changed,
 
 - `RESUME` says `conflicting`: stop and report; resolving a conflict is a change. `unknown` means GitHub has not computed mergeability yet: run `issue-context.py` again once after a minute; when it is still `unknown`, end the run with a report that says so. The `issue-worker` writes no stop marker for it, because nothing is wrong with the PR.
 - Put the PR's branch under the checkout: `git fetch origin`, then `git switch --track origin/<branch>` when there is no local branch of that name, otherwise `git switch <branch>` and `git merge --ff-only origin/<branch>`. A local branch that is ahead of or has diverged from the remote holds commits nobody pushed: stop and report, touch nothing.
-- Step 4 installs the dependencies (no reproduction), step 7 validates the head that `RESUME` names. A failing validation is not fixed here: stop and report it. A fix is a change to the PR and belongs to a person or to the review round of the `issue-worker`.
+- Step 4 installs the dependencies (no reproduction), step 7 validates the head that `RESUME` names. A failing validation is not fixed here: stop and report it. A resumed PR is never changed by a run: no commit, no push, also not for a finding of a review. A fix is a change to the PR and belongs to a person.
 - Done when step 7 holds for the PR head. Report the PR, the head, the validation result and the verdict head from `RESUME`.
 
 A stop in resume mode first removes what the install and the validation wrote (step 1 found the working tree clean, so every uncommitted change is this run's own: `git reset --hard && git clean -fd`; ignored files stay, no branch is deleted), then puts the checkout back with `git switch <branch WORKTREE named>` (or `git switch --detach <commit kept in step 1>`). Reason: a lockfile that the install rewrote differs between the PR branch and the default branch, so a plain `git switch` either refuses or carries the change onto the default branch, and the next run stops on a dirty checkout. The commits stay on the remote.
@@ -187,7 +187,7 @@ git push -u origin HEAD
 gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <temporary directory>/pr-body.md
 ```
 
-The body has `Closes #<n>` and a link to the plan comment, then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
+The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
 
 Done when the PR is open on a head for which step 7 is done. Report the PR, what was verified, what was not, and the list from step 5.
 
