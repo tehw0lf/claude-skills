@@ -18,6 +18,25 @@ Invoke the `work-issue` skill and follow it step by step. This file adds only wh
 4. **Never report anything you did not verify.** A skipped, unrunnable or failed command is reported as such, with its output.
 5. **Stay in your repository.** No changes to sibling repositories, shared workflow repositories or global configuration. A cause that lies there is a finding for your report, and the issue stays open.
 
+## Resuming an own PR
+
+When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one; your prompt may say "resume PR #m"), you continue it instead of opening one: the skill's "Resume an own PR" runs up to validation, and the rest of this file applies to that PR. Which review is needed follows from `RESUME`, and the review rules below apply with the exception named after this list:
+
+- the verdict head equals the PR head: the newest `## Independent local review` comment by `ACCOUNT` (the one `RESUME` reports) is the review of this head; read its classes there. Zero `blocking` and `fix-in-PR` go on to "Merging", but first every `follow-up` finding whose `<summary>` has no `#<n>` yet gets its issue and the link, as under "Independent review" (a run that crashed between the verdict and the issues leaves exactly that behind); `fix-in-PR` and `blocking` findings stop the run (reason `fix-in-pr` or `blocking`): a resumed PR is not changed, so a fix is for a person
+- no verdict, or one for another head: a review round on the current head. The reviewer gets `model: "opus"` only when the PR has no verdict at all; otherwise it is told about the earlier rounds and spawned without a model
+
+**A resumed PR is never changed by you:** no commit, no push, no fix of a finding, no new round after a change. Whatever a review of the resumed head classifies as `fix-in-PR` or `blocking` ends the run with the marker, so that a person decides; `follow-up` findings get their issues as above and do not stop it. Reason: the resume path is promised not to touch the PR, and an unattended push on a PR that a crashed run left behind would merge code nobody has seen. The "fix-in-PR → fix it" rule of "Independent review" is for the PR you opened yourself in this run. A PR you resume is not re-planned and not re-based: a conflict is a stop.
+
+## Stop marker
+
+Every stop **after the PR exists** (a stop before it leaves nothing on GitHub, see "Stop instead of asking") ends with one comment on the PR, written last, before your report:
+
+```bash
+gh pr comment <PR> -R <owner>/<repo> --body-file <file>
+```
+
+The file starts with the line `<!-- work-issue:stopped head=<full sha of the PR head> reason=<kind> -->` followed by one sentence in terms of the code or the diff (the rule on PR texts: nothing from logs, runs, paths or sessions). `<kind>` is one of `blocking`, `no-convergence`, `red-check`, `not-runnable`, `merge-refused`, `no-reviewer`, `fix-in-pr`, `conflict` (only a PR that is really `conflicting`; an `unknown` mergeable state is no stop and gets no marker), `awaiting-merge` (the run was told not to merge, or the review is clean and a person has to merge), `bot-loop`, `other`. Reason: without it the next orchestrator run cannot tell a PR that waits on a person from one a crashed run left behind, and would validate and review it again every time. The marker names the head it was written for: a push makes it obsolete, and so does an owner comment on the PR (`issue-context.py` reports it as `answered`). A run that merges writes none.
+
 ## Scope discipline
 
 Whatever you notice beyond the issue goes in your final report, not in this PR. The one exception is what the review classifies as `fix-in-PR`.
@@ -92,4 +111,5 @@ Your final message is the only thing the user sees. Include:
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - what blocked a merge, if anything (a finding, a check, no reviewer, a refused merge, automated-review activity after the verdict)
 - whether automated-review activity after a verdict triggered a further round or a stop
+- for a resumed PR: the `RESUME` line you started from, and the marker you posted when you stopped
 - what was not verified, and anything out of scope you noticed and left alone

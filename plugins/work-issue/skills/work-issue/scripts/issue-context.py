@@ -33,6 +33,17 @@ Output, one tab-separated line per fact, in this order:
               (reason issue-edited), a comment by an owner, member or collaborator came after it
               (owner-comment), or questions were posted after it (newer-questions). Whether the code
               moved since <base sha> is not checked here: that needs the plan's file list
+  RESUME    <#n>  <head sha>  <plan comment id the PR body links or ->  <mergeable|conflicting|unknown>
+            <head of the newest verdict or ->  <verdict count>  <head of the newest stop marker or ->
+            <its reason or ->  <answered or ->
+              one line per open pull request that closes the issue, was written by ACCOUNT and has its
+              head branch in this repository. The plan id is the PLAN comment's when the body links it as
+              https://github.com/<repo>/issues/<n>#issuecomment-<id> outside code, else the first such link; an id
+              anywhere else in the text is no link. A verdict is a comment by ACCOUNT whose first line is
+              `## Independent local review`, its head the `Reviewed head:` line. A stop marker is a comment by
+              ACCOUNT whose first line is `<!-- work-issue:stopped head=<sha> reason=<kind> -->` (written by
+              issue-worker when it stops after the PR exists). answered: an owner, member or collaborator
+              comment after that marker that is neither a verdict nor a marker
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
               an issue or pull request of the same repository that the issue's body or comments
               mention as #n outside code spans, in order of first mention
@@ -48,7 +59,7 @@ Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
                                    lines are missing or incomplete, not empty. Sources: query (GitHub
                                    answered with an error next to the data), labels, assignees,
-                                   account, pull-requests, comments, plan (ACCOUNT is unknown, so
+                                   account, pull-requests, resume, comments, plan (ACCOUNT is unknown, so
                                    plan and question comments were not evaluated), refs,
                                    remote-branches, local-branches, manifests, worktree
 
@@ -91,7 +102,7 @@ query($owner: String!, $name: String!, $number: Int!) {
         }
         closedByPullRequestsReferences(last: %(page)d, includeClosedPrs: true) {
           totalCount
-          nodes { number state title headRefName repository { nameWithOwner } }
+          nodes { number state title headRefName repository { nameWithOwner } author { login } headRepository { nameWithOwner } }
         }
         timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: %(page)d) {
           totalCount
@@ -100,6 +111,20 @@ query($owner: String!, $name: String!, $number: Int!) {
             ... on PullRequest { number state title headRefName repository { nameWithOwner } }
           } } }
         }
+      }
+    }
+  }
+}
+""" % {"page": PAGE}
+
+PULL_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      body headRefOid mergeable
+      comments(last: %(page)d) {
+        totalCount
+        nodes { databaseId body createdAt authorAssociation author { login } }
       }
     }
   }
@@ -131,7 +156,7 @@ def clean(text):
 
 
 def emit(*fields):
-    print("\t".join(clean(str(field)) or "-" for field in fields))
+    print("\t".join("-" if field is None else clean(str(field)) or "-" for field in fields))
 
 
 def skipped(source, reason):
@@ -191,10 +216,10 @@ OWNER_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 def print_plan_state(issue, comments, login):
     """PLAN and QUESTIONS lines. Anyone can comment on an issue, so only comments written by `login`
     (the account the agents act as) count as plan or questions, and only owner, member or collaborator
-    comments that carry no marker count as answers."""
+    comments that carry no marker count as answers. Returns the comment id of the newest plan, or None."""
     if not login:
         skipped("plan", "the account is unknown, so plan and question comments cannot be attributed")
-        return
+        return None
     plan = questions = None
     for comment in comments:  # oldest first: the last match is the newest
         first = (comment.get("body") or "").lstrip().split("\n", 1)[0]
@@ -233,6 +258,77 @@ def print_plan_state(issue, comments, login):
         elif questions and questions["createdAt"] > comment["createdAt"]:
             reason = "newer-questions"
         emit("PLAN", comment["databaseId"], comment["createdAt"], base, "current" if reason == "-" else "stale", reason)
+        return comment["databaseId"]
+    return None
+
+STOP_MARKER = re.compile(r"<!--\s*work-issue:stopped\s+head=([0-9a-f]{7,40})\s+reason=([a-z-]+)\s*-->")
+VERDICT_HEADING = "## Independent local review"
+REVIEWED_HEAD = re.compile(r"^Reviewed head:\s*`?([0-9a-f]{7,40})`?\s*$", re.MULTILINE)
+CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def print_resume(repo, owner, name, number, pulls, login, plan_id):
+    """RESUME lines: one per open pull request that closes the issue and that this account wrote in this
+    repository (not a fork). Whether it is the account's own work on the current plan is for the caller to
+    compare; the lines only carry the facts. Anyone can comment on a PR, so verdicts and stop markers count
+    only from `login`, and only owner, member or collaborator comments without a marker count as an answer."""
+    candidates = [
+        (number, node)
+        for number, (relation, node) in sorted(pulls.items())
+        if relation == "closes"
+        and node["state"] == "OPEN"
+        and ((node.get("author") or {}).get("login") or "").lower() == (login or "\0").lower()
+        and ((node.get("headRepository") or {}).get("nameWithOwner") or "").lower() == repo.lower()
+    ]
+    # the plan is linked as https://github.com/<repo>/issues/<n>#issuecomment-<id>, outside code: an id that
+    # only appears somewhere in the text (a code span, a bare number, another repository) is no link
+    plan_link = re.compile(rf"https?://github\.com/{re.escape(repo)}/(?:issues|pull)/{number}#issuecomment-(\d+)", re.IGNORECASE)
+    for pull_number, _node in candidates:
+        data, reason = graphql(PULL_QUERY, owner=owner, name=name, number=pull_number)
+        pull = ((data or {}).get("repository") or {}).get("pullRequest")
+        comments = (pull or {}).get("comments") or {}
+        if not isinstance(pull, dict) or not isinstance(comments.get("nodes"), list) or not isinstance(pull.get("headRefOid"), str):
+            skipped("resume", f"#{pull_number}: {reason or 'incomplete answer'}")
+            continue
+        if reason:
+            skipped("resume", f"#{pull_number}: {reason}")
+            continue
+        nodes = [c for c in comments["nodes"] if c]
+        if comments.get("totalCount", len(nodes)) > len(nodes):
+            skipped("resume", f"#{pull_number}: only the newest {PAGE} of {comments['totalCount']} comments were read")
+            continue
+        linked = plan_link.findall(CODE.sub(" ", pull.get("body") or ""))
+        plan = str(plan_id) if plan_id is not None and str(plan_id) in linked else (linked[0] if linked else None)
+        verdict_head, verdicts, stop = None, 0, None
+        for comment in nodes:  # oldest first: the last match is the newest
+            if ((comment.get("author") or {}).get("login") or "").lower() != login.lower():
+                continue
+            body = (comment.get("body") or "").lstrip()
+            first = body.split("\n", 1)[0].strip()
+            if first == VERDICT_HEADING:
+                verdicts += 1
+                found = REVIEWED_HEAD.search(body)
+                verdict_head = found.group(1) if found else None
+            else:
+                marker = STOP_MARKER.fullmatch(first)
+                if marker:
+                    stop = (comment.get("createdAt") or "", marker.group(1), marker.group(2))
+        answered = False
+        if stop:
+            for comment in nodes:
+                body = (comment.get("body") or "").lstrip()
+                first = body.split("\n", 1)[0].strip()
+                if (
+                    comment.get("authorAssociation") in OWNER_ASSOCIATIONS
+                    and first != VERDICT_HEADING
+                    and not STOP_MARKER.fullmatch(first)
+                    and (comment.get("createdAt") or "") > stop[0]
+                ):
+                    answered = True
+        emit(
+            "RESUME", f"#{pull_number}", pull["headRefOid"], plan, (pull.get("mergeable") or "UNKNOWN").lower(),
+            verdict_head, verdicts, stop[1] if stop else None, stop[2] if stop else None, "answered" if answered else None,
+        )
 
 
 def print_refs(owner, name, numbers):
@@ -429,7 +525,12 @@ def main():
     if comments["totalCount"] > len(comments["nodes"]):
         skipped("comments", f"only the newest {PAGE} of {comments['totalCount']} comments were searched for mentions")
     texts = [issue.get("body")] + [comment.get("body") for comment in comments["nodes"]]
-    print_plan_state(issue, [c for c in comments["nodes"] if c], login.strip() if login_reason is None and login.strip() else None)
+    account = login.strip() if login_reason is None and login.strip() else None
+    plan_id = print_plan_state(issue, [c for c in comments["nodes"] if c], account)
+    if account:
+        print_resume(repo, owner, name, number, pulls, account, plan_id)
+    elif any(relation == "closes" for relation, _ in pulls.values()):
+        skipped("resume", "the account is unknown, so its own pull requests cannot be recognised")
     print_refs(owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls])
     print_branches(repo, number)
     print_manifests()
