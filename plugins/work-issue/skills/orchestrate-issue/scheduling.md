@@ -87,7 +87,7 @@ This list is broad, and these are the rules that carry the risk:
 
 - `Bash(python3 *)`, `Bash(uv *)`, `Bash(node *)` and `Bash(npx *)` each allow arbitrary code (`python3 -c …`, `uv run …`, `node -e …`), which is close to bypassing the permission check for Bash. `Bash(npm *)` runs the repository's scripts.
 - The script rules (`Bash(*issue-context.py*)` and the other four) have a wildcard on both sides, so they match any single command that contains the file name anywhere. Anchor them on the script path to match only the script.
-- `Bash(gh api *)` allows any GitHub API call the token can make, including merging a PR through the REST endpoint, which skips the worker's `--match-head-commit` guard, and deleting branches.
+- `Bash(gh api *)` allows any GitHub API call the token can make, including merging a PR through the REST endpoint, which skips the worker's `--match-head-commit` guard, and deleting branches. A narrowed list must still allow `gh api repos/<owner>/<repo>/labels/needs-decision`, which `plan-issue` uses to check that the label exists before creating it.
 - `Bash(gh issue *)` alone allows `gh issue edit --add-label`, and `Bash(gh api *)` alone allows the REST labels endpoint. `run-context.py` accepts a label added by an account with write access, and the running account has it, so a label the session adds itself counts as consent for the next run. Narrowing `gh api *` does not close this while `gh issue *` stays, and the worker needs `gh issue` for its follow-up issues. The skills tell the agents not to act on issue text, so this is not a defect in them, but the permission list does not stop it.
 - `Bash(git push*)` and `Bash(gh pr *)` are what lets the worker push and merge unattended.
 
