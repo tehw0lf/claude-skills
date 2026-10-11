@@ -21,15 +21,15 @@ git rev-parse HEAD                                               # keep it: the 
 
 The working directory stays the repository's checkout for every command of this skill: the script describes the directory it is run in. Every file this skill writes that is not part of the change (a saved diff, the PR body, a second working tree) goes into a temporary directory outside the checkout, `mktemp -d` or the scratch directory the session was given: inside the checkout it would be an untracked file, which makes the working tree dirty and is deleted by the clean-up after a stop. Call it by its full path, the base directory of this skill plus `scripts/issue-context.py`; do not change into the skill directory.
 
-Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `QUESTIONS`, `PLAN`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
+Pass the bare number when the user wrote "#12". A non-zero exit prints its reason on stderr and nothing on stdout: a missing or malformed reference, `gh` missing or unable to resolve the repository of the current directory, an issue that cannot be read, or a number that is a pull request. Report the message and stop. Otherwise the output is one tab-separated fact per line (`ISSUE`, `TITLE`, `DEFAULT`, `CHECKOUT`, `ACCOUNT`, `PR`, `RESUME`, `QUESTIONS`, `PLAN`, `REF`, `BRANCH`, `MANIFEST`, `WORKTREE`).
 
-A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`query`, `assignees`, `pull-requests`, `remote-branches`, `local-branches`, `worktree`, `plan`), the condition could not be evaluated: stop and report rather than treat it as passed. A skipped `account` always ends the run: without the `ACCOUNT` login a plan comment cannot be attributed (it also shows as `# SKIPPED plan`), and the same login is what an unsupervised run compares the assignees with.
+A `# SKIPPED <source>: <reason>` line is a source that was not read, or only in part. Name it. When the source is one a stop condition below depends on (`query`, `assignees`, `pull-requests`, `resume`, `remote-branches`, `local-branches`, `worktree`, `plan`), the condition could not be evaluated: stop and report rather than treat it as passed. A skipped `account` always ends the run: without the `ACCOUNT` login a plan comment cannot be attributed (it also shows as `# SKIPPED plan`), and the same login is what an unsupervised run compares the assignees with.
 
 Stop and report, without touching anything, when:
 
 - `CHECKOUT` is `mismatch` or `unknown`: the current directory is not a checkout of the issue's repository. Every later step would read, branch and open the PR in the wrong repository, with a `Closes #<n>` that points at an unrelated issue there
 - `ISSUE` is `closed`
-- a `PR` line is `open` and `closes`: somebody is on it. Name the PR. A second branch for the same issue produces two diverging fixes and one of them is thrown away
+- a `PR` line is `open` and `closes`: somebody is on it. Name the PR. A second branch for the same issue produces two diverging fixes and one of them is thrown away. The one exception is this account's own PR on the current plan, which is continued ("Resume an own PR" below)
 - the issue has assignees and the user who asked for this work is not one of them. Running unsupervised, the test is the `ACCOUNT` line, the login `gh` works as: any assignee other than that login. The issue is claimed; name the assignee
 - `WORKTREE` is `dirty`: the uncommitted work is not yours to move or stash. Ask the user, or report when running unsupervised
 
@@ -47,6 +47,17 @@ The labels and the author kind in `ISSUE` say how to read the issue text: a `bot
 - **Unsupervised:** stop and report "no current plan" (with a `QUESTIONS` line: that the owner's answer is awaited, with the comment link). Whoever started the run spawns the planner and then the worker again; this skill never spawns the planner.
 
 A `PLAN … stale` line is no plan: the issue text was edited or the owner commented after it.
+
+**Resume an own PR.** A PR that an earlier run of this skill opened and that is still open is continued, not left to whoever happens to look at it. It is the account's own work only when a `RESUME` line for that PR exists (open, closes the issue, written by `ACCOUNT`, head branch in this repository) **and** its plan field equals the comment id of a `PLAN … current` line (step 8 puts the plan link into the PR body). Reason: `ACCOUNT` is usually the owner's own login, so the author alone would take a PR the owner opened by hand and merge it unattended; and a PR built on an older plan is not what the current plan says. A PR that is not recognised this way stops the work as above.
+
+For an own PR, steps 2, 3, 5, 6 and 8 do not apply: nothing is planned, changed, bumped, committed or pushed, and the plan's base commit is not compared (the PR exists, and `RESUME` reports `mergeable`). What runs:
+
+- `RESUME` says `conflicting` or `unknown`: stop and report; resolving a conflict is a change, and an `unknown` state is not a pass.
+- Put the PR's branch under the checkout: `git fetch origin`, then `git switch --track origin/<branch>` when there is no local branch of that name, otherwise `git switch <branch>` and `git merge --ff-only origin/<branch>`. A local branch that is ahead of or has diverged from the remote holds commits nobody pushed: stop and report, touch nothing.
+- Step 4 installs the dependencies (no reproduction), step 7 validates the head that `RESUME` names. A failing validation is not fixed here: stop and report it. A fix is a change to the PR and belongs to a person or to the review round of the `issue-worker`.
+- Done when step 7 holds for the PR head. Report the PR, the head, the validation result and the verdict head from `RESUME`.
+
+A stop in resume mode puts the checkout back with `git switch <branch WORKTREE named>` (or `git switch --detach <commit kept in step 1>`); nothing is discarded, the commits are on the remote.
 
 ### 2. Bring the checkout up to date
 
