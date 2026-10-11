@@ -21,16 +21,6 @@ Output, one tab-separated line per fact, in this order:
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
               mentions it
-  RESUME    <#n>  <head sha>  <plan comment id the PR body links or ->  <mergeable|conflicting|unknown>
-            <head of the newest verdict or ->  <verdict count>  <head of the newest stop marker or ->
-            <its reason or ->  <answered or ->
-              one line per open pull request that closes the issue, was written by ACCOUNT and has its
-              head branch in this repository. The plan id is the PLAN comment's when the body links it,
-              else the first linked comment. A verdict is a comment by ACCOUNT whose first line is
-              `## Independent local review`, its head the `Reviewed head:` line. A stop marker is a comment by
-              ACCOUNT whose first line is `<!-- work-issue:stopped head=<sha> reason=<kind> -->` (written by
-              issue-worker when it stops after the PR exists). answered: an owner, member or collaborator
-              comment after that marker that is neither a verdict nor a marker
   QUESTIONS <comment id>  <createdAt>  <open|answered>
               the newest question comment written by ACCOUNT: its first line is
               `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator; an edit of the issue text is not an answer, the
@@ -43,6 +33,16 @@ Output, one tab-separated line per fact, in this order:
               (reason issue-edited), a comment by an owner, member or collaborator came after it
               (owner-comment), or questions were posted after it (newer-questions). Whether the code
               moved since <base sha> is not checked here: that needs the plan's file list
+  RESUME    <#n>  <head sha>  <plan comment id the PR body links or ->  <mergeable|conflicting|unknown>
+            <head of the newest verdict or ->  <verdict count>  <head of the newest stop marker or ->
+            <its reason or ->  <answered or ->
+              one line per open pull request that closes the issue, was written by ACCOUNT and has its
+              head branch in this repository. The plan id is the PLAN comment's when the body links it,
+              else the first linked comment. A verdict is a comment by ACCOUNT whose first line is
+              `## Independent local review`, its head the `Reviewed head:` line. A stop marker is a comment by
+              ACCOUNT whose first line is `<!-- work-issue:stopped head=<sha> reason=<kind> -->` (written by
+              issue-worker when it stops after the PR exists). answered: an owner, member or collaborator
+              comment after that marker that is neither a verdict nor a marker
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
               an issue or pull request of the same repository that the issue's body or comments
               mention as #n outside code spans, in order of first mention
