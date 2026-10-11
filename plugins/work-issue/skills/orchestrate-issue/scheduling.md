@@ -59,7 +59,7 @@ To test the timer without waiting for the full hour, add `~/.config/systemd/user
 
 ### Permissions
 
-With `--permission-prompts none` anything that would prompt is denied, and nobody can answer. The first runs showed which steps need a rule, in this order: the planner agent was denied the `plan-issue` skill; then the orchestrator's re-check, `issue-context.py` piped through `grep`, was denied as a compound command. `--settings` loads a file in addition to the user's settings, so the rules apply to this run only. The file `~/.config/work-issue/settings.json` that completed the run above; the transcripts of that run show no denied tool call, so the list is sufficient for it. It was not reduced to a minimum, and which rules were exercised was not counted:
+With `--permission-prompts none` anything that would prompt is denied, and nobody can answer. The first runs showed which steps need a rule, in this order: the planner agent was denied the `plan-issue` skill; then the orchestrator's re-check, `issue-context.py` piped through `grep`, was denied as a compound command. `--settings` loads a file in addition to the user's settings, so the rules apply to this run only. The list below is the file `~/.config/work-issue/settings.json` that completed the run above, plus one rule; the transcripts of that run show no denied tool call, so the file was sufficient for it. It was not reduced to a minimum, and which rules were exercised was not counted. The one added rule, `Bash(gh label create needs-decision *)`, comes from the last step of `plan-issue` (creating the `needs-decision` label when a plan ends in open questions and the repository has none), not from a run, and the questions path of a scheduled run was not exercised:
 
 ```json
 {
@@ -71,7 +71,7 @@ With `--permission-prompts none` anything that would prompt is denied, and nobod
       "Bash(*repo-commands.py*)", "Bash(*check-install-config.py*)",
       "Bash(python3 *)", "Bash(uv *)", "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
       "Bash(gh issue *)", "Bash(gh pr *)", "Bash(gh api *)", "Bash(gh run *)",
-      "Bash(gh repo clone *)", "Bash(gh repo view *)",
+      "Bash(gh repo clone *)", "Bash(gh repo view *)", "Bash(gh label create needs-decision *)",
       "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git fetch*)",
       "Bash(git switch*)", "Bash(git checkout*)", "Bash(git branch*)", "Bash(git add*)", "Bash(git commit*)",
       "Bash(git push*)", "Bash(git rebase*)", "Bash(git merge*)", "Bash(git rev-parse*)", "Bash(git remote*)",
