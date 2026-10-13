@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Print what has to be known before work on one GitHub issue starts. Writes nothing, on GitHub or locally.
 
-usage: issue-context.py <n | '#n' | 'owner/repo#n'>     (quote a "#": unquoted it starts a shell comment)
+usage: issue-context.py [--comments] <n | '#n' | 'owner/repo#n'>     (quote a "#": unquoted it starts a shell comment)
 
 Run it inside the checkout of the repository the issue belongs to. A bare number is resolved against
 the repository `gh` sees in the current directory. With owner/repo#n that repository is read on
 GitHub, and the CHECKOUT line says whether the current directory is a checkout of it; the BRANCH
 (local), MANIFEST and WORKTREE lines always describe the current directory. Needs `gh` with the
-`repo` scope. Does not print the issue's text: read that with
-`gh issue view <n> --json title,body,comments` (without --json, gh prints the body only to a terminal).
+`repo` scope. Does not print the issue's text: read the body with
+`gh issue view <n> --json body -q .body` (without --json, gh prints the body only to a terminal), and
+the comments with `--comments`. Do not read the comments with `gh issue view --json comments`: it returns
+every comment, also those of accounts without write access, which `--comments` leaves out.
+
+--comments prints only the comments facts below (no other line, the status lines excepted) and exits.
 
 Output, one tab-separated line per fact, in this order:
   ISSUE     <owner/repo#n>  <open|closed>  <author>  <human|bot>  <labels, comma-separated or ->  <assignees or ->
               owner/repo is the name GitHub stores, whatever case or former name was typed
   TITLE     <title>
+              for the report to the user; the title is not an input for planning or working
   DEFAULT   <default branch or ->
   CHECKOUT  <owner/repo of the current directory or ->  <match|mismatch|unknown>
               unknown: the current directory is not a checkout `gh` can resolve
@@ -23,15 +28,15 @@ Output, one tab-separated line per fact, in this order:
               mentions it
   QUESTIONS <comment id>  <createdAt>  <open|answered>
               the newest question comment written by ACCOUNT: its first line is
-              `<!-- work-issue:questions -->`. answered: a comment by an owner, member or collaborator; an edit of the issue text is not an answer, the
-              script cannot tell who made it. Comments whose first line is either marker
-              never count as answers or as owner comments, whoever wrote them: ACCOUNT is usually the
-              owner's own login
+              `<!-- work-issue:questions -->`. answered: a later comment by an account with admin, maintain or
+              write permission (ACCOUNT included); an edit of the issue text is not an answer, the script
+              cannot tell who made it. Comments whose first line is either marker never count as answers or
+              as owner comments, whoever wrote them: ACCOUNT is usually the owner's own login
   PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
               the newest plan comment written by ACCOUNT: its first line is
               `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
-              (reason issue-edited), a comment by an owner, member or collaborator came after it
-              (owner-comment), or questions were posted after it (newer-questions). Whether the code
+              (reason issue-edited), a comment by an account with admin, maintain or write permission came
+              after it (owner-comment), or questions were posted after it (newer-questions). Whether the code
               moved since <base sha> is not checked here: that needs the plan's file list
   RESUME    <#n>  <head sha>  <plan comment id the PR body links or ->  <mergeable|conflicting|unknown>
             <head of the newest verdict or ->  <verdict count>  <head of the newest stop marker or ->
@@ -42,11 +47,11 @@ Output, one tab-separated line per fact, in this order:
               anywhere else in the text is no link. A verdict is a comment by ACCOUNT whose first line is
               `## Independent local review`, its head the `Reviewed head:` line. A stop marker is a comment by
               ACCOUNT whose first line is `<!-- work-issue:stopped head=<sha> reason=<kind> -->` (written by
-              issue-worker when it stops after the PR exists). answered: an owner, member or collaborator
-              comment after that marker that is neither a verdict nor a marker
+              issue-worker when it stops after the PR exists). answered: a comment after that marker by an
+              account with admin, maintain or write permission that is neither a verdict nor a marker
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
-              an issue or pull request of the same repository that the issue's body or comments
-              mention as #n outside code spans, in order of first mention
+              an issue or pull request of the same repository that the issue's body or the comments of
+              trusted accounts mention as #n outside code spans, in order of first mention
   BRANCH    <remote|local>  <name>
               a branch with a path segment that starts with the issue number: <n>-…, <n>_…,
               issue-<n>…, or the number alone (fix/12-crash, 12-crash, feat/issue-12)
@@ -55,12 +60,21 @@ Output, one tab-separated line per fact, in this order:
               below it; node_modules, dist, build, target, coverage, vendor and hidden directories
               are skipped
   WORKTREE  <clean|dirty>  <current branch or (detached)>
+  COMMENT   <comment id>  <author>  <createdAt>  <body as one JSON string>      (--comments only)
+              one line per comment of ACCOUNT or of an account with admin, maintain or write permission.
+              The body is a JSON string with every non-ASCII character escaped: it cannot start a line
+              of its own or pass for a line kind
+  OMITTED   <n>                                                                  (--comments only)
+              the number of comments left out because their author is neither ACCOUNT nor such an account
+              (read access only, no relation to the repository, a deleted account, or a permission that could
+              not be read: # SKIPPED permission). Whether they matter is the owner's call: ask
 Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
                                    lines are missing or incomplete, not empty. Sources: query (GitHub
                                    answered with an error next to the data), labels, assignees,
-                                   account, pull-requests, resume, comments, plan (ACCOUNT is unknown, so
-                                   plan and question comments were not evaluated), refs,
+                                   account, pull-requests, resume, comments, permission (the role of an
+                                   author could not be read, so that author is not trusted), plan (ACCOUNT
+                                   is unknown, so plan and question comments were not evaluated), refs,
                                    remote-branches, local-branches, manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
@@ -98,7 +112,7 @@ query($owner: String!, $name: String!, $number: Int!) {
         assignees(first: 20) { nodes { login } }
         comments(last: %(page)d) {
           totalCount
-          nodes { databaseId body createdAt authorAssociation author { login } }
+          nodes { databaseId body createdAt author { login } }
         }
         closedByPullRequestsReferences(last: %(page)d, includeClosedPrs: true) {
           totalCount
@@ -124,7 +138,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       body headRefOid mergeable
       comments(last: %(page)d) {
         totalCount
-        nodes { databaseId body createdAt authorAssociation author { login } }
+        nodes { databaseId body createdAt author { login } }
       }
     }
   }
@@ -210,13 +224,50 @@ def mentioned_numbers(texts, own):
 
 PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})\s*-->")
 QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
-OWNER_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+TRUSTED_ROLES = {"admin", "maintain", "write"}
+_roles = {}
+_unreadable = set()
 
 
-def print_plan_state(issue, comments, login):
+def role_of(repo, login):
+    """(role, None) or (None, reason): the login's permission on the repository (admin, maintain, write,
+    triage, read, none); cached per repository and login."""
+    key = (repo.lower(), login.lower())
+    if key not in _roles:
+        out, reason = run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission"])
+        role = None
+        if reason is None and out:
+            try:
+                data = json.loads(out)
+                role = data.get("role_name") or data.get("permission") if isinstance(data, dict) else None
+            except ValueError:
+                reason = "unexpected answer"
+        _roles[key] = (role, None) if isinstance(role, str) and role else (None, reason or "no role in the answer")
+    return _roles[key]
+
+
+def is_trusted(repo, login, account):
+    """True for the account the agents act as and for a login with admin, maintain or write permission.
+    Anyone can comment on a public issue; `author_association` says how someone relates to the repository,
+    not what they may do (a member of an organisation can have read access only), so the permission is read.
+    A login without a readable role is not trusted and is reported once as # SKIPPED permission."""
+    if not login:
+        return False
+    if account and login.lower() == account.lower():
+        return True
+    role, reason = role_of(repo, login)
+    if role is None:
+        if login.lower() not in _unreadable:
+            _unreadable.add(login.lower())
+            skipped("permission", f"{login}: {reason}")
+        return False
+    return role in TRUSTED_ROLES
+
+
+def print_plan_state(repo, issue, comments, login):
     """PLAN and QUESTIONS lines. Anyone can comment on an issue, so only comments written by `login`
-    (the account the agents act as) count as plan or questions, and only owner, member or collaborator
-    comments that carry no marker count as answers. Returns the comment id of the newest plan, or None."""
+    (the account the agents act as) count as plan or questions, and only comments without a marker by an
+    account with admin, maintain or write permission count as answers. Returns the comment id of the newest plan, or None."""
     if not login:
         skipped("plan", "the account is unknown, so plan and question comments cannot be attributed")
         return None
@@ -240,9 +291,9 @@ def print_plan_state(issue, comments, login):
         return [
             c
             for c in comments
-            if c.get("authorAssociation") in OWNER_ASSOCIATIONS
+            if (c.get("createdAt") or "") > since
             and not is_marker(c)
-            and (c.get("createdAt") or "") > since
+            and is_trusted(repo, (c.get("author") or {}).get("login"), login)
         ]
 
     if questions:
@@ -271,7 +322,7 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
     """RESUME lines: one per open pull request that closes the issue and that this account wrote in this
     repository (not a fork). Whether it is the account's own work on the current plan is for the caller to
     compare; the lines only carry the facts. Anyone can comment on a PR, so verdicts and stop markers count
-    only from `login`, and only owner, member or collaborator comments without a marker count as an answer."""
+    only from `login`, and only comments without a marker by an account with admin, maintain or write permission count as an answer."""
     candidates = [
         (number, node)
         for number, (relation, node) in sorted(pulls.items())
@@ -319,16 +370,33 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
                 body = (comment.get("body") or "").lstrip()
                 first = body.split("\n", 1)[0].strip()
                 if (
-                    comment.get("authorAssociation") in OWNER_ASSOCIATIONS
+                    (comment.get("createdAt") or "") > stop[0]
                     and first != VERDICT_HEADING
                     and not STOP_MARKER.fullmatch(first)
-                    and (comment.get("createdAt") or "") > stop[0]
+                    and is_trusted(repo, (comment.get("author") or {}).get("login"), login)
                 ):
                     answered = True
         emit(
             "RESUME", f"#{pull_number}", pull["headRefOid"], plan, (pull.get("mergeable") or "UNKNOWN").lower(),
             verdict_head, verdicts, stop[1] if stop else None, stop[2] if stop else None, "answered" if answered else None,
         )
+
+
+def print_comments(repo, comments, account):
+    """COMMENT lines for the comments of accounts that are trusted (see is_trusted) and one OMITTED line
+    with the number of the others. A body is one JSON string (ASCII-escaped): a raw tab, newline or
+    separator in somebody's text cannot start a line of its own or pass for a line kind."""
+    omitted = 0
+    for comment in comments["nodes"]:
+        login = (comment.get("author") or {}).get("login")
+        if is_trusted(repo, login, account):
+            print("\t".join([
+                "COMMENT", str(comment["databaseId"]), clean(login), clean(comment.get("createdAt")),
+                json.dumps(comment.get("body") or "", ensure_ascii=True),
+            ]))
+        else:
+            omitted += 1
+    print(f"OMITTED\t{omitted}")
 
 
 def print_refs(owner, name, numbers):
@@ -436,9 +504,11 @@ def main():
     if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         sys.exit(0)
-    if len(sys.argv) != 2:
-        die("expected one argument: n, '#n' or 'owner/repo#n' (an unquoted # starts a shell comment)")
-    typed, number = parse_argument(sys.argv[1])
+    comments_only = "--comments" in sys.argv[1:]
+    arguments = [a for a in sys.argv[1:] if a != "--comments"]
+    if len(arguments) != 1:
+        die("expected one argument: n, '#n' or 'owner/repo#n' (an unquoted # starts a shell comment), optionally --comments")
+    typed, number = parse_argument(arguments[0])
     local, local_reason = local_repository()
     if not typed and not local:
         die(f"cannot resolve the repository of the current directory: {local_reason}")
@@ -476,6 +546,18 @@ def main():
             value.setdefault("totalCount", len(value["nodes"]))
     if reason and not partial:
         partial["query"] = reason
+
+    if comments_only:
+        login, login_reason = run(["gh", "api", "user", "-q", ".login"])
+        account = login.strip() if login_reason is None and login.strip() else None
+        if not account:
+            skipped("account", login_reason or "no login")
+        if "comments" in partial:
+            skipped("comments", partial["comments"])
+        if issue["comments"]["totalCount"] > len(issue["comments"]["nodes"]):
+            skipped("comments", f"only the newest {PAGE} of {issue['comments']['totalCount']} comments were read")
+        print_comments(repo, issue["comments"], account)
+        return
 
     author = issue["author"] or {"login": "ghost", "__typename": "User"}
     emit(
@@ -524,9 +606,13 @@ def main():
         skipped("comments", partial["comments"])
     if comments["totalCount"] > len(comments["nodes"]):
         skipped("comments", f"only the newest {PAGE} of {comments['totalCount']} comments were searched for mentions")
-    texts = [issue.get("body")] + [comment.get("body") for comment in comments["nodes"]]
     account = login.strip() if login_reason is None and login.strip() else None
-    plan_id = print_plan_state(issue, [c for c in comments["nodes"] if c], account)
+    # a mention steers what the planner reads next, so only the body and trusted comments are searched
+    texts = [issue.get("body")] + [
+        comment.get("body") for comment in comments["nodes"]
+        if is_trusted(repo, (comment.get("author") or {}).get("login"), account)
+    ]
+    plan_id = print_plan_state(repo, issue, [c for c in comments["nodes"] if c], account)
     if account:
         print_resume(repo, owner, name, number, pulls, account, plan_id)
     elif any(relation == "closes" for relation, _ in pulls.values()):
