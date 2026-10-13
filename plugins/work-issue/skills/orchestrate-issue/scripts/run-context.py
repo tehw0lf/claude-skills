@@ -33,11 +33,13 @@ Output, one tab-separated line per fact:
               for an explicit reference. An issue whose labeler cannot be determined shows `-` and a
               # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
               as `ref`.
-              edit: `none` when neither the body nor the title was edited after the label event;
-              `trusted` when every such edit (at or after the label event, timestamps compared as instants) was made by an account with admin, maintain or write;
+              edit: `none` when neither the body nor the title was ever edited (the revision that records the
+              creation does not count; a never-edited issue has none);
+              `trusted` when every edit, whenever it was made, was made by an account with admin, maintain or write;
               `untrusted` when any was made by someone else or by a deleted account; `-` for a
               reference or when the history could not be read in full (userContentEdits(first: 100)
-              plus the `renamed` events; a history longer than 100 is # SKIPPED edits)
+              plus the `renamed` events; a history longer than 100, or an issue that reports a creation
+              revision the history does not hold, is # SKIPPED edits)
 Status lines start with "#":
   # SKIPPED <source>: <reason>   a source that could not be read; its lines are missing, not empty.
                                  Sources: rules, protection, issues, labeler, permission, edits, checkouts
@@ -278,22 +280,28 @@ def login_of(person):
     return login if isinstance(login, str) and login else None
 
 
-def editors_after(repo, number, events, since):
-    """Logins (None for a deleted or unnamed account) of every edit of the body or title made at or after
-    `since` (a datetime). Raises ValueError when the history cannot be read in full or holds an entry that
-    cannot be interpreted: an unreadable entry is never taken to mean "no edit"."""
+def editors_of(repo, number, events):
+    """Logins (None for a deleted or unnamed account) of every edit of the body or title the issue ever
+    got, whenever it was made. The revision that records the creation (the issue's first revision, same
+    instant as its creation, present once the issue was edited) is no edit. Raises ValueError when the
+    history cannot be read in full, when a creation revision that the issue claims is missing, or when an
+    entry cannot be interpreted: an unreadable entry is never taken to mean "no edit"."""
     owner, name = repo.split("/", 1)
     out, reason = run([
         "gh", "api", "graphql", "-f",
         "query=query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i)"
-        "{userContentEdits(first: %d){totalCount nodes{editedAt editor{login}}}}}}" % EDIT_PAGE,
+        "{createdAt includesCreatedEdit userContentEdits(first: %d){totalCount nodes{editedAt editor{login}}}}}}" % EDIT_PAGE,
         "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}",
     ])
     try:
-        history = json.loads(out)["data"]["repository"]["issue"]["userContentEdits"]
+        issue = json.loads(out)["data"]["repository"]["issue"]
+        history = issue["userContentEdits"]
         nodes, total = history["nodes"], history["totalCount"]
         if not isinstance(nodes, list) or not isinstance(total, int) or isinstance(total, bool):
             raise TypeError
+        if not isinstance(issue["includesCreatedEdit"], bool):
+            raise TypeError
+        created = parse_time(issue["createdAt"])
     except (TypeError, ValueError, KeyError):
         raise ValueError(reason or "unexpected answer")
     if total > len(nodes):
@@ -303,12 +311,17 @@ def editors_after(repo, number, events, since):
         if not isinstance(node, dict):
             raise ValueError(f"unexpected edit entry {node!r}")
         found.append((parse_time(node.get("editedAt")), login_of(node.get("editor"))))
+    if issue["includesCreatedEdit"]:
+        # the creation record: newest first in the answer, so the last entry at the creation instant is the oldest
+        records = [i for i, (when, _) in enumerate(found) if when == created]
+        if not records:
+            raise ValueError("the history lacks the creation revision that the issue reports")
+        del found[records[-1]]
     # title edits are not part of userContentEdits: the `renamed` events carry them
     for event in events:
         if event.get("event") == "renamed":
             found.append((parse_time(event.get("created_at")), login_of(event.get("actor"))))
-    # >=: an edit in the same second as the label cannot be told from one before it, so it counts
-    return [login for when, login in found if when >= since]
+    return [login for _, login in found]
 
 
 def labeler(repo, number, label):
@@ -338,7 +351,7 @@ def labeler(repo, number, label):
     if role is None:
         skipped("permission", f"{repo}#{number}: {actor}: {reason}")
     try:
-        editors = editors_after(repo, number, events, since)
+        editors = editors_of(repo, number, events)
     except ValueError as error:
         skipped("edits", f"{repo}#{number}: {error}")
         return actor, role, None
