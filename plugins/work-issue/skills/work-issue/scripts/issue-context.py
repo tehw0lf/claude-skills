@@ -36,8 +36,10 @@ Output, one tab-separated line per fact, in this order:
               the newest plan comment written by ACCOUNT: its first line is
               `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
               (reason issue-edited), a comment by an account with admin, maintain or write permission came
-              after it (owner-comment), or questions were posted after it (newer-questions). Whether the code
-              moved since <base sha> is not checked here: that needs the plan's file list
+              after it (owner-comment), a comment by an account whose permission could not be read came
+              after it (unknown-commenter: it could be a writer's, so the plan is not current), or
+              questions were posted after it (newer-questions). Whether the code moved since <base sha>
+              is not checked here: that needs the plan's file list
   RESUME    <#n>  <head sha>  <plan comment id the PR body links or ->  <mergeable|conflicting|unknown>
             <head of the newest verdict or ->  <verdict count>  <head of the newest stop marker or ->
             <its reason or ->  <answered or ->
@@ -66,8 +68,8 @@ Output, one tab-separated line per fact, in this order:
               of its own or pass for a line kind
   OMITTED   <n>                                                                  (--comments only)
               the number of comments left out because their author is neither ACCOUNT nor such an account
-              (read access only, no relation to the repository, a deleted account, or a permission that could
-              not be read: # SKIPPED permission). Whether they matter is the owner's call: ask
+              (read access only, no relation to the repository, a bot or app, a deleted account, or a permission
+              that could not be read: # SKIPPED permission). Whether they matter is the owner's call: ask
 Status lines start with "#":
   # SKIPPED <source>: <reason>     a source that could not be read, or was read only in part; its
                                    lines are missing or incomplete, not empty. Sources: query (GitHub
@@ -112,7 +114,7 @@ query($owner: String!, $name: String!, $number: Int!) {
         assignees(first: 20) { nodes { login } }
         comments(last: %(page)d) {
           totalCount
-          nodes { databaseId body createdAt author { login } }
+          nodes { databaseId body createdAt author { login __typename } }
         }
         closedByPullRequestsReferences(last: %(page)d, includeClosedPrs: true) {
           totalCount
@@ -138,7 +140,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       body headRefOid mergeable
       comments(last: %(page)d) {
         totalCount
-        nodes { databaseId body createdAt author { login } }
+        nodes { databaseId body createdAt author { login __typename } }
       }
     }
   }
@@ -246,12 +248,19 @@ def role_of(repo, login):
     return _roles[key]
 
 
-def is_trusted(repo, login, account):
-    """True for the account the agents act as and for a login with admin, maintain or write permission.
-    Anyone can comment on a public issue; `author_association` says how someone relates to the repository,
-    not what they may do (a member of an organisation can have read access only), so the permission is read.
-    A login without a readable role is not trusted and is reported once as # SKIPPED permission."""
-    if not login:
+def is_trusted(repo, comment, account):
+    """True for the account the agents act as and for an author with admin, maintain or write permission;
+    False for everybody else, a bot (an app's comment never counts as the owner's, and the permission
+    endpoint does not know apps), a deleted account; None when the role of a human author could not be
+    read. Anyone can comment on a public issue; `author_association` says how someone relates to the
+    repository, not what they may do (a member of an organisation can have read access only), so the
+    permission is read. The callers treat None as "not trusted" where trust grants something (an answer, a
+    comment shown to the agents) and as "unknown" where a trusted comment would invalidate something (a plan
+    that a writer's comment follows is stale, so an unknown author makes it stale): an unreadable role must
+    not leave a plan current. It is reported once as # SKIPPED permission."""
+    author = comment.get("author") or {}
+    login = author.get("login")
+    if not login or author.get("__typename") == "Bot":
         return False
     if account and login.lower() == account.lower():
         return True
@@ -260,7 +269,7 @@ def is_trusted(repo, login, account):
         if login.lower() not in _unreadable:
             _unreadable.add(login.lower())
             skipped("permission", f"{login}: {reason}")
-        return False
+        return None
     return role in TRUSTED_ROLES
 
 
@@ -287,25 +296,24 @@ def print_plan_state(repo, issue, comments, login):
         first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
         return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first))
 
-    def owner_comments_after(since):
-        return [
-            c
-            for c in comments
-            if (c.get("createdAt") or "") > since
-            and not is_marker(c)
-            and is_trusted(repo, (c.get("author") or {}).get("login"), login)
-        ]
+    def comments_after(since):
+        """(comments by trusted accounts, comments whose author's role could not be read), both without markers"""
+        later = [c for c in comments if (c.get("createdAt") or "") > since and not is_marker(c)]
+        verdicts = [(c, is_trusted(repo, c, login)) for c in later]
+        return [c for c, v in verdicts if v is True], [c for c, v in verdicts if v is None]
 
     if questions:
-        state = "answered" if owner_comments_after(questions["createdAt"]) else "open"
+        state = "answered" if comments_after(questions["createdAt"])[0] else "open"
         emit("QUESTIONS", questions["databaseId"], questions["createdAt"], state)
     if plan:
         comment, base = plan
         reason = "-"
         if (issue.get("lastEditedAt") or "") > comment["createdAt"]:
             reason = "issue-edited"
-        elif owner_comments_after(comment["createdAt"]):
+        elif comments_after(comment["createdAt"])[0]:
             reason = "owner-comment"
+        elif comments_after(comment["createdAt"])[1]:
+            reason = "unknown-commenter"
         elif questions and questions["createdAt"] > comment["createdAt"]:
             reason = "newer-questions"
         emit("PLAN", comment["databaseId"], comment["createdAt"], base, "current" if reason == "-" else "stale", reason)
@@ -373,7 +381,7 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
                     (comment.get("createdAt") or "") > stop[0]
                     and first != VERDICT_HEADING
                     and not STOP_MARKER.fullmatch(first)
-                    and is_trusted(repo, (comment.get("author") or {}).get("login"), login)
+                    and is_trusted(repo, comment, login) is True
                 ):
                     answered = True
         emit(
@@ -389,7 +397,7 @@ def print_comments(repo, comments, account):
     omitted = 0
     for comment in comments["nodes"]:
         login = (comment.get("author") or {}).get("login")
-        if is_trusted(repo, login, account):
+        if is_trusted(repo, comment, account) is True:
             print("\t".join([
                 "COMMENT", str(comment["databaseId"]), clean(login), clean(comment.get("createdAt")),
                 json.dumps(comment.get("body") or "", ensure_ascii=True),
@@ -610,7 +618,7 @@ def main():
     # a mention steers what the planner reads next, so only the body and trusted comments are searched
     texts = [issue.get("body")] + [
         comment.get("body") for comment in comments["nodes"]
-        if is_trusted(repo, (comment.get("author") or {}).get("login"), account)
+        if is_trusted(repo, comment, account) is True
     ]
     plan_id = print_plan_state(repo, issue, [c for c in comments["nodes"] if c], account)
     if account:
