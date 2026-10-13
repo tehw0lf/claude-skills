@@ -227,13 +227,17 @@ def mentioned_numbers(texts, own):
 PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})\s*-->")
 QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
 TRUSTED_ROLES = {"admin", "maintain", "write"}
+BUILTIN_ROLES = {"admin", "maintain", "write", "triage", "read", "none"}
 _roles = {}
 _unreadable = set()
 
 
 def role_of(repo, login):
     """(role, None) or (None, reason): the login's permission on the repository (admin, maintain, write,
-    triage, read, none); cached per repository and login."""
+    triage, read, none); cached per repository and login. The answer has `role_name` (the assigned role,
+    which is the role's own name for a custom role) and `permission` (the base role: admin, write, read or
+    none; maintain arrives as write and triage as read). A built-in `role_name` is used as it is; a custom
+    one is judged by its base `permission`, so a custom role built on write counts as write."""
     key = (repo.lower(), login.lower())
     if key not in _roles:
         out, reason = run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission"])
@@ -241,7 +245,9 @@ def role_of(repo, login):
         if reason is None and out:
             try:
                 data = json.loads(out)
-                role = data.get("role_name") or data.get("permission") if isinstance(data, dict) else None
+                if isinstance(data, dict):
+                    name, base = data.get("role_name"), data.get("permission")
+                    role = name if isinstance(name, str) and name in BUILTIN_ROLES else base
             except ValueError:
                 reason = "unexpected answer"
         _roles[key] = (role, None) if isinstance(role, str) and role else (None, reason or "no role in the answer")
