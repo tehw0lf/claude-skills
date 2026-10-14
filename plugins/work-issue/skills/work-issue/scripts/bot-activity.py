@@ -26,25 +26,30 @@ Output, one tab-separated line per fact on stdout:
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
-             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` that reports a
-             finished review without findings of the commit the verdict reviewed, and nothing else that
-             needs reading: a line that is exactly the sentence `No actionable comments were generated in
-             the recent review.` (an emoji may follow); no "review in progress by coderabbit.ai" marker and
-             no "Currently processing new changes"; exactly one `between <sha> and <sha>` range whose end
-             is, in full, the verdict's `Reviewed head:`; a Merge Risk line, when there is one, says
-             Minimal; and no row of its pre-merge checks table has the status ❌, ⚠️ or ❓ except
-             Docstring Coverage (a style gate that says nothing about the change). Anything else, also
-             every review and inline comment, another author and an abbreviated `Reviewed head:`, is `-`.
-             The text is only tested, never printed. This is CodeRabbit's own text (in the account's
-             recent pull requests 149 comments had the sentence, all worded alike; the range always
-             existed and its last end was the commit reviewed; 18 of them carried a failed check, 3
-             other than Docstring Coverage; a comment that said Merge Risk Moderate has been seen): a
-             changed wording is `-`, which costs a review round and never a merge. The comment is edited
-             in place for every pass, so the sentence can sit next to an in-progress block for a newer
-             range, or describe a pass after earlier findings; findings are posted as review objects and
-             inline comments, which are `-` and so stay a round. The caller treats `no-findings` as
-             "nothing to read" only when every BOT line has it. A bot can still write text next to the
-             sentence that none of these tests sees.
+             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` that shows, in its
+             text, a finished review without findings of the commit the verdict reviewed and positive
+             evidence of nothing else that needs reading. All of these hold: a line is exactly the sentence
+             `No actionable comments were generated in the recent review.` (a 🎉 may follow); no
+             "review in progress by coderabbit.ai" marker and no "Currently processing new changes"; exactly
+             one `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`;
+             at least one Merge Risk line, and every one says Minimal (a level, nothing after it but the
+             `· up to <sha>` part); a pre-merge checks section with a passed-checks part; and every check
+             listed as failed or inconclusive, in the emoji format and in the image format, is Docstring
+             Coverage (a style gate that says nothing about the change); a failed or inconclusive heading
+             without a table row is not readable and counts as not passing. A part of the text that is
+             missing or has a format this script does not know makes the field `-`: a missing line is no
+             evidence. Anything else, also every review and inline comment, another author and an
+             abbreviated `Reviewed head:`, is `-`. The text is only tested, never printed.
+             The tests rest on what CodeRabbit wrote in the account's recent pull requests (149
+             comments with the sentence, all worded alike; the range is in all of them and its last end
+             was the commit reviewed; the Merge Risk line is missing in the older ones and one level
+             above Minimal was seen; since about 2026-10-10 the checks table uses images for its
+             status). A changed wording or format is `-`, which costs a review round and never a merge.
+             The comment is edited in place for every pass, so the sentence can sit next to an in-progress
+             block for a newer range, or describe a pass after earlier findings; findings are posted as
+             review objects and inline comments, which are `-` and so stay a round. The caller treats
+             `no-findings` as "nothing to read" only when every BOT line has it. A bot can still write
+             text next to the sentence that none of these tests sees.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
              verdict. With no verdict comment there is no reference time: `SKIPPED verdict ...` and no
@@ -59,12 +64,15 @@ import sys
 
 HEADING = "## Independent local review"
 REVIEWER = "coderabbitai[bot]"
-NO_FINDINGS = re.compile(r"No actionable comments were generated in the recent review\.(?:\s*\S{1,4})?")
-MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
-MARKUP = re.compile(r"<[^>]*>|[*_`]")
-CHECK_ROW = re.compile(r"^\s*\|\s*([^|]+?)\s*\|\s*(❌|⚠️|❓)")
+NO_FINDINGS = re.compile(r"No actionable comments were generated in the recent review\.(?:\s*🎉)?")
 IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently processing new changes", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
+MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
+MARKUP = re.compile(r"<[^>]*>|[*_`]")
+MINIMAL = re.compile(r"[^\w]*Minimal(?:\s*·.*)?")
+UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
+SECTION_END = re.compile(r"<details>|</details>|<summary>|Passed checks", re.IGNORECASE)
+TOLERATED = "docstring coverage"
 
 
 def clean(text):
@@ -83,24 +91,46 @@ def gh(args):
     return p.stdout, None
 
 
+def unpassed_checks(body):
+    """The names of the pre-merge checks listed as failed or inconclusive, or None when a section of them
+    cannot be read (a heading without a table row): the caller then does not trust the comment."""
+    names = []
+    for heading in UNPASSED.finditer(body):
+        tail = body[heading.end():]
+        end = SECTION_END.search(tail)
+        rows = 0
+        for line in (tail[:end.start()] if end else tail).split("\n"):
+            if not line.lstrip().startswith("|") or re.fullmatch(r"[\s|:\-]+", line):
+                continue
+            name = line.strip().strip("|").split("|")[0].strip()
+            if name.lower() != "check name":
+                names.append(name)
+                rows += 1
+        if not rows:
+            return None
+    return names
+
+
 def no_findings(login, body, reviewed):
-    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:` in full, or
-    None) by CodeRabbit that carries nothing else that needs reading; the tests are in the module docstring."""
+    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, in full, or
+    None) by CodeRabbit that shows positive evidence of nothing else that needs reading; the tests are in
+    the module docstring. Every test that cannot be made, because a part of the text is missing or in an
+    unknown format, makes it False."""
     if login != REVIEWER or not reviewed or not body:
         return False
-    if not any(NO_FINDINGS.fullmatch(line.strip()) for line in body.split("\n")) or IN_PROGRESS.search(body):
+    lines = [line.strip() for line in body.split("\n")]
+    if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body):
         return False
     ranges = REVIEW_RANGE.findall(body)
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower():
         return False
-    for risk in MERGE_RISK.finditer(body):
-        if not MARKUP.sub("", risk.group(1)).strip().lower().lstrip("⚪ ").startswith("minimal"):
-            return False
-    for line in body.split("\n"):
-        row = CHECK_ROW.match(line)
-        if row and row.group(1).lower() != "docstring coverage":
-            return False
-    return True
+    risks = [MARKUP.sub("", risk.group(1)).strip() for risk in MERGE_RISK.finditer(body)]
+    if not risks or not all(MINIMAL.fullmatch(risk) for risk in risks):
+        return False
+    if "pre-merge checks" not in body.lower() or not re.search(r"Passed checks|✅ Passed|alt=\"Passed\"", body):
+        return False
+    unpassed = unpassed_checks(body)
+    return unpassed is not None and all(name.lower() == TOLERATED for name in unpassed)
 
 
 def pages(path):
