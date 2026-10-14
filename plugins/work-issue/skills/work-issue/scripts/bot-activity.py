@@ -30,16 +30,25 @@ Output, one tab-separated line per fact on stdout:
              part this script tests shows a finished review of the commit the verdict reviewed without
              findings. All of these hold: a line is exactly the sentence `No actionable comments were
              generated in the recent review.` (a 🎉 may follow); no "review in progress by coderabbit.ai"
-             marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
-             (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
+             marker, no "Currently processing new changes", no "Actionable comments posted", "Review skipped",
+             "Reviews paused", auto-pause, rate-limit or "Review failed" text anywhere in it (any case) and no
+             `[!WARNING]` or `[!CAUTION]` block (CodeRabbit reports a failed tool or an incomplete review
+             that way); exactly one
              `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`
-             (the word `between` occurs exactly once in the whole text, so a second range written with it fails; one written without it, such as `a..b`, is not seen); at least one Merge Risk
-             line, and every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head (the
-             hidden `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
+             (the word `between` occurs exactly once in the whole text, so a second range written with it
+             fails; one written without it, such as `a..b`, is not seen); at least one Merge Risk line, and
+             every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head, read to the end of
+             its line; the text must not hold more label-shaped `merge risk` than these lines (counted three
+             ways: the name as written, any case with separators, `&nbsp;` or `level` before a separator, and
+             at the start of a line whatever follows), so a second label in another spelling fails, while a
+             prose sentence that mentions the merge risk in the middle of a line passes (the hidden
+             `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
              the block's own start and end markers, whatever its headings are called, has the status Passed
              except Docstring Coverage, and the number of rows equals the total of the counters in the
-             block's summary (so a renamed heading or counter cannot hide a row); and the checks listed as failed or
+             block's summary (so a renamed heading or counter cannot hide a row; a line of the block that
+             holds a pipe but neither starts with one nor with `<` is not a table this script reads and
+             fails); and the checks listed as failed or
              inconclusive, in the emoji and in the image format, are only Docstring Coverage (a style gate
              that says nothing about the change). The list is read as the table lines that follow its
              heading through markup only, its rows must number what the heading says, and their total must
@@ -54,7 +63,8 @@ Output, one tab-separated line per fact on stdout:
              comments with the sentence, all worded alike; the range is in all of them and its last end
              was the commit reviewed; the Merge Risk line is missing in the older ones and one level
              above Minimal was seen; since about 2026-10-10 the checks table uses images for its
-             status). A changed wording or format is `-`, which costs a review round and never a merge.
+             status). A changed wording or format of a part it tests is `-`, which costs a review round and never a merge;
+             text in a shape it does not test is not seen.
              The comment is edited in place for every pass, so the sentence can sit next to an in-progress
              block for a newer range, or describe a pass after earlier findings; findings are posted as
              review objects and inline comments, which are `-` and so stay a round. The caller treats
@@ -80,7 +90,8 @@ IN_PROGRESS = re.compile(
     r"|Reviews? paused|auto-?paus|rate[- ]limit|Review failed", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
-RISK_LABEL = re.compile(r"merge[\s\-_]*risk(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
+RISK_LABEL = re.compile(r"merge[\s\-_]*risk(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
+RISK_START = re.compile(r"(?:<[^>]*>|[\s*_|>])*merge(?:\s|&nbsp;|&#160;|[\-_])*risk", re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
@@ -155,7 +166,11 @@ def check_rows(body):
         return None
     rows = []
     for line in block.group(1).split("\n"):
-        if not line.lstrip().startswith("|") or re.fullmatch(r"[\s|:\-]+", line):
+        if not line.lstrip().startswith("|"):
+            if "|" in line and not line.lstrip().startswith("<"):
+                return None  # a row written without its leading pipe: not a table this reader knows
+            continue
+        if re.fullmatch(r"[\s|:\-]+", line):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if cells[0].lower() == "check name":
@@ -185,7 +200,8 @@ def no_findings(login, body, reviewed):
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(BETWEEN.findall(body)) != 1:
         return False
     labels = list(MERGE_RISK.finditer(body))
-    if len(RISK_LABEL.findall(body)) != len(labels) or body.count("Merge Risk") != len(labels):
+    starts = sum(1 for line in body.split("\n") if RISK_START.match(line))
+    if len({len(RISK_LABEL.findall(body)), starts, body.count("Merge Risk"), len(labels)}) != 1:
         return False
     risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
