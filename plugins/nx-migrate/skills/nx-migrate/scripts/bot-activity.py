@@ -32,9 +32,14 @@ Output, one tab-separated line per fact on stdout:
              generated in the recent review.` (a 🎉 may follow); no "review in progress by coderabbit.ai"
              marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
              (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
-             `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`; at
-             least one Merge Risk line, and every one is `Minimal` with at most `· up to <sha>` after it;
-             a pre-merge checks section with a passed-checks part; and the checks listed as failed or
+             `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`
+             (any other `between … and …` in the text counts as a second range); at least one Merge Risk
+             line, and every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head (the
+             hidden `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
+             commit); a pre-merge checks section with a passed-checks part; every row of the table between
+             the block's own start and end markers, whatever its headings are called, has the status Passed
+             except Docstring Coverage, and the number of rows equals the total of the counters in the
+             block's summary (so a renamed heading or counter cannot hide a row); and the checks listed as failed or
              inconclusive, in the emoji and in the image format, are only Docstring Coverage (a style gate
              that says nothing about the change). The list is read as the table lines that follow its
              heading through markup only, its rows must number what the heading says, and their total must
@@ -74,7 +79,12 @@ IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently proces
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
-MINIMAL = re.compile(r"[^\w]*Minimal(?:\s*·\s*up to [0-9a-f]{5,40})?")
+MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
+LOOSE_RANGE = re.compile(r"\bbetween\s+\S+\s+and\s+\S+", re.IGNORECASE)
+COVERAGE = re.compile(r"final_review_risk_coverage:(\{.*?\})\s*-->", re.DOTALL)
+CHECKS_BLOCK = re.compile(r"<!--\s*pre_merge_checks_walkthrough_start\s*-->(.*?)<!--\s*pre_merge_checks_walkthrough_end\s*-->", re.DOTALL)
+PASSED_ROW = re.compile(r"(?:✅\s*Passed|!\[Passed\]\()")
+PASSED_COUNTER = re.compile(r"(?:✅|alt=\"Passed\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
 UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
 ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
 COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
@@ -130,6 +140,31 @@ def unpassed_checks(body):
     return names
 
 
+def check_rows(body):
+    """The (name, passed) pairs of every row of the pre-merge checks table, read between the block's own
+    start and end markers whatever the headings are called, or None when that cannot be done with certainty:
+    no block, no row, a row without a status cell, or a number of rows that differs from the total of the
+    counters in the block's summary (passed, failed and inconclusive)."""
+    block = CHECKS_BLOCK.search(body)
+    if not block:
+        return None
+    rows = []
+    for line in block.group(1).split("\n"):
+        if not line.lstrip().startswith("|") or re.fullmatch(r"[\s|:\-]+", line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells[0].lower() == "check name":
+            continue
+        if len(cells) < 2:
+            return None
+        rows.append((cells[0], bool(PASSED_ROW.match(cells[1]))))
+    summary = re.search(r"Pre-merge checks[^\n]*", block.group(1))
+    if not rows or not summary:
+        return None
+    total = sum(int(n) for n in PASSED_COUNTER.findall(summary.group(0))) + sum(int(n) for n in COUNTER.findall(summary.group(0)))
+    return rows if total == len(rows) else None
+
+
 def no_findings(login, body, reviewed):
     """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, all 40
     characters, or None) by CodeRabbit in which every part tested here passes; the tests are in the module
@@ -141,15 +176,25 @@ def no_findings(login, body, reviewed):
     if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body) or ALERT.search(body):
         return False
     ranges = REVIEW_RANGE.findall(body)
-    if len(ranges) != 1 or ranges[0][1] != reviewed.lower():
+    if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(LOOSE_RANGE.findall(body)) != 1:
         return False
-    risks = [MARKUP.sub("", risk.group(1)).strip() for risk in MERGE_RISK.finditer(body)]
-    if not risks or not all(MINIMAL.fullmatch(risk) for risk in risks):
+    risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in MERGE_RISK.finditer(body)]
+    if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
         return False
+    for marker in COVERAGE.finditer(body):
+        try:
+            coverage = json.loads(marker.group(1))
+        except ValueError:
+            return False
+        if not isinstance(coverage, dict) or coverage.get("kind") != "reviewed" or str(coverage.get("coveredCommitId", "")).lower() != reviewed.lower():
+            return False
     if "pre-merge checks" not in body.lower() or not re.search(r"Passed checks|✅ Passed|alt=\"Passed\"", body):
         return False
     unpassed = unpassed_checks(body)
-    return unpassed is not None and all(name.lower() == TOLERATED for name in unpassed)
+    rows = check_rows(body)
+    if unpassed is None or rows is None or not all(name.lower() == TOLERATED for name in unpassed):
+        return False
+    return all(passed or name.lower() == TOLERATED for name, passed in rows)
 
 
 def pages(path):
