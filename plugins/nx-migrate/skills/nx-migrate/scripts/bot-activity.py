@@ -131,11 +131,11 @@ def unpassed_checks(body):
 
 
 def no_findings(login, body, reviewed):
-    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, in full, or
-    None) by CodeRabbit that shows positive evidence of nothing else that needs reading; the tests are in
-    the module docstring. Every test that cannot be made, because a part of the text is missing or in an
-    unknown format, makes it False."""
-    if login != REVIEWER or not reviewed or not body:
+    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, all 40
+    characters, or None) by CodeRabbit in which every part tested here passes; the tests are in the module
+    docstring. They find no sign of anything else, they do not prove there is none. Every test that cannot
+    be made, because a part of the text is missing or in an unknown format, makes it False."""
+    if login != REVIEWER or not reviewed or not body or not re.fullmatch(r"[0-9a-fA-F]{40}", reviewed):
         return False
     lines = [line.strip() for line in body.split("\n")]
     if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body) or ALERT.search(body):
