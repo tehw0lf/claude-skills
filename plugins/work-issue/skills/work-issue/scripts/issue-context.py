@@ -26,7 +26,8 @@ Output, one tab-separated line per fact, in this order:
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
               mentions it. Head branch and title are `-` unless its author is ACCOUNT or has admin,
-              maintain or write permission (the same test as for comments, see COMMENT): anyone can open
+              maintain or write permission (the same test as for comments, see COMMENT; also `-` when the
+              permission could not be read, # SKIPPED permission): anyone can open
               a pull request, so its text must not reach the agents. Number, state and relation do not
               depend on the author, so the stop conditions work on every PR
   QUESTIONS <comment id>  <createdAt>  <open|answered>
