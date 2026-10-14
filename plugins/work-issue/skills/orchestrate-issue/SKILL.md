@@ -51,7 +51,7 @@ Take the remaining issues in order, explicit references in the given order first
 
 ### 4. Plan
 
-For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported.
+For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported. A planner that ended without a comment because the owner answered "wait" (`QUESTIONS … answered`, no plan) is reported as waiting on the `REF` or pull request it names: nothing failed, and the worker is not started.
 
 ### 5. Work
 

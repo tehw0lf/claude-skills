@@ -1,6 +1,6 @@
 {
   "name": "work-issue",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Work one GitHub issue: a planner (Opus) first reads it and the code and posts an implementation plan or the open owner questions on the issue, then the worker implements the current plan to an open pull request, or unsupervised through independent review and merge; an orchestrator runs planner and worker for labelled or named issues and continues issues that are already started (current plan, own open PR) until they are merged.",
   "author": {
     "name": "tehw0lf",
