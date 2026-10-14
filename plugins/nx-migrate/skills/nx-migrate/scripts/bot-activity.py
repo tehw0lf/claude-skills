@@ -33,7 +33,7 @@ Output, one tab-separated line per fact on stdout:
              marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
              (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
              `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`
-             (any other `between … and …` in the text counts as a second range); at least one Merge Risk
+             (the word `between` occurs exactly once in the whole text, so a second range in any wording fails); at least one Merge Risk
              line, and every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head (the
              hidden `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
@@ -80,10 +80,12 @@ REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
-LOOSE_RANGE = re.compile(r"\bbetween\s+\S+\s+and\s+\S+", re.IGNORECASE)
+BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
 COVERAGE = re.compile(r"final_review_risk_coverage:(\{.*?\})\s*-->", re.DOTALL)
+CHECKS_START = re.compile(r"pre_merge_checks_walkthrough_start")
+CHECKS_END = re.compile(r"pre_merge_checks_walkthrough_end")
 CHECKS_BLOCK = re.compile(r"<!--\s*pre_merge_checks_walkthrough_start\s*-->(.*?)<!--\s*pre_merge_checks_walkthrough_end\s*-->", re.DOTALL)
-PASSED_ROW = re.compile(r"(?:✅\s*Passed|!\[Passed\]\()")
+PASSED_ROW = re.compile(r"✅\s*Passed|!\[Passed\]\([^)]*\)")
 PASSED_COUNTER = re.compile(r"(?:✅|alt=\"Passed\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
 UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
 ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
@@ -146,7 +148,7 @@ def check_rows(body):
     no block, no row, a row without a status cell, or a number of rows that differs from the total of the
     counters in the block's summary (passed, failed and inconclusive)."""
     block = CHECKS_BLOCK.search(body)
-    if not block:
+    if not block or len(CHECKS_START.findall(body)) != 1 or len(CHECKS_END.findall(body)) != 1:
         return None
     rows = []
     for line in block.group(1).split("\n"):
@@ -157,7 +159,7 @@ def check_rows(body):
             continue
         if len(cells) < 2:
             return None
-        rows.append((cells[0], bool(PASSED_ROW.match(cells[1]))))
+        rows.append((cells[0], bool(PASSED_ROW.fullmatch(cells[1]))))
     summary = re.search(r"Pre-merge checks[^\n]*", block.group(1))
     if not rows or not summary:
         return None
@@ -176,12 +178,18 @@ def no_findings(login, body, reviewed):
     if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body) or ALERT.search(body):
         return False
     ranges = REVIEW_RANGE.findall(body)
-    if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(LOOSE_RANGE.findall(body)) != 1:
+    if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(BETWEEN.findall(body)) != 1:
         return False
-    risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in MERGE_RISK.finditer(body)]
+    labels = list(MERGE_RISK.finditer(body))
+    if body.count("Merge Risk") != len(labels):
+        return False
+    risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
         return False
-    for marker in COVERAGE.finditer(body):
+    markers = list(COVERAGE.finditer(body))
+    if body.count("final_review_risk_coverage") != len(markers):
+        return False
+    for marker in markers:
         try:
             coverage = json.loads(marker.group(1))
         except ValueError:
