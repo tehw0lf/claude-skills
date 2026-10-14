@@ -38,12 +38,13 @@ Output, one tab-separated line per fact on stdout:
              (the word `between` occurs exactly once in the whole text, so a second range written with it
              fails; one written without it, such as `a..b`, is not seen); at least one Merge Risk line, and
              every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head, read to the end of
-             its line; the text must not hold more label-shaped `merge risk` than these lines (counted three
-             ways: the name as written `Merge Risk`, any case with separators, `&nbsp;`, inner markup or `level`
-             before a separator, and at the start of a line after markup, any characters that are not letters or digits and
-             list numbers or letters such as `1)`, `a.` or `(1)`, whatever follows), so a second label in another spelling fails, while a prose sentence
-             that mentions the merge risk in the middle of a line passes unless it spells the name exactly
-             `Merge Risk` (a false rejection, which only costs a round) (the hidden
+             its line; a line that is label-shaped (the name as written `Merge Risk`, any case with
+             separators, `&nbsp;`, inner markup or `level` before a separator, or `merge risk` at the start of
+             a line after markup, any characters that are not letters or digits and list numbers or letters such
+             as `1)`, `a.` or `(1)`) must be exactly one valid label line, checked per line, so a second label in
+             another spelling fails whatever the other lines hold; a prose sentence that mentions the merge risk
+             fails too when it is label-shaped, for instance `Merge Risk` written exactly, `no merge risk: …`
+             or `merge risk-free` (false rejections, which only cost a round), while other prose passes (the hidden
              `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
              the block's own start and end markers, whatever its headings are called, has the status Passed
@@ -94,7 +95,7 @@ REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
 RISK_NAME = r"merge(?:\s|&nbsp;|&#160;|[\-_]|<[^>]*>)*risk"
 RISK_LABEL = re.compile(RISK_NAME + r"(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
-RISK_START = re.compile(r"(?:<[^>]*>|[^\w<]|\(?[0-9a-z]{1,3}[.)])*" + RISK_NAME, re.IGNORECASE)
+RISK_START = re.compile(r"(?:<[^>]*>|[^\w<]|[0-9a-z]{1,3}[.)])*" + RISK_NAME, re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
@@ -205,9 +206,10 @@ def no_findings(login, body, reviewed):
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(BETWEEN.findall(body)) != 1:
         return False
     labels = list(MERGE_RISK.finditer(body))
-    starts = sum(1 for line in body.split("\n") if RISK_START.match(line))
-    if len({len(RISK_LABEL.findall(body)), starts, body.count("Merge Risk"), len(labels)}) != 1:
-        return False
+    for line in body.split("\n"):
+        shaped = (len(RISK_LABEL.findall(line)), 1 if RISK_START.match(line) else 0, line.count("Merge Risk"))
+        if any(shaped) and not (shaped[0] == 1 and shaped[1] <= 1 and shaped[2] == 1 and len(MERGE_RISK.findall(line)) == 1):
+            return False
     risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
         return False
