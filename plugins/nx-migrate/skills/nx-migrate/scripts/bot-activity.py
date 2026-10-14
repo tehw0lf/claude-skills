@@ -22,10 +22,24 @@ leaves out minimized comments without saying so.
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
   HEAD     <sha>                       the current head of the PR
-  BOT      <issue-comment|review|review-comment>  <id>  <login>  <created_at>  <updated_at>  <commit or ->
+  BOT      <issue-comment|review|review-comment>  <id>  <login>  <created_at>  <updated_at>  <commit or ->  <no-findings or ->
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
+             Last field: `no-findings` only for an issue comment that reports a finished review without
+             findings of the commit the verdict reviewed: a line that starts with the sentence
+             `No actionable comments were generated in the recent review.`, no "review in progress by
+             coderabbit.ai" marker and no "Currently processing new changes" in the text, and exactly one
+             `between <sha> and <sha>` range, which ends at the verdict's `Reviewed head:`. Anything else,
+             also every review and inline comment, is `-`. The text is only tested, never printed. That is
+             what CodeRabbit writes (149 of 149 such comments of the author's recent pull requests had
+             this one sentence, and the last range end always was the commit it had reviewed); another
+             reviewer or a changed wording is `-`, which costs a review round and never a merge. An
+             `issue-comment` is edited in place for every pass, so the sentence can still sit in a comment
+             that also carries an in-progress block for a newer range, or describe a pass after earlier
+             findings: the caller treats `no-findings` as "nothing to read" only when every BOT line has it,
+             so a review object or inline comment after the verdict (findings are posted as those) is still
+             a round. A bot can put text next to the sentence; the sentence is no proof that nothing else was said.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
              verdict. With no verdict comment there is no reference time: `SKIPPED verdict ...` and no
@@ -39,6 +53,9 @@ import subprocess
 import sys
 
 HEADING = "## Independent local review"
+NO_FINDINGS = "No actionable comments were generated in the recent review."
+IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently processing new changes", re.IGNORECASE)
+REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 
 
 def clean(text):
@@ -55,6 +72,20 @@ def gh(args):
     if p.returncode != 0:
         return None, clean(p.stderr) or "exit %d" % p.returncode
     return p.stdout, None
+
+
+def no_findings(body, reviewed):
+    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, or None):
+    the sentence on a line of its own start, no in-progress marker, one range that ends at that commit."""
+    if not reviewed or not body:
+        return False
+    if not any(line.strip().startswith(NO_FINDINGS) for line in body.split("\n")) or IN_PROGRESS.search(body):
+        return False
+    ranges = REVIEW_RANGE.findall(body)
+    if len(ranges) != 1:
+        return False
+    end, wanted = ranges[0][1], reviewed.lower()
+    return end.startswith(wanted) or wanted.startswith(end)
 
 
 def pages(path):
@@ -124,22 +155,24 @@ def main():
 
     if verdict:
         since = verdict["created_at"]  # ISO 8601 UTC with Z: strings compare in time order
+        reviewed = m.group(1) if m else None
 
         def is_bot(item):
             return (item.get("user") or {}).get("type") == "Bot"
 
         for c in issue_comments or []:
             if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-" % (
-                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"]))
+                print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-\t%s" % (
+                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
+                    "no-findings" if no_findings(c.get("body"), reviewed) else "-"))
         for r in reviews or []:
             t = r.get("submitted_at") or ""
             if is_bot(r) and t >= since:
-                print("BOT\treview\t%s\t%s\t%s\t%s\t%s" % (
+                print("BOT\treview\t%s\t%s\t%s\t%s\t%s\t-" % (
                     r["id"], r["user"]["login"], t, t, r.get("commit_id") or "-"))
         for c in inline or []:
             if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s" % (
+                print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s\t-" % (
                     c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
                     c.get("original_commit_id") or "-"))
     return 1 if skipped else 0
