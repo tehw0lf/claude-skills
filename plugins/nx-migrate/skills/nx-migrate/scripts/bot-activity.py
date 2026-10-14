@@ -22,39 +22,10 @@ leaves out minimized comments without saying so.
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
   HEAD     <sha>                       the current head of the PR
-  BOT      <issue-comment|review|review-comment>  <id>  <login>  <created_at>  <updated_at>  <commit or ->  <no-findings or ->
+  BOT      <issue-comment|review|review-comment>  <id>  <login>  <created_at>  <updated_at>  <commit or ->
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
-             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` in which every
-             part this script tests shows a finished review of the commit the verdict reviewed without
-             findings. All of these hold: a line is exactly the sentence `No actionable comments were
-             generated in the recent review.` (a 🎉 may follow); no "review in progress by coderabbit.ai"
-             marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
-             (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
-             `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`; at
-             least one Merge Risk line, and every one is `Minimal` with at most `· up to <sha>` after it;
-             a pre-merge checks section with a passed-checks part; and the checks listed as failed or
-             inconclusive, in the emoji and in the image format, are only Docstring Coverage (a style gate
-             that says nothing about the change). The list is read as the table lines that follow its
-             heading through markup only, its rows must number what the heading says, and their total must
-             equal the failed and inconclusive counters of the section's summary; otherwise it is not
-             readable and counts as not passing. A part that is missing or in a format this script does
-             not know makes the field `-`: a missing line is no evidence. Anything else, also every review
-             and inline comment, another author and an abbreviated `Reviewed head:`, is `-`. The text is
-             only tested, never printed. The script does not read the prose under the Merge Risk level or
-             any other block of the comment: it finds no sign of anything else, it does not prove there is
-             none.
-             The tests rest on what CodeRabbit wrote in the account's recent pull requests (149
-             comments with the sentence, all worded alike; the range is in all of them and its last end
-             was the commit reviewed; the Merge Risk line is missing in the older ones and one level
-             above Minimal was seen; since about 2026-10-10 the checks table uses images for its
-             status). A changed wording or format is `-`, which costs a review round and never a merge.
-             The comment is edited in place for every pass, so the sentence can sit next to an in-progress
-             block for a newer range, or describe a pass after earlier findings; findings are posted as
-             review objects and inline comments, which are `-` and so stay a round. The caller treats
-             `no-findings` as "nothing to read" only when every BOT line has it. A bot can still write
-             text next to the sentence that none of these tests sees.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
              verdict. With no verdict comment there is no reference time: `SKIPPED verdict ...` and no
@@ -68,18 +39,6 @@ import subprocess
 import sys
 
 HEADING = "## Independent local review"
-REVIEWER = "coderabbitai[bot]"
-NO_FINDINGS = re.compile(r"No actionable comments were generated in the recent review\.(?:\s*🎉)?")
-IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently processing new changes", re.IGNORECASE)
-REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
-MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
-MARKUP = re.compile(r"<[^>]*>|[*_`]")
-MINIMAL = re.compile(r"[^\w]*Minimal(?:\s*·\s*up to [0-9a-f]{5,40})?")
-UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
-ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
-COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
-ALERT = re.compile(r"\[!(?:WARNING|CAUTION)\]", re.IGNORECASE)
-TOLERATED = "docstring coverage"
 
 
 def clean(text):
@@ -96,60 +55,6 @@ def gh(args):
     if p.returncode != 0:
         return None, clean(p.stderr) or "exit %d" % p.returncode
     return p.stdout, None
-
-
-def unpassed_checks(body):
-    """The names of the pre-merge checks listed as failed or inconclusive, or None when that cannot be read
-    with certainty: a heading that is not followed, through markup only, by a table; a table whose rows do
-    not number what its heading says; or a total that differs from the counter in the section's summary.
-    The rows are the table lines that follow the heading without a break: text after the table, or in a
-    cell, is not looked at as a boundary."""
-    names, announced = [], 0
-    for heading in UNPASSED.finditer(body):
-        lines = body[heading.end():].split("\n")
-        count = re.search(r"(\d+)", lines[0])
-        rows, started = 0, False
-        for line in lines[1:]:
-            if line.lstrip().startswith("|"):
-                started = True
-                if re.fullmatch(r"[\s|:\-]+", line):
-                    continue
-                name = line.strip().strip("|").split("|")[0].strip()
-                if name.lower() != "check name":
-                    names.append(name)
-                    rows += 1
-            elif started or not ONLY_MARKUP.fullmatch(line):
-                break
-        if not rows or not count or int(count.group(1)) != rows:
-            return None
-        announced += rows
-    summary = re.search(r"Pre-merge checks[^\n]*", body)
-    shown = sum(int(n) for n in COUNTER.findall(summary.group(0))) if summary else None
-    if shown is None or shown != announced:
-        return None
-    return names
-
-
-def no_findings(login, body, reviewed):
-    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, all 40
-    characters, or None) by CodeRabbit in which every part tested here passes; the tests are in the module
-    docstring. They find no sign of anything else, they do not prove there is none. Every test that cannot
-    be made, because a part of the text is missing or in an unknown format, makes it False."""
-    if login != REVIEWER or not reviewed or not body or not re.fullmatch(r"[0-9a-fA-F]{40}", reviewed):
-        return False
-    lines = [line.strip() for line in body.split("\n")]
-    if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body) or ALERT.search(body):
-        return False
-    ranges = REVIEW_RANGE.findall(body)
-    if len(ranges) != 1 or ranges[0][1] != reviewed.lower():
-        return False
-    risks = [MARKUP.sub("", risk.group(1)).strip() for risk in MERGE_RISK.finditer(body)]
-    if not risks or not all(MINIMAL.fullmatch(risk) for risk in risks):
-        return False
-    if "pre-merge checks" not in body.lower() or not re.search(r"Passed checks|✅ Passed|alt=\"Passed\"", body):
-        return False
-    unpassed = unpassed_checks(body)
-    return unpassed is not None and all(name.lower() == TOLERATED for name in unpassed)
 
 
 def pages(path):
@@ -219,24 +124,22 @@ def main():
 
     if verdict:
         since = verdict["created_at"]  # ISO 8601 UTC with Z: strings compare in time order
-        reviewed = m.group(1) if m else None
 
         def is_bot(item):
             return (item.get("user") or {}).get("type") == "Bot"
 
         for c in issue_comments or []:
             if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-\t%s" % (
-                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
-                    "no-findings" if no_findings(c["user"]["login"], c.get("body"), reviewed) else "-"))
+                print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-" % (
+                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"]))
         for r in reviews or []:
             t = r.get("submitted_at") or ""
             if is_bot(r) and t >= since:
-                print("BOT\treview\t%s\t%s\t%s\t%s\t%s\t-" % (
+                print("BOT\treview\t%s\t%s\t%s\t%s\t%s" % (
                     r["id"], r["user"]["login"], t, t, r.get("commit_id") or "-"))
         for c in inline or []:
             if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s\t-" % (
+                print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s" % (
                     c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
                     c.get("original_commit_id") or "-"))
     return 1 if skipped else 0
