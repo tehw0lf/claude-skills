@@ -41,11 +41,14 @@ Output, one tab-separated line per fact on stdout:
              its line; a line that is label-shaped (the name as written `Merge Risk`, any case with
              separators, `&nbsp;`, inner markup or `level` before a separator, or `merge risk` at the start of
              a line after markup, any characters that are not letters or digits and list numbers or letters such
-             as `1)`, `a.` or `(1)`) must be exactly one valid label line, checked per line, and the label-shaped words of the whole text
-             must be those of the lines (a label split by a line break fails), so a second label in another
-             spelling fails whatever the other lines hold; a prose sentence that mentions the merge risk
-             fails too when it is label-shaped, for instance `Merge Risk` written exactly, `no merge risk: …`
-             or `merge risk-free` (false rejections, which only cost a round), while other prose passes (the hidden
+             as `1)`, `a.` or `(1)`) must be exactly one valid label line, checked per line; a label name that spans lines (through
+             whitespace, a tag or a comment) fails, and so does a line that ends in `merge risk` when the next
+             line starts with a separator (`-`, `=`, `:`), so a second label in a spelling these patterns know
+             fails whatever the other lines hold, while a spelling they do not know (full-width letters,
+             zero-width characters, numeric entities, four-letter list markers) is not seen; a prose sentence
+             that mentions the merge risk fails too when it is label-shaped, for instance `Merge Risk` written
+             exactly, `no merge risk: …` or `merge risk-free` (false rejections, which only cost a round), while
+             other prose passes (the hidden
              `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
              the block's own start and end markers, whatever its headings are called, has the status Passed
@@ -94,13 +97,13 @@ IN_PROGRESS = re.compile(
     r"|Reviews? paused|auto-?paus|rate[- ]limit|Review failed", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
-RISK_NAME = r"merge(?:\s|&nbsp;|&#160;|[\-_]|<[^>]*>)*risk"
+RISK_NAME = r"merge(?:\s|&nbsp;|&#160;|[\-_]|<[^>]{0,200}>)*risk"
 RISK_LABEL = re.compile(RISK_NAME + r"(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
-RISK_START = re.compile(r"(?:<[^>]*>|[^\w<]|[0-9a-z]{1,3}[.)])*" + RISK_NAME, re.IGNORECASE)
-MARKUP = re.compile(r"<[^>]*>|[*_`]")
+RISK_START = re.compile(r"(?:<[^>]{0,200}>|[^\w<]|[0-9a-z]{1,3}[.)])*" + RISK_NAME, re.IGNORECASE)
+MARKUP = re.compile(r"<[^>]{0,200}>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
-COVERAGE = re.compile(r"final_review_risk_coverage:(\{.*?\})\s*-->", re.DOTALL)
+COVERAGE = re.compile(r"final_review_risk_coverage:(\{.{0,2000}?\})\s*-->", re.DOTALL)
 CHECKS_START = re.compile(r"pre_merge_checks_walkthrough_start")
 CHECKS_END = re.compile(r"pre_merge_checks_walkthrough_end")
 CHECKS_BLOCK = re.compile(r"<!--\s*pre_merge_checks_walkthrough_start\s*-->(.*?)<!--\s*pre_merge_checks_walkthrough_end\s*-->", re.DOTALL)
@@ -213,8 +216,8 @@ def no_findings(login, body, reviewed):
         if any(shaped) and not (shaped[0] == 1 and shaped[1] <= 1 and shaped[2] == 1 and len(MERGE_RISK.findall(line)) == 1):
             return False
         per_line += shaped[0]
-    if len(RISK_LABEL.findall(body)) != per_line:
-        return False  # a label split by a line break: seen on the whole text, not on any line
+    if len(RISK_LABEL.findall(body)) != per_line or any("\n" in name.group(0) for name in re.finditer(RISK_NAME, body, re.IGNORECASE)):
+        return False  # a label name that spans lines (also through a tag or comment): no line sees it whole
     risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
         return False
