@@ -26,20 +26,25 @@ Output, one tab-separated line per fact on stdout:
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
-             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` that shows, in its
-             text, a finished review without findings of the commit the verdict reviewed and positive
-             evidence of nothing else that needs reading. All of these hold: a line is exactly the sentence
-             `No actionable comments were generated in the recent review.` (a 🎉 may follow); no
-             "review in progress by coderabbit.ai" marker and no "Currently processing new changes"; exactly
-             one `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`;
-             at least one Merge Risk line, and every one says Minimal (a level, nothing after it but the
-             `· up to <sha>` part); a pre-merge checks section with a passed-checks part; and every check
-             listed as failed or inconclusive, in the emoji format and in the image format, is Docstring
-             Coverage (a style gate that says nothing about the change); a failed or inconclusive heading
-             without a table row is not readable and counts as not passing. A part of the text that is
-             missing or has a format this script does not know makes the field `-`: a missing line is no
-             evidence. Anything else, also every review and inline comment, another author and an
-             abbreviated `Reviewed head:`, is `-`. The text is only tested, never printed.
+             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` in which every
+             part this script tests shows a finished review of the commit the verdict reviewed without
+             findings. All of these hold: a line is exactly the sentence `No actionable comments were
+             generated in the recent review.` (a 🎉 may follow); no "review in progress by coderabbit.ai"
+             marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
+             (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
+             `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`; at
+             least one Merge Risk line, and every one is `Minimal` with at most `· up to <sha>` after it;
+             a pre-merge checks section with a passed-checks part; and the checks listed as failed or
+             inconclusive, in the emoji and in the image format, are only Docstring Coverage (a style gate
+             that says nothing about the change). The list is read as the table lines that follow its
+             heading through markup only, its rows must number what the heading says, and their total must
+             equal the failed and inconclusive counters of the section's summary; otherwise it is not
+             readable and counts as not passing. A part that is missing or in a format this script does
+             not know makes the field `-`: a missing line is no evidence. Anything else, also every review
+             and inline comment, another author and an abbreviated `Reviewed head:`, is `-`. The text is
+             only tested, never printed. The script does not read the prose under the Merge Risk level or
+             any other block of the comment: it finds no sign of anything else, it does not prove there is
+             none.
              The tests rest on what CodeRabbit wrote in the account's recent pull requests (149
              comments with the sentence, all worded alike; the range is in all of them and its last end
              was the commit reviewed; the Merge Risk line is missing in the older ones and one level
@@ -69,9 +74,11 @@ IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently proces
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
-MINIMAL = re.compile(r"[^\w]*Minimal(?:\s*·.*)?")
+MINIMAL = re.compile(r"[^\w]*Minimal(?:\s*·\s*up to [0-9a-f]{5,40})?")
 UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
-SECTION_END = re.compile(r"<details>|</details>|<summary>|Passed checks", re.IGNORECASE)
+ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
+COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
+ALERT = re.compile(r"\[!(?:WARNING|CAUTION)\]", re.IGNORECASE)
 TOLERATED = "docstring coverage"
 
 
@@ -92,22 +99,34 @@ def gh(args):
 
 
 def unpassed_checks(body):
-    """The names of the pre-merge checks listed as failed or inconclusive, or None when a section of them
-    cannot be read (a heading without a table row): the caller then does not trust the comment."""
-    names = []
+    """The names of the pre-merge checks listed as failed or inconclusive, or None when that cannot be read
+    with certainty: a heading that is not followed, through markup only, by a table; a table whose rows do
+    not number what its heading says; or a total that differs from the counter in the section's summary.
+    The rows are the table lines that follow the heading without a break: text after the table, or in a
+    cell, is not looked at as a boundary."""
+    names, announced = [], 0
     for heading in UNPASSED.finditer(body):
-        tail = body[heading.end():]
-        end = SECTION_END.search(tail)
-        rows = 0
-        for line in (tail[:end.start()] if end else tail).split("\n"):
-            if not line.lstrip().startswith("|") or re.fullmatch(r"[\s|:\-]+", line):
-                continue
-            name = line.strip().strip("|").split("|")[0].strip()
-            if name.lower() != "check name":
-                names.append(name)
-                rows += 1
-        if not rows:
+        lines = body[heading.end():].split("\n")
+        count = re.search(r"(\d+)", lines[0])
+        rows, started = 0, False
+        for line in lines[1:]:
+            if line.lstrip().startswith("|"):
+                started = True
+                if re.fullmatch(r"[\s|:\-]+", line):
+                    continue
+                name = line.strip().strip("|").split("|")[0].strip()
+                if name.lower() != "check name":
+                    names.append(name)
+                    rows += 1
+            elif started or not ONLY_MARKUP.fullmatch(line):
+                break
+        if not rows or not count or int(count.group(1)) != rows:
             return None
+        announced += rows
+    summary = re.search(r"Pre-merge checks[^\n]*", body)
+    shown = sum(int(n) for n in COUNTER.findall(summary.group(0))) if summary else None
+    if shown is None or shown != announced:
+        return None
     return names
 
 
@@ -119,7 +138,7 @@ def no_findings(login, body, reviewed):
     if login != REVIEWER or not reviewed or not body:
         return False
     lines = [line.strip() for line in body.split("\n")]
-    if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body):
+    if not any(NO_FINDINGS.fullmatch(line) for line in lines) or IN_PROGRESS.search(body) or ALERT.search(body):
         return False
     ranges = REVIEW_RANGE.findall(body)
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower():
