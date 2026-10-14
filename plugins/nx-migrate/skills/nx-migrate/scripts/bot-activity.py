@@ -39,9 +39,11 @@ Output, one tab-separated line per fact on stdout:
              fails; one written without it, such as `a..b`, is not seen); at least one Merge Risk line, and
              every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head, read to the end of
              its line; the text must not hold more label-shaped `merge risk` than these lines (counted three
-             ways: the name as written, any case with separators, `&nbsp;` or `level` before a separator, and
-             at the start of a line whatever follows), so a second label in another spelling fails, while a
-             prose sentence that mentions the merge risk in the middle of a line passes (the hidden
+             ways: the name as written `Merge Risk`, any case with separators, `&nbsp;`, inner markup or `level`
+             before a separator, and at the start of a line after markup, any characters that are not letters or digits and
+             list numbers or letters such as `1)`, `a.` or `(1)`, whatever follows), so a second label in another spelling fails, while a prose sentence
+             that mentions the merge risk in the middle of a line passes unless it spells the name exactly
+             `Merge Risk` (a false rejection, which only costs a round) (the hidden
              `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
              the block's own start and end markers, whatever its headings are called, has the status Passed
@@ -92,7 +94,7 @@ REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
 RISK_NAME = r"merge(?:\s|&nbsp;|&#160;|[\-_]|<[^>]*>)*risk"
 RISK_LABEL = re.compile(RISK_NAME + r"(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
-RISK_START = re.compile(r"(?:<[^>]*>|[\s*_|>#+\-•.\d])*" + RISK_NAME, re.IGNORECASE)
+RISK_START = re.compile(r"(?:<[^>]*>|[^\w<]|\(?[0-9a-z]{1,3}[.)])*" + RISK_NAME, re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
@@ -170,7 +172,7 @@ def check_rows(body):
     rows = []
     for line in block.group(1).split("\n"):
         if not line.lstrip().startswith("|"):
-            if "|" in line and not line.lstrip().startswith("<summary"):
+            if "|" in line and not re.match(r"\s*<summary[\s>]", line):
                 return None  # a row written without its leading pipe: not a table this reader knows
             continue
         if re.fullmatch(r"[\s|:\-]+", line):
