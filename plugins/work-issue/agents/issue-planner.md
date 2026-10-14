@@ -23,7 +23,7 @@ Invoke the `plan-issue` skill and follow it step by step. Your prompt may name a
 
 Your final message is the only thing the user sees. Include:
 
-- the issue, and either the plan or the questions, with the link to the comment you posted, or why you stopped without one (a stop condition of the skill's step 1, with the existing comment link when there is one; or the owner's answer to wait, with the link to that answer and the `#<n>` it waits on)
+- the issue, and either the plan or the questions, with the link to the comment you posted, or why you stopped without one (a stop condition of the skill's step 1, with the existing comment link when there is one)
 - for a plan: the goal, the decisions that rules settled, and what is out of scope — in particular newer upstream state that deserves an issue of its own
 - for questions: each question with its options and your recommendation
 - what was not verified
