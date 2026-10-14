@@ -26,20 +26,25 @@ Output, one tab-separated line per fact on stdout:
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
-             Last field: `no-findings` only for an issue comment that reports a finished review without
-             findings of the commit the verdict reviewed: a line that starts with the sentence
-             `No actionable comments were generated in the recent review.`, no "review in progress by
-             coderabbit.ai" marker and no "Currently processing new changes" in the text, and exactly one
-             `between <sha> and <sha>` range, which ends at the verdict's `Reviewed head:`. Anything else,
-             also every review and inline comment, is `-`. The text is only tested, never printed. That is
-             what CodeRabbit writes (149 of 149 such comments of the author's recent pull requests had
-             this one sentence, and the last range end always was the commit it had reviewed); another
-             reviewer or a changed wording is `-`, which costs a review round and never a merge. An
-             `issue-comment` is edited in place for every pass, so the sentence can still sit in a comment
-             that also carries an in-progress block for a newer range, or describe a pass after earlier
-             findings: the caller treats `no-findings` as "nothing to read" only when every BOT line has it,
-             so a review object or inline comment after the verdict (findings are posted as those) is still
-             a round. A bot can put text next to the sentence; the sentence is no proof that nothing else was said.
+             Last field: `no-findings` only for an issue comment of `coderabbitai[bot]` that reports a
+             finished review without findings of the commit the verdict reviewed, and nothing else that
+             needs reading: a line that is exactly the sentence `No actionable comments were generated in
+             the recent review.` (an emoji may follow); no "review in progress by coderabbit.ai" marker and
+             no "Currently processing new changes"; exactly one `between <sha> and <sha>` range whose end
+             is, in full, the verdict's `Reviewed head:`; a Merge Risk line, when there is one, says
+             Minimal; and no row of its pre-merge checks table has the status ❌, ⚠️ or ❓ except
+             Docstring Coverage (a style gate that says nothing about the change). Anything else, also
+             every review and inline comment, another author and an abbreviated `Reviewed head:`, is `-`.
+             The text is only tested, never printed. This is CodeRabbit's own text (in the account's
+             recent pull requests 149 comments had the sentence, all worded alike; the range always
+             existed and its last end was the commit reviewed; 18 of them carried a failed check, 3
+             other than Docstring Coverage; a comment that said Merge Risk Moderate has been seen): a
+             changed wording is `-`, which costs a review round and never a merge. The comment is edited
+             in place for every pass, so the sentence can sit next to an in-progress block for a newer
+             range, or describe a pass after earlier findings; findings are posted as review objects and
+             inline comments, which are `-` and so stay a round. The caller treats `no-findings` as
+             "nothing to read" only when every BOT line has it. A bot can still write text next to the
+             sentence that none of these tests sees.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
              verdict. With no verdict comment there is no reference time: `SKIPPED verdict ...` and no
@@ -53,7 +58,11 @@ import subprocess
 import sys
 
 HEADING = "## Independent local review"
-NO_FINDINGS = "No actionable comments were generated in the recent review."
+REVIEWER = "coderabbitai[bot]"
+NO_FINDINGS = re.compile(r"No actionable comments were generated in the recent review\.(?:\s*\S{1,4})?")
+MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
+MARKUP = re.compile(r"<[^>]*>|[*_`]")
+CHECK_ROW = re.compile(r"^\s*\|\s*([^|]+?)\s*\|\s*(❌|⚠️|❓)")
 IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently processing new changes", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 
@@ -74,18 +83,24 @@ def gh(args):
     return p.stdout, None
 
 
-def no_findings(body, reviewed):
-    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, or None):
-    the sentence on a line of its own start, no in-progress marker, one range that ends at that commit."""
-    if not reviewed or not body:
+def no_findings(login, body, reviewed):
+    """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:` in full, or
+    None) by CodeRabbit that carries nothing else that needs reading; the tests are in the module docstring."""
+    if login != REVIEWER or not reviewed or not body:
         return False
-    if not any(line.strip().startswith(NO_FINDINGS) for line in body.split("\n")) or IN_PROGRESS.search(body):
+    if not any(NO_FINDINGS.fullmatch(line.strip()) for line in body.split("\n")) or IN_PROGRESS.search(body):
         return False
     ranges = REVIEW_RANGE.findall(body)
-    if len(ranges) != 1:
+    if len(ranges) != 1 or ranges[0][1] != reviewed.lower():
         return False
-    end, wanted = ranges[0][1], reviewed.lower()
-    return end.startswith(wanted) or wanted.startswith(end)
+    for risk in MERGE_RISK.finditer(body):
+        if not MARKUP.sub("", risk.group(1)).strip().lower().lstrip("⚪ ").startswith("minimal"):
+            return False
+    for line in body.split("\n"):
+        row = CHECK_ROW.match(line)
+        if row and row.group(1).lower() != "docstring coverage":
+            return False
+    return True
 
 
 def pages(path):
@@ -164,7 +179,7 @@ def main():
             if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
                 print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-\t%s" % (
                     c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
-                    "no-findings" if no_findings(c.get("body"), reviewed) else "-"))
+                    "no-findings" if no_findings(c["user"]["login"], c.get("body"), reviewed) else "-"))
         for r in reviews or []:
             t = r.get("submitted_at") or ""
             if is_bot(r) and t >= since:
