@@ -33,7 +33,7 @@ Output, one tab-separated line per fact on stdout:
              marker, no "Currently processing new changes" and no `[!WARNING]` or `[!CAUTION]` block
              (CodeRabbit reports a failed tool or an incomplete review that way); exactly one
              `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`
-             (the word `between` occurs exactly once in the whole text, so a second range in any wording fails); at least one Merge Risk
+             (the word `between` occurs exactly once in the whole text, so a second range written with it fails; one written without it, such as `a..b`, is not seen); at least one Merge Risk
              line, and every one is `Minimal · up to <sha>` where `<sha>` begins the reviewed head (the
              hidden `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
@@ -75,9 +75,12 @@ import sys
 HEADING = "## Independent local review"
 REVIEWER = "coderabbitai[bot]"
 NO_FINDINGS = re.compile(r"No actionable comments were generated in the recent review\.(?:\s*🎉)?")
-IN_PROGRESS = re.compile(r"review in progress by coderabbit\.ai|Currently processing new changes", re.IGNORECASE)
+IN_PROGRESS = re.compile(
+    r"review in progress by coderabbit\.ai|Currently processing new changes|Actionable comments posted|Review skipped"
+    r"|Reviews? paused|auto-?paus|rate[- ]limit|Review failed", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
-MERGE_RISK = re.compile(r"Merge Risk:(.{0,80})", re.IGNORECASE)
+MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
+RISK_LABEL = re.compile(r"merge[\s\-_]*risk(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
@@ -90,7 +93,7 @@ PASSED_COUNTER = re.compile(r"(?:✅|alt=\"Passed\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
 UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
 ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
 COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
-ALERT = re.compile(r"\[!(?:WARNING|CAUTION)\]", re.IGNORECASE)
+ALERT = re.compile(r"\[!\s*(?:WARNING|CAUTION)\s*\]", re.IGNORECASE)
 TOLERATED = "docstring coverage"
 
 
@@ -171,7 +174,8 @@ def no_findings(login, body, reviewed):
     """True for a finished review without findings of `reviewed` (the verdict's `Reviewed head:`, all 40
     characters, or None) by CodeRabbit in which every part tested here passes; the tests are in the module
     docstring. They find no sign of anything else, they do not prove there is none. Every test that cannot
-    be made, because a part of the text is missing or in an unknown format, makes it False."""
+    be made, because a part it looks for is missing or in a format it does not know, makes it False; text in a
+    shape it does not look for is not seen."""
     if login != REVIEWER or not reviewed or not body or not re.fullmatch(r"[0-9a-fA-F]{40}", reviewed):
         return False
     lines = [line.strip() for line in body.split("\n")]
@@ -181,7 +185,7 @@ def no_findings(login, body, reviewed):
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(BETWEEN.findall(body)) != 1:
         return False
     labels = list(MERGE_RISK.finditer(body))
-    if body.count("Merge Risk") != len(labels):
+    if len(RISK_LABEL.findall(body)) != len(labels) or body.count("Merge Risk") != len(labels):
         return False
     risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
