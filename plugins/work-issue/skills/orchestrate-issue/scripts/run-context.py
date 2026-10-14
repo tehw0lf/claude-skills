@@ -29,7 +29,8 @@ Output, one tab-separated line per fact:
   ISSUE     <owner/repo#n>  <ref|label>  <labeler or ->  <permission or ->  <createdAt or ->  <edit>
               explicit references first, in the given order, then labelled issues oldest first.
               labeler: the actor of the newest `labeled` event for the label; permission: that
-              actor's role on the repository (admin, maintain, write, triage, read). Both are `-`
+              actor's role on the repository (admin, maintain, write, triage, read; a custom role is shown as
+              its base permission: admin, write, read or none). Both are `-`
               for an explicit reference. An issue whose labeler cannot be determined shows `-` and a
               # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
               as `ref`.
@@ -246,14 +247,22 @@ def print_checkouts(repo, given):
 
 
 _roles = {}
+BUILTIN_ROLES = {"admin", "maintain", "write", "triage", "read", "none"}
 
 
 def role_of(repo, login):
-    """(role, None) or (None, reason); cached per repository and login."""
+    """(role, None) or (None, reason); cached per repository and login. The answer has `role_name` (the
+    assigned role, which is the role's own name for a custom role) and `permission` (the base role: admin,
+    write, read or none; maintain arrives as write and triage as read). A built-in `role_name` is used as
+    it is; a custom one is judged by its base `permission`, so a custom role built on write counts as write."""
     key = (repo.lower(), login.lower())
     if key not in _roles:
         perm, reason = api(f"repos/{repo}/collaborators/{login}/permission")
-        _roles[key] = (perm.get("role_name") or perm.get("permission"), None) if isinstance(perm, dict) else (None, reason)
+        role = None
+        if isinstance(perm, dict):
+            name, base = perm.get("role_name"), perm.get("permission")
+            role = name if isinstance(name, str) and name in BUILTIN_ROLES else base
+        _roles[key] = (role, None) if isinstance(role, str) and role else (None, reason or "no role in the answer")
     return _roles[key]
 
 
