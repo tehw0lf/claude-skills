@@ -45,7 +45,8 @@ Output, one tab-separated line per fact on stdout:
              whitespace, a tag or a comment) fails, and so does a line that ends in `merge risk` when the next
              line starts with a separator (`-`, `=`, `:`), so a second label in a spelling these patterns know
              fails whatever the other lines hold, while a spelling they do not know (full-width letters,
-             zero-width characters, numeric entities, four-letter list markers) is not seen; a prose sentence
+             zero-width characters, numeric entities, four-letter list markers, a tag longer than 200 characters
+             or a comment that holds a `>` inside the name) is not seen; a prose sentence
              that mentions the merge risk fails too when it is label-shaped, for instance `Merge Risk` written
              exactly, `no merge risk: …` or `merge risk-free` (false rejections, which only cost a round), while
              other prose passes (the hidden
@@ -108,10 +109,10 @@ CHECKS_START = re.compile(r"pre_merge_checks_walkthrough_start")
 CHECKS_END = re.compile(r"pre_merge_checks_walkthrough_end")
 CHECKS_BLOCK = re.compile(r"<!--\s*pre_merge_checks_walkthrough_start\s*-->(.*?)<!--\s*pre_merge_checks_walkthrough_end\s*-->", re.DOTALL)
 PASSED_ROW = re.compile(r"✅\s*Passed|!\[Passed\]\([^)]*\)")
-PASSED_COUNTER = re.compile(r"(?:✅|alt=\"Passed\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
+PASSED_COUNTER = re.compile(r"(?:✅|alt=\"Passed\")(?:[^0-9<]|<[^>]{0,200}>){0,300}?(\d+)")
 UNPASSED = re.compile(r"(?:Failed|Inconclusive) checks", re.IGNORECASE)
 ONLY_MARKUP = re.compile(r"(?:<[^>]*>|\s)*")
-COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]*>)*?(\d+)")
+COUNTER = re.compile(r"(?:❌|❓|alt=\"(?:Failed|Inconclusive)\")(?:[^0-9<]|<[^>]{0,200}>){0,300}?(\d+)")
 ALERT = re.compile(r"\[!\s*(?:WARNING|CAUTION)\s*\]", re.IGNORECASE)
 TOLERATED = "docstring coverage"
 
@@ -171,8 +172,10 @@ def check_rows(body):
     pipe but neither starts with one nor with `<summary` (a row written without its leading pipe), or a
     number of rows that differs from the total of the counters in the block's summary (passed, failed and
     inconclusive)."""
+    if len(CHECKS_START.findall(body)) != 1 or len(CHECKS_END.findall(body)) != 1:
+        return None
     block = CHECKS_BLOCK.search(body)
-    if not block or len(CHECKS_START.findall(body)) != 1 or len(CHECKS_END.findall(body)) != 1:
+    if not block:
         return None
     rows = []
     for line in block.group(1).split("\n"):
