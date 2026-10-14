@@ -32,7 +32,7 @@ Output, one tab-separated line per fact on stdout:
              generated in the recent review.` (a 🎉 may follow); no "review in progress by coderabbit.ai"
              marker, no "Currently processing new changes", no "Actionable comments posted", "Review skipped",
              "Reviews paused", auto-pause, rate-limit or "Review failed" text anywhere in it (any case) and no
-             `[!WARNING]` or `[!CAUTION]` block (CodeRabbit reports a failed tool or an incomplete review
+             `[!WARNING]` or `[!CAUTION]` block (also written `[! WARNING]`) (CodeRabbit reports a failed tool or an incomplete review
              that way); exactly one
              `between <sha> and <sha>` range whose end equals, in full, the verdict's `Reviewed head:`
              (the word `between` occurs exactly once in the whole text, so a second range written with it
@@ -46,9 +46,9 @@ Output, one tab-separated line per fact on stdout:
              commit); a pre-merge checks section with a passed-checks part; every row of the table between
              the block's own start and end markers, whatever its headings are called, has the status Passed
              except Docstring Coverage, and the number of rows equals the total of the counters in the
-             block's summary (so a renamed heading or counter cannot hide a row; a line of the block that
-             holds a pipe but neither starts with one nor with `<` is not a table this script reads and
-             fails); and the checks listed as failed or
+             block's summary, with exactly one start and one end marker (so a renamed heading or counter
+             cannot hide a row; a line of the block that holds a pipe but neither starts with one nor with
+             `<summary` is not a table this script reads and fails); and the checks listed as failed or
              inconclusive, in the emoji and in the image format, are only Docstring Coverage (a style gate
              that says nothing about the change). The list is read as the table lines that follow its
              heading through markup only, its rows must number what the heading says, and their total must
@@ -90,8 +90,9 @@ IN_PROGRESS = re.compile(
     r"|Reviews? paused|auto-?paus|rate[- ]limit|Review failed", re.IGNORECASE)
 REVIEW_RANGE = re.compile(r"between ([0-9a-f]{7,40}) and ([0-9a-f]{7,40})")
 MERGE_RISK = re.compile(r"Merge Risk:([^\n]*)", re.IGNORECASE)
-RISK_LABEL = re.compile(r"merge[\s\-_]*risk(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
-RISK_START = re.compile(r"(?:<[^>]*>|[\s*_|>])*merge(?:\s|&nbsp;|&#160;|[\-_])*risk", re.IGNORECASE)
+RISK_NAME = r"merge(?:\s|&nbsp;|&#160;|[\-_]|<[^>]*>)*risk"
+RISK_LABEL = re.compile(RISK_NAME + r"(?:\s+level)?(?:\s*</?[a-z]+>|\*|_)*\s*[:=—–\-]", re.IGNORECASE)
+RISK_START = re.compile(r"(?:<[^>]*>|[\s*_|>#+\-•.\d])*" + RISK_NAME, re.IGNORECASE)
 MARKUP = re.compile(r"<[^>]*>|[*_`]")
 MINIMAL = re.compile(r"[^\w]*Minimal\s*·\s*up to ([0-9a-f]{5,40})")
 BETWEEN = re.compile(r"\bbetween\b", re.IGNORECASE)
@@ -159,15 +160,17 @@ def unpassed_checks(body):
 def check_rows(body):
     """The (name, passed) pairs of every row of the pre-merge checks table, read between the block's own
     start and end markers whatever the headings are called, or None when that cannot be done with certainty:
-    no block, no row, a row without a status cell, or a number of rows that differs from the total of the
-    counters in the block's summary (passed, failed and inconclusive)."""
+    no block or more than one start or end marker, no row, a row without a status cell, a line that holds a
+    pipe but neither starts with one nor with `<summary` (a row written without its leading pipe), or a
+    number of rows that differs from the total of the counters in the block's summary (passed, failed and
+    inconclusive)."""
     block = CHECKS_BLOCK.search(body)
     if not block or len(CHECKS_START.findall(body)) != 1 or len(CHECKS_END.findall(body)) != 1:
         return None
     rows = []
     for line in block.group(1).split("\n"):
         if not line.lstrip().startswith("|"):
-            if "|" in line and not line.lstrip().startswith("<"):
+            if "|" in line and not line.lstrip().startswith("<summary"):
                 return None  # a row written without its leading pipe: not a table this reader knows
             continue
         if re.fullmatch(r"[\s|:\-]+", line):
