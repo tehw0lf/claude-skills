@@ -25,7 +25,11 @@ Output, one tab-separated line per fact, in this order:
   ACCOUNT   <login `gh` is authenticated as>
   PR        <#n>  <open|closed|merged>  <closes|mentions>  <head branch>  <title>
               a pull request of the same repository that closes the issue (GitHub's own link) or
-              mentions it
+              mentions it. Head branch and title are `-` unless its author is ACCOUNT or has admin,
+              maintain or write permission (the same test as for comments, see COMMENT; also `-` when the
+              permission could not be read, # SKIPPED permission): anyone can open
+              a pull request, so its text must not reach the agents. Number, state and relation do not
+              depend on the author, so the stop conditions work on every PR
   QUESTIONS <comment id>  <createdAt>  <open|answered>
               the newest question comment written by ACCOUNT: its first line is
               `<!-- work-issue:questions -->`. answered: a later comment by an account with admin, maintain or
@@ -53,7 +57,8 @@ Output, one tab-separated line per fact, in this order:
               account with admin, maintain or write permission that is neither a verdict nor a marker
   REF       <#n>  <issue|pr>  <open|closed|merged>  <title>
               an issue or pull request of the same repository that the issue's body or the comments of
-              trusted accounts mention as #n outside code spans, in order of first mention
+              trusted accounts mention as #n outside code spans, in order of first mention. The title is `-`
+              unless the author is trusted, as for PR
   BRANCH    <remote|local>  <name>
               a branch with a path segment that starts with the issue number: <n>-…, <n>_…,
               issue-<n>…, or the number alone (fix/12-crash, 12-crash, feat/issue-12)
@@ -118,13 +123,13 @@ query($owner: String!, $name: String!, $number: Int!) {
         }
         closedByPullRequestsReferences(last: %(page)d, includeClosedPrs: true) {
           totalCount
-          nodes { number state title headRefName repository { nameWithOwner } author { login } headRepository { nameWithOwner } }
+          nodes { number state title headRefName repository { nameWithOwner } author { __typename login } headRepository { nameWithOwner } }
         }
         timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: %(page)d) {
           totalCount
           nodes { ... on CrossReferencedEvent { source {
             __typename
-            ... on PullRequest { number state title headRefName repository { nameWithOwner } }
+            ... on PullRequest { number state title headRefName repository { nameWithOwner } author { __typename login } }
           } } }
         }
       }
@@ -413,7 +418,9 @@ def print_comments(repo, comments, account):
     print(f"OMITTED\t{omitted}")
 
 
-def print_refs(owner, name, numbers):
+def print_refs(repo, owner, name, numbers, account):
+    """REF lines. Anyone can open an issue or a pull request, so the title is printed only when the author
+    is trusted (see is_trusted), else `-`: the number, kind and state do not depend on it."""
     if len(numbers) > MAX_REFS:
         skipped("refs", f"{len(numbers)} numbers are mentioned, only the first {MAX_REFS} were looked up")
         numbers = numbers[:MAX_REFS]
@@ -421,7 +428,8 @@ def print_refs(owner, name, numbers):
         return
     fields = " ".join(
         f"n{number}: issueOrPullRequest(number: {number}) {{ __typename "
-        f"... on Issue {{ number state title }} ... on PullRequest {{ number state title }} }}"
+        f"... on Issue {{ number state title author {{ __typename login }} }} "
+        f"... on PullRequest {{ number state title author {{ __typename login }} }} }}"
         for number in numbers
     )
     # a mentioned number that is neither an issue nor a pull request makes GitHub answer with an
@@ -439,7 +447,8 @@ def print_refs(owner, name, numbers):
         node = found.get(f"n{number}")
         if node:
             kind = "pr" if node["__typename"] == "PullRequest" else "issue"
-            emit("REF", f"#{node['number']}", kind, node["state"].lower(), node["title"])
+            trusted = is_trusted(repo, node, account) is True
+            emit("REF", f"#{node['number']}", kind, node["state"].lower(), node["title"] if trusted else None)
 
 
 def print_branches(repo, number):
@@ -611,16 +620,20 @@ def main():
         node = (item or {}).get("source") or {}
         if node.get("__typename") == "PullRequest" and node["repository"]["nameWithOwner"] == repo:
             pulls.setdefault(node["number"], ("mentions", node))
+    account = login.strip() if login_reason is None and login.strip() else None
     for pull_number in sorted(pulls):
         relation, node = pulls[pull_number]
-        emit("PR", f"#{pull_number}", node["state"].lower(), relation, node["headRefName"], node["title"])
+        trusted = is_trusted(repo, node, account) is True
+        emit(
+            "PR", f"#{pull_number}", node["state"].lower(), relation,
+            node["headRefName"] if trusted else None, node["title"] if trusted else None,
+        )
 
     comments = issue["comments"]
     if "comments" in partial:
         skipped("comments", partial["comments"])
     if comments["totalCount"] > len(comments["nodes"]):
         skipped("comments", f"only the newest {PAGE} of {comments['totalCount']} comments were searched for mentions")
-    account = login.strip() if login_reason is None and login.strip() else None
     # a mention steers what the planner reads next, so only the body and trusted comments are searched
     texts = [issue.get("body")] + [
         comment.get("body") for comment in comments["nodes"]
@@ -631,7 +644,7 @@ def main():
         print_resume(repo, owner, name, number, pulls, account, plan_id)
     elif any(relation == "closes" for relation, _ in pulls.values()):
         skipped("resume", "the account is unknown, so its own pull requests cannot be recognised")
-    print_refs(owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls])
+    print_refs(repo, owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls], account)
     print_branches(repo, number)
     print_manifests()
     print_worktree()
