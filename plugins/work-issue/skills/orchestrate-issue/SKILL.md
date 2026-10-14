@@ -64,7 +64,7 @@ One worker per repository at a time; repositories may run in parallel. Reason: w
 
 ### 6. Rounds
 
-A round is one plan (existing or new) and one worker run; an issue gets at most **2 worker runs**, so one replan. Only the worker's three plan stops go back to the planner, with the stop named in its prompt: the files under **Changes** moved, the code did not show the plan's cause, the issue waits for an open `REF`. Then steps 4 and 5 once more. A worker that resumes a PR is not replanned: it has no plan stops, and a replan on top of an open PR would orphan it. Any other stop (validation, `blocking`, non-converging `fix-in-PR`, a red or missing check, a refused merge, no reviewer, no current plan) ends the issue with the worker's report.
+A round is one plan (existing or new) and one worker run; an issue gets at most **2 worker runs**, so one replan. Only the worker's three plan stops go back to the planner, with the stop named in its prompt: the files under **Changes** moved, the code did not show the plan's cause, the issue waits for an open `REF`. Then steps 4 and 5 once more. A worker that resumes a PR is not replanned: it has no plan stops, and a replan on top of an open PR would orphan it. Any other stop (validation, `blocking`, non-converging `fix-in-PR`, a red or missing check, a refused merge, no reviewer, no current plan, an outside open pull request that changes files of the plan) ends the issue with the worker's report. The last one is released only by the owner's answer, which the planner records under **Decisions**: a later run of the same issue stops there again until then, so the report names the pull request.
 
 ### 7. Report
 
