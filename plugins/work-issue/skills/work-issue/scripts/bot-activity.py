@@ -41,8 +41,9 @@ Output, one tab-separated line per fact on stdout:
              its line; a line that is label-shaped (the name as written `Merge Risk`, any case with
              separators, `&nbsp;`, inner markup or `level` before a separator, or `merge risk` at the start of
              a line after markup, any characters that are not letters or digits and list numbers or letters such
-             as `1)`, `a.` or `(1)`) must be exactly one valid label line, checked per line, so a second label in
-             another spelling fails whatever the other lines hold; a prose sentence that mentions the merge risk
+             as `1)`, `a.` or `(1)`) must be exactly one valid label line, checked per line, and the label-shaped words of the whole text
+             must be those of the lines (a label split by a line break fails), so a second label in another
+             spelling fails whatever the other lines hold; a prose sentence that mentions the merge risk
              fails too when it is label-shaped, for instance `Merge Risk` written exactly, `no merge risk: …`
              or `merge risk-free` (false rejections, which only cost a round), while other prose passes (the hidden
              `final_review_risk_coverage` marker, when there is one, says `reviewed` for exactly that
@@ -206,10 +207,14 @@ def no_findings(login, body, reviewed):
     if len(ranges) != 1 or ranges[0][1] != reviewed.lower() or len(BETWEEN.findall(body)) != 1:
         return False
     labels = list(MERGE_RISK.finditer(body))
+    per_line = 0
     for line in body.split("\n"):
         shaped = (len(RISK_LABEL.findall(line)), 1 if RISK_START.match(line) else 0, line.count("Merge Risk"))
         if any(shaped) and not (shaped[0] == 1 and shaped[1] <= 1 and shaped[2] == 1 and len(MERGE_RISK.findall(line)) == 1):
             return False
+        per_line += shaped[0]
+    if len(RISK_LABEL.findall(body)) != per_line:
+        return False  # a label split by a line break: seen on the whole text, not on any line
     risks = [MINIMAL.fullmatch(MARKUP.sub("", risk.group(1)).strip()) for risk in labels]
     if not risks or not all(risks) or not all(reviewed.lower().startswith(risk.group(1)) for risk in risks):
         return False
