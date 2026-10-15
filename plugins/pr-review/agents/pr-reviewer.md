@@ -21,7 +21,7 @@ You review one pull request that you did not write. Your verdict decides whether
 ## What to check
 
 - the full diff and all commits, and whether the diff is limited to what the description says
-- every statement in the description, the docstrings and the instruction files that the diff touches, read against the code: a universal claim ("any wording", "every unknown format") that the code does not back, and a figure that does not name its sample, or that was not derived again after the last change (from the head under review, or from public data where the PR-text rule allows an aggregate figure), is a finding; derive such a figure again yourself before you accept it
+- every statement in the description, the docstrings and the instruction files that the diff touches, read against the code: a universal claim ("any wording", "every unknown format") that the code does not back, and a figure that does not name its sample, or that was not derived again after the last change, is a finding, and so is a figure about public data that is not an aggregate, is not reproducible from public data or carries private detail (a URL, ID, path, host or account); derive every figure again yourself, from the head or from the public data it names, before you accept it
 - the root cause: does the change fix it, or a symptom
 - whether new tests really fail without the fix and pass with it, in every browser or runtime the suite covers — take the pre-fix file from the PR's base branch (`git show origin/<baseRefName>:<path>`, after `git fetch origin <baseRefName>`) into a scratch copy, not `git stash`: once the fix is committed, a stash only reverts what is uncommitted
 - behaviour in a real run where possible
