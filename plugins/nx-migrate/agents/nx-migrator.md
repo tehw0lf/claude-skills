@@ -51,7 +51,7 @@ Merge only when all hold:
 - every required CI check has concluded **green** — not pending, not "failed but probably unrelated"
 - the PR has no merge conflicts
 - lint, test, build, and e2e (where targets exist) passed locally
-- no automated reviewer wrote anything at or after the latest verdict, and that verdict's `Not covered` names no automated review as still running (checked as described below)
+- no automated reviewer wrote anything at or after the latest verdict that a reviewer has not read yet, and that verdict's `Not covered` names no automated review as still running (checked as described below); entries that appear after the one round that `BOT` lines triggered on this head are tracked, not waited for (see below)
 
 **If any check is red, stop and report — do not merge.** Judging a failure "unrelated" is not your call: a scan can go red from a vulnerability-database refresh, and only a human decides to merge past that. Report the failing check, a log excerpt, and your reading of the cause.
 
@@ -70,7 +70,8 @@ It prints the latest verdict of this account (`VERDICT`, with the head it review
 
 - exit code other than 0 or a `SKIPPED` line → report, no merge: a source that could not be read leaves the condition unverified
 - the `VERDICT` head differs from the reviewed SHA → report, no merge
-- `BOT` lines → they were never read by a reviewer. Get a further review round as in "Independent review": a fresh reviewer without a model override, told about the earlier rounds and that automated-review activity appeared after the previous verdict, so that it verifies each of those findings first-hand. The round counts toward the limit above. Afterwards check all merge conditions again for the new verdict, including this script. If `BOT` lines appear again after a round that was triggered on the same, unchanged head, report and do not merge: nothing should keep writing without a new push, so a repeat is an unbounded loop
+- `BOT` lines, and no round has been triggered by `BOT` lines on this head in this run → they were never read by a reviewer. Get a further review round as in "Independent review": a fresh reviewer without a model override, told about the earlier rounds and that automated-review activity appeared after the previous verdict, so that it verifies each of those findings first-hand. The round counts toward the limit above, and its `blocking` and `fix-in-PR` findings are handled as under "Independent review" (stop, or fix and push; a push is a new head with its own review and its own one `BOT` round). Afterwards check all merge conditions again for the new verdict, including this script
+- `BOT` lines after that round, on the same, unchanged head → no stop and no further round. Some automated reviewers edit their comment in reaction to any new comment on the PR, the verdict included, so a rule that answers every such entry with a round cannot end. The entries are tracked instead: the report names each (kind, id, login, both times), and a reviewer reads them after the merge ("Bot entries after the merge"). All other merge conditions still apply
 - no `BOT` line, but the verdict's `Not covered` names an automated review as still running → report, no merge: no reviewer read its result. Either it never delivered, or it delivered after the reviewer's last read and before the verdict was posted; its findings are unknown either way
 
 Two windows stay open. The script counts from the moment the verdict was posted, while the reviewer read the three places earlier, just before writing it: a bot entry in between is read by nobody and not listed, and only the verdict's `Not covered` can catch it. And a bot can write in the seconds between this script and the merge; `--match-head-commit` covers the head only.
@@ -83,6 +84,10 @@ gh pr merge <PR> -R <owner>/<repo> --squash --delete-branch --match-head-commit 
 
 `--match-head-commit` makes the merge fail if the head moved after the review, so nothing unreviewed can ride along.
 
+## Bot entries after the merge
+
+Only when `BOT` lines were tracked (second `BOT` bullet above) and you merged the PR. Run the script again; the entries to read are those tracked before the merge together with those the run lists (it also catches what a bot wrote between the last run and the merge). An exit code other than 0 or a `SKIPPED` line means its list is incomplete: the entries tracked before the merge are still read, the reviewer is told to read the three places of automated reviews itself for every bot entry at or after the latest verdict, and the report names the source that could not be read. Then spawn a fresh `pr-review:pr-reviewer` without a model override and tell it: the PR is merged, it reads only those entries (kind, id, login, times), it is read-only, verifies each finding first-hand, classifies it as usual and writes its verdict to a file; that earlier rounds exist as comments on the PR with the issues linked to their follow-ups, and that it is to say for each finding whether an earlier round already classified it. A bot that edits an entry it posted before repeats findings an earlier round has read. Do not post that file: its heading would make it the newest verdict of the PR. **Every** finding that no earlier round classified becomes a GitHub issue, whatever its class (one an earlier round made a `follow-up` has its issue already), also one that would have been `blocking` or `fix-in-PR` before the merge, because it can no longer be fixed in the merged PR; when it is opened does not matter. The issue text follows the same rule as a PR text and names the PR number; it carries no `auto-work`. If the reviewer cannot be spawned, the report names the entries instead. When you did not merge, the report names tracked entries and opens nothing.
+
 ## Report back
 
 Your final message is the only thing the user sees. Include:
@@ -92,5 +97,5 @@ Your final message is the only thing the user sees. Include:
 - validation results with real numbers (tests passed/total, lint errors)
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - whether the PR was merged, or what blocked it (a finding, a check, no reviewer, automated-review activity after the verdict)
-- whether automated-review activity after a verdict triggered a further round or a stop
+- whether automated-review activity after a verdict triggered a further round, the `BOT` entries tracked after it (kind, id, login, times) and the issues opened for them after the merge
 - anything out of scope you noticed and left alone
