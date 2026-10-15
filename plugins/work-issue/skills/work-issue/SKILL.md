@@ -190,7 +190,7 @@ git push -u origin HEAD
 gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <temporary directory>/pr-body.md
 ```
 
-The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
+The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff, plus aggregate figures about public data that name their sample, can be reproduced from public data and were derived again after the last change: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
 
 Done when the PR is open on a head for which step 7 is done. Report the PR, what was verified, what was not, and the list from step 5.
 
