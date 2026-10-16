@@ -60,7 +60,8 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               YAML library
   SKIPPED   <source>  <reason>
               a source that could not be read: package.json, .npmrc (also for a
-              double-quoted key with a backslash escape, which is not decoded; the whole file is skipped), npm, npm config ls, .npm-extension.mjs,
+              double-quoted key with a backslash escape, or a single-quoted JSON array nested too deeply for
+              the script to evaluate; neither is decoded and the whole file is skipped), npm, npm config ls, .npm-extension.mjs,
               .npm-extension.cjs, .yarnrc.yml, pnpm-workspace.yaml (also a YAML file that uses a construct
               the scan cannot follow: flow-style document, indented document, several documents, merge key,
               anchor or alias, tab indentation, a backslash escape in a double-quoted key, a line that is no key). Its
@@ -168,7 +169,7 @@ def ini_cut(key):
 
 
 def npmrc_key(key):
-    """The key with quotes removed, the `;`/`#` cut and the `[]` suffix of npm's ini applied; None for a double-quoted key with a backslash.
+    """The key with quotes removed, the `;`/`#` cut and the `[]` suffix of npm's ini applied; None for a double-quoted key with a backslash or a JSON array nested too deeply to evaluate.
 
     Quotes are removed, an unquoted key is cut at its first unescaped `;` or `#`, and one trailing `[]`
     is removed (from a quoted key as well) when the key is longer than 2 characters. The content of a
@@ -181,7 +182,9 @@ def npmrc_key(key):
             parsed = json.loads(key, parse_constant=_reject_constant)
             if isinstance(parsed, list):
                 return js_string(parsed)
-        except (ValueError, RecursionError):
+        except RecursionError:
+            return None
+        except ValueError:
             pass
         inner = key.strip(" \t\n\r")  # JSON whitespace: what JSON.parse skips
         if not (len(inner) >= 2 and inner[0] == inner[-1] == '"'):
@@ -217,7 +220,7 @@ def check_npmrc(directory):
         key, separator, value = stripped.partition("=")
         key = npmrc_key(key)
         if key is None:
-            emit("SKIPPED", ".npmrc", f"line {number}: escape in a quoted key")
+            emit("SKIPPED", ".npmrc", f"line {number}: quoted key that is not decoded")
             return False
         if key not in NPMRC_SAFE:
             continue
