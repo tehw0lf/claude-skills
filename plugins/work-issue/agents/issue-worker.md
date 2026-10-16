@@ -72,6 +72,7 @@ Merge only when all hold:
 - the review of the **current** head has zero `blocking` and zero `fix-in-PR`
 - every check on the head has concluded **green** — not pending, not "failed but probably unrelated"
 - the PR has no merge conflicts and the head is still the reviewed SHA
+- the PR's base is the default branch, and no open PR in the repository has this PR's head branch as its base: the merge deletes the head branch, and a PR based on it would be closed or retargeted without anybody deciding it
 - every validation command of the skill's step 7 exited 0 locally on that head — a command that could not run is not a pass: report the open PR and what could not run
 - no automated reviewer wrote anything at or after the latest verdict that a reviewer has not read yet, and that verdict's `Not covered` names no automated review as still running (checked as described below); entries that appear after the one round that `BOT` lines triggered on this head are tracked, not waited for (see below)
 
@@ -81,6 +82,15 @@ Merge only when all hold:
 gh pr checks <PR> -R <owner>/<repo> --watch    # then confirm with: gh pr checks <PR> -R <owner>/<repo>
 gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
+
+Then the base, each as its own command:
+
+```bash
+gh pr view <PR> -R <owner>/<repo> --json baseRefName,headRefName    # baseRefName must equal the default branch
+gh pr list -R <owner>/<repo> --base <headRefName> --state open --json number    # must be empty
+```
+
+If the base is not the default branch, or the list is not empty, do not merge: stop with the marker (reason `other`, one sentence naming the base or the dependent PR numbers) and report that a person retargets the dependent PRs to the default branch, or merges by hand, because `--delete-branch` would otherwise close or retarget them. Reason: the resumed PR path merges a PR whose base this run never set, and a stacked PR can only come from a person.
 
 Then check what automated reviewers wrote after the verdict. This is the last check before the merge, after the checks are green: `--watch` has waited for the bot's pending check, so a review that was still running is finished and posted by now. `<skill directory>` is the `work-issue` skill directory shown when the skill was invoked.
 
