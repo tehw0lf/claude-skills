@@ -50,6 +50,8 @@ Write the verdict as a Markdown comment file and return its path together with a
 ```
 ## Independent local review
 
+*[pr-review] verdict, written by the pr-reviewer agent*
+
 Reviewed head: <full sha>
 
 Verdict: <mergeable | not mergeable>
@@ -97,7 +99,8 @@ Verdict: <mergeable | not mergeable>
 </details>
 ```
 
-- **Always visible, outside every `<details>`:** the heading, `Reviewed head`, `Verdict` and the count line. Whoever merges reads the decision without opening anything.
+- **Always visible, outside every `<details>`:** the heading, the origin line, `Reviewed head`, `Verdict` and the count line. Whoever merges reads the decision without opening anything.
+- **The first line stays exactly `## Independent local review`.** `bot-activity.py`, `issue-context.py` and `review-rounds.py` recognise a verdict by that first line alone, so the origin line goes below it and never replaces or prefixes it.
 - **`Blocking` and `Fix in PR` are open** because they decide the verdict, but each finding inside them is folded behind a one-line summary: the list shows what is wrong at a glance, and the evidence opens on demand. `Follow-up`, `What was checked` and `Not covered` are folded.
 - **An empty class is one plain line**, `**Blocking:** none`, instead of a `<details>` block with nothing in it; the same for `Not covered`. `What was checked` is never empty.
 - **Two levels of `<details>` at most.** Deeper nesting is harder to read than the long comment it replaces.
