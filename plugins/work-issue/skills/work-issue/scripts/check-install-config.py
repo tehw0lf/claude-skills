@@ -110,13 +110,13 @@ OVERRIDE_FIELDS = ("overrides", "resolutions", "packageExtensions")  # the pnpm.
 def clean(text):
     """One line, no tabs: the output format is tab-separated and line-oriented. A character that is not printable
     (a control character, U+0085, U+2028, U+FEFF, ...) is written as an escape (`\\x1f`, `\\u2028`) instead of being
-    stripped or passed on, so that a value shows what the file holds and no character splits the line for a reader."""
-    text = re.sub(r"[\t\r\n]+", " ", str(text))
+    stripped or passed on, so that a value shows what the file holds (a space at its edge included) and no character splits the line for a reader."""
+    text = re.sub(r"[\t\r\n]+", " ", str(text).strip("\t\r\n"))
     text = "".join(
         c if c.isprintable() else (f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}" if ord(c) < 0x10000 else f"\\U{ord(c):08x}")
         for c in text
     )
-    return text.strip(" ")
+    return text
 
 
 def why(error):
