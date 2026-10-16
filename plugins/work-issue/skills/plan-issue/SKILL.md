@@ -58,7 +58,9 @@ These stay questions: a trade-off between approaches, a change of public behavio
 
 ### 4. Find the cause
 
-Read the code in a detached working tree of the default branch, outside the checkout:
+Read the code in a detached working tree of the default branch, outside the checkout. Create its temporary directory so that a failure stops the step: `d=$(mktemp -d) || exit 1` (`mktemp -d -p <scratch directory>` when one was given), then print it with `echo "$d"`; a variable may be gone in the next command, so every later command uses the printed absolute path literally, and a command that has to run inside the working tree runs in a subshell, `( cd <that path> && pwd && <command> )`, so that the session's working directory stays the checkout (a failed `cd` stops the subshell before `<command>`). Commands for the repository itself keep running in the checkout. No command that writes (above all `git init`, `git add`, `npm install`, `git worktree add`) runs into a scratch directory before its path is printed and, where a `cd` is needed, confirmed by `pwd`, and a failed `mktemp` or `cd` ends the step instead of continuing. Reason: an empty or unset path variable turns an unquoted `cd $d` into a bare `cd`, which goes to the home directory, a failed `cd` leaves the shell where it was, and `$d/base` with an empty `d` becomes `/base`; without `|| exit 1` the next command runs there. This happened: runs that tried commands by hand left a throwaway `package.json` in the home directory, and ran `git init` and `git add -A` there, which created a repository holding copies of unrelated files.
+
+Then:
 
 ```bash
 git fetch origin
@@ -75,7 +77,7 @@ Open work by somebody else on the same files: for each open `mentions` `PR` with
 
 ### 6. Write the comment
 
-Post exactly one comment, with `gh issue comment <n> -R <owner/repo> --body-file <temporary directory>/comment.md`. It contains only what is in the repository's code or the issue: no log excerpts, no run or session URLs, no local paths, no host names.
+Post exactly one comment, with `gh issue comment <n> -R <owner/repo> --body-file <temporary directory>/comment.md` (the temporary directory is created as step 4 says). It contains only what is in the repository's code or the issue: no log excerpts, no run or session URLs, no local paths, no host names.
 
 **A plan** starts with the line `<!-- work-issue:plan base=<sha of origin/<default>> -->` (the full `git rev-parse origin/<default>`), then `## Implementation plan`:
 
