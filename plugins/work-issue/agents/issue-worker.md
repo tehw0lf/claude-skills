@@ -118,7 +118,7 @@ Your final message is the only thing the user sees. Include:
 
 - the issue, and either the PR with its merge state or why you stopped — for a stop: the questions, the options and your recommendation
 - the cause you found and what changed
-- the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the status entries they produced, or that none is set
+- the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
 - validation results with real numbers, and which source the commands came from
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - what blocked a merge, if anything (a finding, a check, no reviewer, a refused merge, automated-review activity after the verdict)
