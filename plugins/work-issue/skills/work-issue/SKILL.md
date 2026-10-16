@@ -215,6 +215,8 @@ git push -u origin HEAD
 gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <temporary directory>/pr-body.md
 ```
 
+The PR is always opened against the default branch, never on the branch of another PR (no stacked PRs). Reason: the merge deletes the head branch, and an open PR based on it would be closed or retargeted without anybody deciding it.
+
 The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason, and the root version scripts that ran with the entries they produced as `git status` printed them, or "none set"), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff, plus aggregate figures about public data that name their sample, can be reproduced from public data and were derived again after the last change: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
 
 Done when the PR is open on a head for which step 7 is done. Report the PR, the version scripts that ran and what they changed, what was verified, what was not, and the list from step 5.
