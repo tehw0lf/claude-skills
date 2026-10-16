@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report settings that make an npm, Yarn Berry or pnpm install hide peer-dependency conflicts; writes nothing.
+"""Report settings that make an npm, Yarn Berry or pnpm install hide peer-dependency conflicts; writes nothing itself.
 
 usage: check-install-config.py <directory>
 
@@ -26,7 +26,8 @@ the one holding pnpm-workspace.yaml). Checked:
 npm is started with --logs-max=0 --no-update-notifier --color=false, so it writes no debug log, runs
 no update check and prints no escape sequences (a color=always setting would otherwise prefix its
 stderr lines with them, and the first `npm error` line could not be found); none of the options is
-one of the checked keys, so the reported values do not change.
+one of the checked keys, so the reported values do not change. The flags do not stop npm from creating its cache
+directory when that does not exist yet.
 
 "Not exactly `false`" is deliberate: npm prints the configured string as written (`1`, `0`, `False`)
 and `true` for a bare key or an empty value; the script does not reproduce npm's own parsing of those
