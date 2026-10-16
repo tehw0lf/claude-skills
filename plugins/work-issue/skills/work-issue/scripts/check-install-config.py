@@ -34,7 +34,7 @@ strings, anything but `false` is reported and the caller stops. That includes an
 trailing comment (`false ; note`): it is reported although npm reads it as `false`.
 
 Output, one tab-separated line per finding on stdout, nothing for a clean directory:
-  NPMRC     <key, as npm reads it: surrounding quotes removed>  <value as written, empty for a bare key>  .npmrc
+  NPMRC     <key, surrounding quotes removed>  <value as written, empty for a bare key>  .npmrc
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
               (an environment variable can override it, anyone else installing here gets the file)
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
@@ -113,7 +113,9 @@ def emit(*fields):
 
 
 def npmrc_key(key):
-    """The key as npm's ini parser reads it, quotes removed; None for a double-quoted key with a backslash."""
+    """The key with its quotes removed the way npm's ini removes them; None for a double-quoted key with a backslash.
+
+    ini's cut of an unquoted key at an unescaped `;` or `#` and its `[]` suffix are not applied."""
     key = key.strip()
     if len(key) >= 2 and key[0] == key[-1] == "'":
         key = key[1:-1]
