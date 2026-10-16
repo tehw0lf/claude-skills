@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Report settings that make the install (npm, Yarn Berry, pnpm) hide peer-dependency conflicts. The script
-itself writes nothing.
+"""Report settings that make an npm, Yarn Berry or pnpm install hide peer-dependency conflicts; writes nothing.
 
 usage: check-install-config.py <directory>
 
@@ -57,8 +56,8 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
   SKIPPED   <source>  <reason>
               a source that could not be read: package.json, .npmrc, npm, npm config ls, .npm-extension.mjs,
               .npm-extension.cjs, .yarnrc.yml, pnpm-workspace.yaml (also a YAML file that uses a construct
-              the scan cannot follow: flow-style document, several documents, merge key, anchor or alias,
-              tab indentation, a line that is no key). Its
+              the scan cannot follow: flow-style document, indented document, several documents, merge key,
+              anchor or alias, tab indentation, a line that is no key). Its
               findings are missing, not empty. The other sources are still checked. For npm the
               reason is npm's first `npm error` line; without one, its whole stderr; with an
               empty stderr, `exit <code>`.
@@ -250,6 +249,8 @@ ALIAS = re.compile(r"(?:^|[\s:\[{,-])[&*][A-Za-z0-9_-]")
 
 def strip_comment(text):
     text = text.strip()
+    if text.startswith("#"):
+        return ""
     if text and text[0] in "\"'":
         end = text.find(text[0], 1)
         return text if end < 0 else text[: end + 1]
@@ -278,10 +279,11 @@ def yaml_entries(lines, wanted):
             raise Unsupported("line %d: several documents or a directive" % number)
         seen_start = True
         if line[0] in " \t":
-            if current is not None:
-                block_of[current].append((number, line))
+            if current is None:
+                raise Unsupported("line %d: indented before the first top-level key" % number)
+            block_of[current].append((number, line))
             continue
-        if current is not None and line.startswith("-") and top[-1][1] in wanted:
+        if current is not None and line.startswith("-"):
             block_of[current].append((number, line))  # a list at the key's own indentation
             continue
         match = KEY_LINE.match(line.rstrip())
