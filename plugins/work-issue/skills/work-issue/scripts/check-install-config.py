@@ -34,9 +34,11 @@ strings, anything but `false` is reported and the caller stops. That includes an
 trailing comment (`false ; note`): it is reported although npm reads it as `false`.
 
 Output, one tab-separated line per finding on stdout, nothing for a clean directory:
-  NPMRC     <key, surrounding quotes removed>  <value as written, empty for a bare key>  .npmrc
+  NPMRC     <key as npm reads it: quotes removed, cut at an unescaped ; or #, a trailing [] removed>
+            <value as written, empty for a bare key>  .npmrc
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
-              (an environment variable can override it, anyone else installing here gets the file)
+              (an environment variable can override it, anyone else installing here gets the file);
+              a key below a [section] header is reported too, although npm does not read it as the setting
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
               the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
@@ -112,22 +114,48 @@ def emit(*fields):
     print("\t".join(clean(f) for f in fields))
 
 
-def npmrc_key(key):
-    """The key with its quotes removed the way npm's ini removes them; None for a double-quoted key with a backslash.
+def ini_cut(key):
+    """An unquoted key the way ini's `unsafe` reads it: `\\`, `\\;` and `\\#` give the escaped character,
+    any other backslash pair stays as written, the first unescaped `;` or `#` ends the key."""
+    out = []
+    i = 0
+    while i < len(key):
+        char = key[i]
+        if char == "\\" and i + 1 < len(key):
+            if key[i + 1] in "\\;#":
+                out.append(key[i + 1])
+            else:
+                out.append(key[i : i + 2])
+            i += 2
+            continue
+        if char in ";#":
+            break
+        out.append(char)
+        i += 1
+    return "".join(out).strip()
 
-    ini's cut of an unquoted key at an unescaped `;` or `#` and its `[]` suffix are not applied."""
+
+def npmrc_key(key):
+    """The key as npm's ini reads it; None for a double-quoted key with a backslash.
+
+    Quotes are removed, an unquoted key is cut at its first unescaped `;` or `#`, and one trailing `[]`
+    is removed (from a quoted key as well) when the key is longer than 2 characters."""
     key = key.strip()
     if len(key) >= 2 and key[0] == key[-1] == "'":
         key = key[1:-1]
         inner = key.strip()
         if not (len(inner) >= 2 and inner[0] == inner[-1] == '"'):
-            return key
+            return strip_array(key)
         key = inner
     if len(key) >= 2 and key[0] == key[-1] == '"':
         if "\\" in key:
             return None
-        return key[1:-1]
-    return key
+        return strip_array(key[1:-1])
+    return strip_array(ini_cut(key))
+
+
+def strip_array(key):
+    return key[:-2] if len(key) > 2 and key.endswith("[]") else key
 
 
 def check_npmrc(directory):
