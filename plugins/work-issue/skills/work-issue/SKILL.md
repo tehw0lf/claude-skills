@@ -159,7 +159,7 @@ Dependency conflicts are resolved by choosing versions that both sides declare c
 
 Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install --package-lock-only --ignore-scripts`, `uv lock`, `cargo update -w`). `npm version` itself runs the root package's `preversion`, `version` and `postversion` scripts, and it is run without `--ignore-scripts`: the repository's own scripts belong to its version bump (for example a `version` script that moves mirrored sub-package versions along with the root).
 
-Before the bump, read those three scripts and record the state of the tree in files in the temporary directory (created as step 1 says): the status for new untracked entries, and a snapshot of the tracked content, because a status line does not change when a script edits a file that was already modified:
+For an npm root (a `package.json` with a version; `pyproject.toml` and `Cargo.toml` have no such scripts, skip the rest of this paragraph), before the bump read those three scripts and record the state of the tree in files in the temporary directory (created as step 1 says): the status for new untracked entries, and a snapshot of the tracked content, because a status line does not change when a script edits a file that was already modified:
 
 ```bash
 jq -c '.scripts // {} | {preversion, version, postversion} | with_entries(select(.value != null))' package.json   # prints {} when none is set
