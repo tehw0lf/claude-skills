@@ -34,11 +34,13 @@ strings, anything but `false` is reported and the caller stops. That includes an
 trailing comment (`false ; note`): it is reported although npm reads it as `false`.
 
 Output, one tab-separated line per finding on stdout, nothing for a clean directory:
-  NPMRC     <key as npm reads it: quotes removed, cut at an unescaped ; or #, a trailing [] removed>
+  NPMRC     <key: quotes removed, cut at an unescaped ; or #, a trailing [] removed>
             <value as written, empty for a bare key>  .npmrc
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
               (an environment variable can override it, anyone else installing here gets the file);
-              a key below a [section] header is reported too, although npm does not read it as the setting
+              a key below a [section] header is reported too, although npm does not read it as the setting.
+              Not handled (the line prints nothing): a single-quoted key whose content is a JSON array,
+              which ini turns into the key, and U+FEFF next to a key, which JavaScript's trim() removes
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
               the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
@@ -115,7 +117,7 @@ def emit(*fields):
 
 
 def ini_cut(key):
-    """An unquoted key the way ini's `unsafe` reads it: `\\`, `\\;` and `\\#` give the escaped character,
+    """An unquoted key cut like ini's `unsafe` (without its JSON and whitespace handling): `\\`, `\\;` and `\\#` give the escaped character,
     any other backslash pair stays as written, the first unescaped `;` or `#` ends the key."""
     out = []
     i = 0
@@ -136,10 +138,11 @@ def ini_cut(key):
 
 
 def npmrc_key(key):
-    """The key as npm's ini reads it; None for a double-quoted key with a backslash.
+    """The key with quotes removed, the `;`/`#` cut and the `[]` suffix of npm's ini applied; None for a double-quoted key with a backslash.
 
     Quotes are removed, an unquoted key is cut at its first unescaped `;` or `#`, and one trailing `[]`
-    is removed (from a quoted key as well) when the key is longer than 2 characters."""
+    is removed (from a quoted key as well) when the key is longer than 2 characters. Not applied: ini's
+    JSON.parse of a single-quoted key and its JavaScript whitespace set (U+FEFF)."""
     key = key.strip()
     if len(key) >= 2 and key[0] == key[-1] == "'":
         key = key[1:-1]
