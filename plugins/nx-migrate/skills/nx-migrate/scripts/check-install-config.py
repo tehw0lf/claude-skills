@@ -41,8 +41,9 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               (an environment variable can override it, anyone else installing here gets the file);
               a key below a [section] header is reported too, although npm does not read it as the setting.
               A single-quoted key whose content is a JSON array is read as ini does (the array's string
-              form is the key), and the whitespace around a key is trimmed with JavaScript's trim() set
-              (including U+FEFF), not Python's
+              form is the key), the whitespace around a key and around a value is trimmed with JavaScript's
+              trim() set (including U+FEFF; U+001C-U+001F and U+0085 are kept), not Python's, and lines are
+              split on \\r and \\n only, as ini does
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
               the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
@@ -207,7 +208,7 @@ def check_npmrc(directory):
     path = os.path.join(directory, ".npmrc")
     try:
         with open(path, encoding="utf-8-sig") as handle:
-            lines = handle.read().splitlines()
+            lines = re.split(r"\r\n|\r|\n", handle.read())
     except FileNotFoundError:
         return True
     except (OSError, UnicodeDecodeError) as error:
@@ -225,7 +226,7 @@ def check_npmrc(directory):
             return False
         if key not in NPMRC_SAFE:
             continue
-        value = value.strip()
+        value = js_trim(value)
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         if separator and NPMRC_SAFE[key] is not None and value == NPMRC_SAFE[key]:
