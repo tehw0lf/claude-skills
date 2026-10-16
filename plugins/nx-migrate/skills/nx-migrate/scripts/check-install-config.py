@@ -41,8 +41,10 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               (an environment variable can override it, anyone else installing here gets the file);
               a key below a [section] header is reported too, although npm does not read it as the setting.
               A single-quoted key whose content is a JSON array is read as ini does (the array's string
-              form is the key), and the whitespace around a key is trimmed with JavaScript's trim() set
-              (including U+FEFF), not Python's
+              form is the key), the whitespace around a key and around a value is trimmed with JavaScript's
+              trim() set (including U+FEFF; U+001C-U+001F and U+0085 are kept), not Python's, and lines are
+              split on \\r and \\n only, as ini does; a character that is not printable in the printed
+              value, a tab included, is shown as an escape (`\\t`, `\\x1f`, `\\u2028`), not stripped
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
               the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
@@ -106,8 +108,17 @@ OVERRIDE_FIELDS = ("overrides", "resolutions", "packageExtensions")  # the pnpm.
 
 
 def clean(text):
-    """One line, no tabs: the output format is tab-separated and line-oriented."""
-    return re.sub(r"[\t\r\n]+", " ", str(text)).strip()
+    """One line, no tabs: the output format is tab-separated and line-oriented. Line breaks around a field are cut
+    and inside it become a space. A character that is not printable (a tab, written `\\t`, a control character,
+    U+0085, U+2028, U+FEFF, ...) is written as an escape (`\\x1f`, `\\u2028`) instead of being stripped or passed
+    on, so that a value shows what the file holds (a space at its edge included) and no character splits the
+    line for a reader."""
+    text = re.sub(r"[\r\n]+", " ", str(text).strip("\r\n"))
+    text = "".join(
+        c if c.isprintable() else "\\t" if c == "\t" else (f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}" if ord(c) < 0x10000 else f"\\U{ord(c):08x}")
+        for c in text
+    )
+    return text
 
 
 def why(error):
@@ -207,7 +218,7 @@ def check_npmrc(directory):
     path = os.path.join(directory, ".npmrc")
     try:
         with open(path, encoding="utf-8-sig") as handle:
-            lines = handle.read().splitlines()
+            lines = re.split(r"\r\n|\r|\n", handle.read())
     except FileNotFoundError:
         return True
     except (OSError, UnicodeDecodeError) as error:
@@ -225,7 +236,7 @@ def check_npmrc(directory):
             return False
         if key not in NPMRC_SAFE:
             continue
-        value = value.strip()
+        value = js_trim(value)
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         if separator and NPMRC_SAFE[key] is not None and value == NPMRC_SAFE[key]:
