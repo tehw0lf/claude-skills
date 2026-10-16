@@ -34,7 +34,7 @@ strings, anything but `false` is reported and the caller stops. That includes an
 trailing comment (`false ; note`): it is reported although npm reads it as `false`.
 
 Output, one tab-separated line per finding on stdout, nothing for a clean directory:
-  NPMRC     <key>  <value as written, empty for a bare key>  .npmrc
+  NPMRC     <key, as npm reads it: surrounding quotes removed>  <value as written, empty for a bare key>  .npmrc
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
               (an environment variable can override it, anyone else installing here gets the file)
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
@@ -54,7 +54,8 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               `{}` and `[]` print nothing. The file is read by a narrow scan of top-level keys, not by a
               YAML library
   SKIPPED   <source>  <reason>
-              a source that could not be read: package.json, .npmrc, npm, npm config ls, .npm-extension.mjs,
+              a source that could not be read: package.json, .npmrc (also for a
+              double-quoted key with a backslash escape, which is not decoded; the whole file is skipped), npm, npm config ls, .npm-extension.mjs,
               .npm-extension.cjs, .yarnrc.yml, pnpm-workspace.yaml (also a YAML file that uses a construct
               the scan cannot follow: flow-style document, indented document, several documents, merge key,
               anchor or alias, tab indentation, a backslash escape in a double-quoted key, a line that is no key). Its
@@ -111,6 +112,22 @@ def emit(*fields):
     print("\t".join(clean(f) for f in fields))
 
 
+def npmrc_key(key):
+    """The key as npm's ini parser reads it, quotes removed; None for a double-quoted key with a backslash."""
+    key = key.strip()
+    if len(key) >= 2 and key[0] == key[-1] == "'":
+        key = key[1:-1]
+        inner = key.strip()
+        if not (len(inner) >= 2 and inner[0] == inner[-1] == '"'):
+            return key
+        key = inner
+    if len(key) >= 2 and key[0] == key[-1] == '"':
+        if "\\" in key:
+            return None
+        return key[1:-1]
+    return key
+
+
 def check_npmrc(directory):
     """Returns True when .npmrc was read (or does not exist)."""
     path = os.path.join(directory, ".npmrc")
@@ -122,12 +139,16 @@ def check_npmrc(directory):
     except (OSError, UnicodeDecodeError) as error:
         emit("SKIPPED", ".npmrc", why(error))
         return False
-    for line in lines:
+    findings = []
+    for number, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped or stripped[0] in ";#":
             continue
         key, separator, value = stripped.partition("=")
-        key = key.strip()
+        key = npmrc_key(key)
+        if key is None:
+            emit("SKIPPED", ".npmrc", f"line {number}: escape in a quoted key")
+            return False
         if key not in NPMRC_SAFE:
             continue
         value = value.strip()
@@ -135,7 +156,9 @@ def check_npmrc(directory):
             value = value[1:-1]
         if separator and NPMRC_SAFE[key] is not None and value == NPMRC_SAFE[key]:
             continue
-        emit("NPMRC", key, value, ".npmrc")
+        findings.append(("NPMRC", key, value, ".npmrc"))
+    for finding in findings:
+        emit(*finding)
     return True
 
 
