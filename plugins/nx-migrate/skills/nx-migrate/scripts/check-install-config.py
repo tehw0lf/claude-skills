@@ -39,8 +39,9 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               an entry of <directory>/.npmrc; reported even when the effective value is `false`
               (an environment variable can override it, anyone else installing here gets the file);
               a key below a [section] header is reported too, although npm does not read it as the setting.
-              Not handled (the line prints nothing): a single-quoted key whose content is a JSON array,
-              which ini turns into the key, and U+FEFF next to a key, which JavaScript's trim() removes
+              A single-quoted key whose content is a JSON array is read as ini does (the array's string
+              form is the key), and the whitespace around a key is trimmed with JavaScript's trim() set
+              (including U+FEFF), not Python's
   CONFIG    <key>  <value printed by npm config get>  <project|user|global|builtin|env|cli|unknown>
               the effective value and the origin `npm config ls` names for it (project: the .npmrc of <directory>;
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
@@ -116,8 +117,37 @@ def emit(*fields):
     print("\t".join(clean(f) for f in fields))
 
 
+# What JavaScript's trim() removes inside a line (ini trims with it); Python's strip() lacks U+FEFF.
+JS_SPACE = (
+    "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
+
+def js_trim(text):
+    return text.strip(JS_SPACE)
+
+
+def _reject_constant(name):
+    raise ValueError(name)
+
+
+def js_string(value):
+    """JavaScript's String() of a parsed JSON value. Number formatting differs from JavaScript (`1.0`),
+    but a number can never equal a checked key."""
+    if isinstance(value, list):
+        return ",".join(js_string(item) for item in value)
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        return "[object Object]"
+    return str(value)
+
+
 def ini_cut(key):
-    """An unquoted key cut like ini's `unsafe` (without its JSON and whitespace handling): `\\`, `\\;` and `\\#` give the escaped character,
+    """An unquoted key cut like ini's `unsafe` (without its JSON handling; trimmed with JavaScript's set): `\\`, `\\;` and `\\#` give the escaped character,
     any other backslash pair stays as written, the first unescaped `;` or `#` ends the key."""
     out = []
     i = 0
@@ -134,18 +164,25 @@ def ini_cut(key):
             break
         out.append(char)
         i += 1
-    return "".join(out).strip()
+    return js_trim("".join(out))
 
 
 def npmrc_key(key):
     """The key with quotes removed, the `;`/`#` cut and the `[]` suffix of npm's ini applied; None for a double-quoted key with a backslash.
 
     Quotes are removed, an unquoted key is cut at its first unescaped `;` or `#`, and one trailing `[]`
-    is removed (from a quoted key as well) when the key is longer than 2 characters. Not applied: ini's
-    JSON.parse of a single-quoted key and its JavaScript whitespace set (U+FEFF)."""
-    key = key.strip()
+    is removed (from a quoted key as well) when the key is longer than 2 characters. The content of a
+    single-quoted key is parsed as JSON like ini's JSON.parse; an array gives its JavaScript string form
+    (no `[]` suffix is removed from it). Whitespace is trimmed with JavaScript's set (U+FEFF included)."""
+    key = js_trim(key)
     if len(key) >= 2 and key[0] == key[-1] == "'":
         key = key[1:-1]
+        try:
+            parsed = json.loads(key, parse_constant=_reject_constant)
+        except (ValueError, RecursionError):
+            parsed = None
+        if isinstance(parsed, list):
+            return js_string(parsed)
         inner = key.strip()
         if not (len(inner) >= 2 and inner[0] == inner[-1] == '"'):
             return strip_array(key)
@@ -174,7 +211,7 @@ def check_npmrc(directory):
         return False
     findings = []
     for number, line in enumerate(lines, 1):
-        stripped = line.strip()
+        stripped = js_trim(line)
         if not stripped or stripped[0] in ";#":
             continue
         key, separator, value = stripped.partition("=")
