@@ -106,6 +106,15 @@ jq -r '.version // empty' package.json    # non-empty → npm version patch --no
 cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
 ```
 
+`npm version` runs the root package's `preversion`, `version` and `postversion` scripts, and it is run without `--ignore-scripts`: the repository's own scripts belong to its version bump. Before the root bump (and before `bump-subpackages.sh`, whose `npm install --ignore-scripts` runs no package scripts), read those three scripts and save the status of the tree to a file in a scratch directory (created as the agent's rules say):
+
+```bash
+jq -c '.scripts // {} | {preversion, version, postversion} | with_entries(select(.value != null))' package.json   # prints {} when none is set
+git status --porcelain --untracked-files=normal > <scratch directory>/status-before-bump.txt
+```
+
+After the root bump run the same `git status` again and compare: what is new or different beyond `package.json` and `package-lock.json` is the output of the version scripts that are set. With `--untracked-files=normal` a new untracked directory is one `?? <dir>/` entry, not one per file; it is allowed as a whole when a named script ran, and it is named as `git status` printed it (to name the files inside, list it with `git status --porcelain --untracked-files=all -- <dir>/`; the comparison itself stays on `normal`). A file that was already modified before the bump keeps the same status line when a script edits it again: that is a known limit of a `git status` comparison, and step 11 commits it either way. Note the scripts that ran and the entries they produced, or "none set".
+
 CI derives the image tag, the git tag and the release from that value and does not fail when it already exists: the image is published as `latest` only, the tag and the release are skipped with a warning, and every job stays green. A missing bump is therefore silent — nothing points at it until someone looks for the version that was never published. If neither source holds a version there is nothing to bump — say so in the PR body instead of adding a version field.
 
 Sub-packages are bumped the same way. Every package under `libs/*` and `apps/*` that already exists on the base commit, has a `version` and anything changed in its directory (so changes from steps 5, 6 and 8 all count) gets a patch bump. A package the run created is left alone, since it has no earlier version to move on from:
@@ -129,6 +138,7 @@ It prints one line per bumped package (directory, old version, new version) on s
 ```bash
 git add package.json package-lock.json nx.json .nx/ tsconfig*.json
 git add -u
+git add <each new untracked entry that step 10 recorded as version-script output>   # `git add -u` adds tracked files only
 ```
 
 ```
@@ -152,6 +162,7 @@ gh pr create --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
 - Migrated Nx workspace to vX.Y.Z
 - Applied all generated migrations
 - Bumped patch versions of changed sub-packages: <list, or none>
+- Root version scripts run by the bump: <names and the entries they changed, or none set>
 - All lint, test, and build checks pass
 
 ## Test plan
