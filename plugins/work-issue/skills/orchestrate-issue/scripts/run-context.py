@@ -45,6 +45,9 @@ Output, one tab-separated line per fact:
               revision the history does not hold, is # SKIPPED edits)
 Status lines start with "#":
   # SKIPPED <source>: <reason>   a source that could not be read; its lines are missing, not empty.
+                                 (`issues` naming the unfiltered listing: only the check against a lagging
+                                 label filter is missing; that listing pages through every open issue and
+                                 pull request within the 60-second limit, so it can time out on a large repository)
                                  Sources: rules, protection, issues, labeler, permission, edits, checkouts
 
 Exits non-zero, with the reason on stderr and nothing on stdout, for a malformed argument, `gh`
@@ -348,7 +351,7 @@ def labeler(repo, number, label):
     try:
         # the newest by time, whatever the order of the answer
         for event in events:
-            if event.get("event") == "labeled" and (event.get("label") or {}).get("name") == label:
+            if event.get("event") == "labeled" and str((event.get("label") or {}).get("name")).casefold() == label.casefold():
                 when = parse_time(event.get("created_at"))
                 if since is None or when > since:
                     actor, since = login_of(event.get("actor")), when
@@ -380,20 +383,34 @@ def labeler(repo, number, label):
 
 
 def has_label(issue, label):
-    """True when the issue's own `labels` hold an object named `label` (exact match, as the label filter)."""
+    """True when the issue's own `labels` hold an object named `label`, ignoring case like GitHub's label filter."""
     labels = issue.get("labels") if isinstance(issue, dict) else None
-    return isinstance(labels, list) and any(isinstance(l, dict) and l.get("name") == label for l in labels)
+    return isinstance(labels, list) and any(
+        isinstance(l, dict) and isinstance(l.get("name"), str) and l["name"].casefold() == label.casefold() for l in labels
+    )
+
+
+def readable_labels(issue):
+    """True for an object whose `labels` is a list of objects."""
+    return isinstance(issue, dict) and isinstance(issue.get("labels"), list) and all(isinstance(l, dict) for l in issue["labels"])
 
 
 def merge_issues(filtered, unfiltered, label):
     """Both listings as one list: each issue number once, oldest first (ties by number).
 
-    `unfiltered` contributes only the entries that carry the label themselves. An entry whose
+    `unfiltered` contributes only the entries that carry the label themselves (case-insensitive);
+    an entry of it with unreadable `labels` is passed on as None, which the caller reports. An entry whose
     `created_at` cannot be read keeps its place in listing order after the readable ones. Entries
     that are not objects or have no integer number are passed on unchanged for the caller to report.
     """
     seen, merged, odd = set(), [], []
-    for issue in list(filtered) + [i for i in unfiltered if has_label(i, label)]:
+    candidates = list(filtered)
+    for issue in unfiltered:
+        if not readable_labels(issue):
+            odd.append(None)  # unreadable is not "unlabelled": the caller reports it, never prints it as an issue
+        elif has_label(issue, label):
+            candidates.append(issue)
+    for issue in candidates:
         if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
             odd.append(issue)
             continue
@@ -424,10 +441,11 @@ def labelled_issues(full, label):
             f"repos/{full}/issues", "--paginate", "-X", "GET", *extra,
             "-f", "state=open", "-f", "sort=created", "-f", "direction=asc", "-f", "per_page=100",
         )
+        which = "unfiltered listing, labelled lines are complete without it" if target is unfiltered else "filtered listing"
         if issues is None:
-            skipped("issues", f"{full}: {reason}")
+            skipped("issues", f"{full}: {which}: {reason}")
         elif not isinstance(issues, list):
-            skipped("issues", f"{full}: unexpected answer")
+            skipped("issues", f"{full}: {which}: unexpected answer")
         else:
             target.extend(issues)
     return merge_issues(filtered, unfiltered, label)
@@ -456,7 +474,7 @@ def main():
         full = resolved[name.lower()][0]
         for issue in labelled_issues(full, label):
             if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
-                skipped("issues", f"{full}: an entry without an issue number")
+                skipped("issues", f"{full}: an entry without an issue number or with unreadable labels")
                 continue
             if "pull_request" in issue or (full.lower(), issue["number"]) in printed:
                 continue
