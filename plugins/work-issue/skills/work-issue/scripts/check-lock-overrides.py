@@ -28,7 +28,8 @@ for a clean directory:
   COMPOSER  alias                  <require|require-dev>  <package>  <constraint as written>
   SKIPPED   <file>                 <reason>        a file that exists but could not be read or parsed
   SKIPPED   manifest               none of the four files exists (a call with the wrong directory)
-A value of the wrong type prints one line with `-` in place of the entries and the compact JSON.
+A value of the wrong type (a key that must be a table, object or list, and is not) prints one line with `-`
+in place of the entries and the compact JSON; an empty list, table or object prints nothing.
 
 Exit codes: 0 every file that exists was read (findings do not change it), 1 at least one SKIPPED line,
 2 usage error.
@@ -74,14 +75,20 @@ def load_toml(path):
 def check_uv(path):
     data = load_toml(path)
     tool = data.get("tool", {})
-    uv = tool.get("uv", {}) if isinstance(tool, dict) else {}
-    if not isinstance(uv, dict) or "override-dependencies" not in uv:
+    if not isinstance(tool, dict):
+        emit("UV", "tool", "-", js(tool))
+        return
+    uv = tool.get("uv", {})
+    if not isinstance(uv, dict):
+        emit("UV", "tool.uv", "-", js(uv))
+        return
+    if "override-dependencies" not in uv:
         return
     value = uv["override-dependencies"]
     if isinstance(value, list):
         for item in value:
             emit("UV", "override-dependencies", item)
-    elif value:
+    else:
         emit("UV", "override-dependencies", "-", js(value))
 
 
@@ -93,30 +100,32 @@ def check_cargo(path):
             if isinstance(crates, dict):
                 for crate, value in crates.items():
                     emit("CARGO", "patch." + source, crate, js(value))
-            elif crates:
+            else:
                 emit("CARGO", "patch." + source, "-", js(crates))
-    elif patch:
+    else:
         emit("CARGO", "patch", "-", js(patch))
     replace = data.get("replace", {})
     if isinstance(replace, dict):
         for spec, value in replace.items():
             emit("CARGO", "replace", spec, js(value))
-    elif replace:
+    else:
         emit("CARGO", "replace", "-", js(replace))
 
 
 def go_tokens(line):
     """Tokens of a go.mod line: whitespace-separated, `//` comment removed, quoted strings unquoted."""
     tokens = []
-    for match in re.finditer(r'"((?:[^"\\]|\\.)*)"|`([^`]*)`|(//.*)|(\S+)', line):
+    for match in re.finditer(r'"((?:[^"\\]|\\.)*)"|`([^`]*)`|(//.*)|([()])|([^\s()]+)', line):
         if match.group(3) is not None:
             break
         if match.group(1) is not None:
             tokens.append(match.group(1))
         elif match.group(2) is not None:
             tokens.append(match.group(2))
+        elif match.group(4) is not None:
+            tokens.append(match.group(4))
         else:
-            word = match.group(4)
+            word = match.group(5)
             if "//" in word:
                 word = word.split("//", 1)[0]
                 if word:
@@ -127,13 +136,16 @@ def go_tokens(line):
 
 
 def go_directive(tokens):
+    """The output fields of one replace directive; ValueError when it does not fit the grammar."""
+    if "(" in tokens or ")" in tokens:
+        raise ValueError("malformed replace directive: " + " ".join(tokens))
     if "=>" not in tokens:
         raise ValueError("replace directive without =>: " + " ".join(tokens))
     index = tokens.index("=>")
     old, new = tokens[:index], tokens[index + 1:]
     if not 1 <= len(old) <= 2 or not 1 <= len(new) <= 2:
         raise ValueError("malformed replace directive: " + " ".join(tokens))
-    emit("GO", "replace", " ".join(old), " ".join(new))
+    return ("GO", "replace", " ".join(old), " ".join(new))
 
 
 def check_go(path):
@@ -157,8 +169,9 @@ def check_go(path):
                 findings.append(tokens[1:])
     if in_block:
         raise ValueError("replace ( block is never closed")
-    for tokens in findings:
-        go_directive(tokens)
+    # all directives are checked before any line is printed: a file that cannot be parsed gives no findings
+    for fields in [go_directive(tokens) for tokens in findings]:
+        emit(*fields)
 
 
 def check_composer(path):
@@ -167,16 +180,19 @@ def check_composer(path):
     if not isinstance(data, dict):
         raise ValueError("top-level value is not an object")
     config = data.get("config", {})
-    if isinstance(config, dict) and "platform" in config:
+    if not isinstance(config, dict):
+        emit("COMPOSER", "config", "-", js(config))
+    elif "platform" in config:
         platform = config["platform"]
         if isinstance(platform, dict):
             for name, value in platform.items():
                 emit("COMPOSER", "config.platform", name, js(value))
-        elif platform:
+        else:
             emit("COMPOSER", "config.platform", "-", js(platform))
     for section in ("require", "require-dev"):
         packages = data.get(section, {})
         if not isinstance(packages, dict):
+            emit("COMPOSER", section, "-", js(packages))
             continue
         for package, constraint in packages.items():
             if isinstance(constraint, str) and re.search(r"\s+as\s+", constraint):
