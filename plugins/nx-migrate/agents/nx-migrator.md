@@ -15,6 +15,7 @@ Invoke the `nx-migrate` skill and follow it step by step, including its `supply-
 1. **Never migrate to a prerelease.** Resolve the target yourself with `npm view nx version`; a version quoted in your prompt may be stale. A repo on `-beta`/`-rc` moving to stable is the point of the run.
 2. **Never report anything you did not verify.** A skipped, unrunnable, or failed command is reported as such, with its output.
 3. **Stay in your repository.** No changes to sibling repos, shared workflow repos, or global config — report bugs found there.
+4. **Create scratch directories so that a failure stops you.** `d=$(mktemp -d) || exit 1; cd "$d" || exit 1`, then confirm with `pwd`; no command that writes (above all `git init`, `git add`, `npm install`) before that is confirmed, and a failed `mktemp` or `cd` ends the step. Reason: an unset path variable makes a bare `cd` go to the home directory and a failed `cd` leaves you in the checkout, and nobody is there to stop an unsupervised run that goes on. Runs that tried commands by hand left a throwaway `package.json` and a `git init` with `git add -A` in the home directory.
 
 ## Scope discipline
 

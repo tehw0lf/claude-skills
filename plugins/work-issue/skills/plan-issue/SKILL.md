@@ -58,7 +58,8 @@ These stay questions: a trade-off between approaches, a change of public behavio
 
 ### 4. Find the cause
 
-Read the code in a detached working tree of the default branch, outside the checkout:
+Read the code in a detached working tree of the default branch, outside the checkout. Create the temporary directory so that a failure stops the step: `d=$(mktemp -d) || exit 1` (with a scratch directory given: `mktemp -d -p <scratch directory>`), `cd "$d" || exit 1`, confirm with `pwd`. No command that writes (above all `git worktree add`, `git init`, `git add`, `npm install`, a test command) runs before the working directory is confirmed, and a failed `mktemp` or `cd` ends the step. Reason: an empty path variable makes a bare `cd` go to the home directory, and a failed `cd` leaves the shell in the checkout; without `|| exit 1` the next command runs there. This happened in runs that tried commands by hand: a throwaway `package.json` and a `git init` with `git add -A` ended up in the home directory.
+
 
 ```bash
 git fetch origin
@@ -75,7 +76,7 @@ Open work by somebody else on the same files: for each open `mentions` `PR` with
 
 ### 6. Write the comment
 
-Post exactly one comment, with `gh issue comment <n> -R <owner/repo> --body-file <temporary directory>/comment.md`. It contains only what is in the repository's code or the issue: no log excerpts, no run or session URLs, no local paths, no host names.
+Post exactly one comment, with `gh issue comment <n> -R <owner/repo> --body-file <temporary directory>/comment.md` (the temporary directory is created and entered as step 4 says). It contains only what is in the repository's code or the issue: no log excerpts, no run or session URLs, no local paths, no host names.
 
 **A plan** starts with the line `<!-- work-issue:plan base=<sha of origin/<default>> -->` (the full `git rev-parse origin/<default>`), then `## Implementation plan`:
 
