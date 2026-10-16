@@ -1,15 +1,28 @@
 #!/usr/bin/env python3
-"""Report settings that make `npm install` hide peer-dependency conflicts. The script itself writes nothing.
+"""Report settings that make the install (npm, Yarn Berry, pnpm) hide peer-dependency conflicts. The script
+itself writes nothing.
 
 usage: check-install-config.py <directory>
 
-<directory> is the root of a repository (the one holding package.json and any .npmrc). Checked:
-  - <directory>/.npmrc: every `legacy-peer-deps` and `force` entry whose value is not exactly `false`
+<directory> is the directory the install runs in (the one holding package.json and any .npmrc; for pnpm
+the one holding pnpm-workspace.yaml). Checked:
+  - <directory>/.npmrc: every `legacy-peer-deps` and `force` entry whose value is not exactly `false`,
+    every `strict-peer-dependencies` entry whose value is not exactly `true`, every `auto-install-peers`
+    entry whose value is not exactly `false`, and every `extension-file` entry
   - `npm config get legacy-peer-deps` and `npm config get force`, run with <directory> as working
     directory (so project .npmrc, user and global config, npm_config_* environment variables are all
     seen): reported when the value npm prints is not exactly `false`
-  - <directory>/package.json: `overrides`, `resolutions` and `pnpm.overrides`. npm reads overrides
-    from the root package.json only, so no other package.json is looked at
+  - <directory>/package.json: `overrides`, `resolutions`, `packageExtensions`, `pnpm.overrides`,
+    `pnpm.packageExtensions` and `pnpm.peerDependencyRules`. npm reads overrides from the root
+    package.json only, so no other package.json is looked at
+  - <directory>/.npm-extension.mjs and .npm-extension.cjs: reported when the file exists
+  - <directory>/.yarnrc.yml: the top-level keys `packageExtensions` and `logFilters`
+  - <directory>/pnpm-workspace.yaml: the top-level keys `overrides`, `packageExtensions` and
+    `peerDependencyRules`, `strictPeerDependencies` (not exactly `true`) and `autoInstallPeers`
+    (not exactly `false`)
+  An absent key is not reported, whatever the package manager's default is: the check looks at the
+  settings only. `npm config get` is run for `legacy-peer-deps` and `force` only, and `extension-file` is
+  read from the .npmrc only (npm refuses to print it).
 
 npm is started with --logs-max=0 --no-update-notifier --color=false, so it writes no debug log, runs
 no update check and prints no escape sequences (a color=always setting would otherwise prefix its
@@ -30,11 +43,22 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               user, global: the .npmrc of the user or of the npm prefix; builtin: the npmrc inside the
               npm installation; env: npm_config_* variables; cli: a command-line flag;
               unknown: no uncommented line was found for it)
-  OVERRIDE  <overrides|resolutions|pnpm.overrides>  <package or selector, - for a field that is not an object>  <value, compact JSON>
+  OVERRIDE  <overrides|resolutions|packageExtensions|pnpm.overrides|pnpm.packageExtensions|pnpm.peerDependencyRules>
+            <package or selector, - for a field that is not an object>  <value, compact JSON>
               one line per top-level entry of a non-empty field; an empty object prints nothing; a
               field that is present but not an object (also null) is printed as one line
+  EXTENSION <.npm-extension.mjs|.npm-extension.cjs>
+              an npm extension file exists; it is code, its effect cannot be read without running it
+  YAML      <.yarnrc.yml|pnpm-workspace.yaml>  <key>  <entry, - for a scalar or a list item>  <value as written, one line>
+              one line per top-level entry of a non-empty checked collection key, one line for a
+              checked boolean key whose value is not the safe one (a missing value prints as empty);
+              `{}` and `[]` print nothing. The file is read by a narrow scan of top-level keys, not by a
+              YAML library
   SKIPPED   <source>  <reason>
-              a source that could not be read: package.json, .npmrc, npm, npm config ls. Its
+              a source that could not be read: package.json, .npmrc, npm, npm config ls, .npm-extension.mjs,
+              .npm-extension.cjs, .yarnrc.yml, pnpm-workspace.yaml (also a YAML file that uses a construct
+              the scan cannot follow: flow-style document, several documents, merge key, anchor or alias,
+              tab indentation, a line that is no key). Its
               findings are missing, not empty. The other sources are still checked. For npm the
               reason is npm's first `npm error` line; without one, its whole stderr; with an
               empty stderr, `exit <code>`.
@@ -48,9 +72,30 @@ import re
 import subprocess
 import sys
 
-KEYS = ("legacy-peer-deps", "force")
+KEYS = ("legacy-peer-deps", "force")  # the keys `npm config get` is asked for
+# .npmrc keys and the one value that does not hide a conflict; None: any entry is reported
+NPMRC_SAFE = {
+    "legacy-peer-deps": "false",
+    "force": "false",
+    "strict-peer-dependencies": "true",
+    "auto-install-peers": "false",
+    "extension-file": None,
+}
+EXTENSION_FILES = (".npm-extension.mjs", ".npm-extension.cjs")
+# YAML file -> {top-level key: None for a collection (one line per entry), or the safe scalar value}
+YAML_KEYS = {
+    ".yarnrc.yml": {"packageExtensions": None, "logFilters": None},
+    "pnpm-workspace.yaml": {
+        "overrides": None,
+        "packageExtensions": None,
+        "peerDependencyRules": None,
+        "strictPeerDependencies": "true",
+        "autoInstallPeers": "false",
+    },
+}
+PNPM_FIELDS = ("overrides", "packageExtensions", "peerDependencyRules")
 NPM_FLAGS = ("--logs-max=0", "--no-update-notifier", "--color=false")
-OVERRIDE_FIELDS = ("overrides", "resolutions")  # pnpm.overrides is handled separately
+OVERRIDE_FIELDS = ("overrides", "resolutions", "packageExtensions")  # the pnpm.* fields are handled separately
 
 
 def clean(text):
@@ -84,12 +129,12 @@ def check_npmrc(directory):
             continue
         key, separator, value = stripped.partition("=")
         key = key.strip()
-        if key not in KEYS:
+        if key not in NPMRC_SAFE:
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        if separator and value == "false":
+        if separator and NPMRC_SAFE[key] is not None and value == NPMRC_SAFE[key]:
             continue
         emit("NPMRC", key, value, ".npmrc")
     return True
@@ -168,8 +213,8 @@ def check_package_json(directory):
         return False
     fields = [(name, data[name]) for name in OVERRIDE_FIELDS if name in data]
     pnpm = data.get("pnpm")
-    if isinstance(pnpm, dict) and "overrides" in pnpm:
-        fields.append(("pnpm.overrides", pnpm["overrides"]))
+    if isinstance(pnpm, dict):
+        fields.extend(("pnpm." + name, pnpm[name]) for name in PNPM_FIELDS if name in pnpm)
     for name, value in fields:
         if isinstance(value, dict):
             for selector, wanted in value.items():
@@ -179,13 +224,164 @@ def check_package_json(directory):
     return True
 
 
+def check_extension_files(directory):
+    """Returns True when every extension file entry could be looked at."""
+    ok = True
+    for name in EXTENSION_FILES:
+        try:
+            os.lstat(os.path.join(directory, name))
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            emit("SKIPPED", name, why(error))
+            ok = False
+            continue
+        emit("EXTENSION", name)
+    return ok
+
+
+class Unsupported(Exception):
+    """A construct the narrow YAML scan cannot follow."""
+
+
+KEY_LINE = re.compile(r"""^(?:"([^"]*)"|'([^']*)'|([^\s#:'"\-\[\]{}&*!|>%@`,?][^:#]*?))\s*:(?:\s+(.*))?$""")
+ALIAS = re.compile(r"(?:^|[\s:\[{,-])[&*][A-Za-z0-9_-]")
+
+
+def strip_comment(text):
+    text = text.strip()
+    if text and text[0] in "\"'":
+        end = text.find(text[0], 1)
+        return text if end < 0 else text[: end + 1]
+    return re.split(r"\s#", text, maxsplit=1)[0].strip()
+
+
+def unquote(text):
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        return text[1:-1]
+    return text
+
+
+def yaml_entries(lines, wanted):
+    """Returns [(key, entry, value)] for the wanted top-level keys; raises Unsupported."""
+    content = [(n, l) for n, l in enumerate(lines, 1) if l.strip() and not l.lstrip().startswith("#")]
+    if content and content[0][1].lstrip()[0] in "{[":
+        raise Unsupported("flow-style document")
+    seen_start = False
+    top = []  # (line number, key, inline value) of every top-level key
+    block_of = {}  # line number of a top-level key -> its indented lines
+    current = None
+    for number, line in content:
+        if line.startswith(("---", "...")):
+            if line.rstrip() == "---" and not seen_start:
+                continue
+            raise Unsupported("line %d: several documents or a directive" % number)
+        seen_start = True
+        if line[0] in " \t":
+            if current is not None:
+                block_of[current].append((number, line))
+            continue
+        if current is not None and line.startswith("-") and top[-1][1] in wanted:
+            block_of[current].append((number, line))  # a list at the key's own indentation
+            continue
+        match = KEY_LINE.match(line.rstrip())
+        if not match:
+            raise Unsupported("line %d is not a top-level key" % number)
+        key = next(g for g in match.groups()[:3] if g is not None)
+        if key == "<<":
+            raise Unsupported("line %d: merge key" % number)
+        top.append((number, key, strip_comment(match.group(4) or "")))
+        current = number
+        block_of[current] = []
+    found = []
+    for number, key, inline in top:
+        if key not in wanted:
+            continue
+        safe = wanted[key]
+        block = block_of[number]
+        for line_number, line in block:
+            if re.match(r"\s*[^\s].*?<<\s*:", line) or ALIAS.search(strip_comment(line)):
+                raise Unsupported("line %d: anchor, alias or merge key under %s" % (line_number, key))
+            if re.match(r" *\t", line):
+                raise Unsupported("line %d: tab indentation under %s" % (line_number, key))
+        if ALIAS.search(" " + inline) or inline[:1] in ("!", "|", ">"):
+            raise Unsupported("line %d: %s uses an anchor, alias, tag or block scalar" % (number, key))
+        if safe is not None:  # a scalar setting
+            if block:
+                raise Unsupported("line %d: %s is not a scalar" % (number, key))
+            if unquote(inline) != safe:
+                found.append((key, "-", inline))
+            continue
+        if inline:
+            if block:
+                raise Unsupported("line %d: %s has a value and a block" % (number, key))
+            if inline not in ("{}", "[]"):
+                found.append((key, "-", inline))
+            continue
+        level = None
+        entry = None
+        for line_number, line in block:
+            indent = len(line) - len(line.lstrip(" "))
+            if level is None:
+                level = indent
+            if indent < level:
+                raise Unsupported("line %d: inconsistent indentation under %s" % (line_number, key))
+            if indent > level:
+                if entry is None:
+                    raise Unsupported("line %d: inconsistent indentation under %s" % (line_number, key))
+                entry[2].append(line.strip())
+                continue
+            text = line.strip()
+            if text.startswith("- ") or text == "-":
+                name, rest = "-", text[1:].strip()
+            else:
+                match = KEY_LINE.match(text)
+                if not match:
+                    raise Unsupported("line %d: no entry under %s" % (line_number, key))
+                name = next(g for g in match.groups()[:3] if g is not None)
+                rest = (match.group(4) or "").strip()
+            entry = [name, key, [rest] if rest else []]
+            found.append(entry)
+    return [f if isinstance(f, tuple) else (f[1], f[0], " ".join(f[2])) for f in found]
+
+
+def check_yaml(directory):
+    """Returns True when every YAML file was read (or does not exist)."""
+    ok = True
+    for name, wanted in YAML_KEYS.items():
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8-sig") as handle:
+                lines = handle.read().splitlines()
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeDecodeError) as error:
+            emit("SKIPPED", name, why(error))
+            ok = False
+            continue
+        try:
+            found = yaml_entries(lines, wanted)
+        except Unsupported as error:
+            emit("SKIPPED", name, error)
+            ok = False
+            continue
+        for key, entry, value in found:
+            emit("YAML", name, key, entry, value)
+    return ok
+
+
 def main(argv):
     if len(argv) != 2 or not os.path.isdir(argv[1]):
         print(__doc__.split("\n", 3)[2], file=sys.stderr)
         print("error: expected exactly one argument, an existing directory", file=sys.stderr)
         return 2
     directory = argv[1]
-    results = [check_npmrc(directory), check_npm_config(directory), check_package_json(directory)]
+    results = [
+        check_npmrc(directory),
+        check_npm_config(directory),
+        check_package_json(directory),
+        check_extension_files(directory),
+        check_yaml(directory),
+    ]
     sys.stdout.flush()
     return 0 if all(results) else 1
 
