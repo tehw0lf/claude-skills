@@ -57,7 +57,7 @@ Output, one tab-separated line per finding on stdout, nothing for a clean direct
               a source that could not be read: package.json, .npmrc, npm, npm config ls, .npm-extension.mjs,
               .npm-extension.cjs, .yarnrc.yml, pnpm-workspace.yaml (also a YAML file that uses a construct
               the scan cannot follow: flow-style document, indented document, several documents, merge key,
-              anchor or alias, tab indentation, a line that is no key). Its
+              anchor or alias, tab indentation, a backslash escape in a double-quoted key, a line that is no key). Its
               findings are missing, not empty. The other sources are still checked. For npm the
               reason is npm's first `npm error` line; without one, its whole stderr; with an
               empty stderr, `exit <code>`.
@@ -290,6 +290,8 @@ def yaml_entries(lines, wanted):
         if not match:
             raise Unsupported("line %d is not a top-level key" % number)
         key = next(g for g in match.groups()[:3] if g is not None)
+        if match.group(1) is not None and "\\" in key:
+            raise Unsupported("line %d: escape in a double-quoted key" % number)
         if key == "<<":
             raise Unsupported("line %d: merge key" % number)
         top.append((number, key, strip_comment(match.group(4) or "")))
