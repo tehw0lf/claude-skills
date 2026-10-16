@@ -208,7 +208,7 @@ def origin_repository(path):
 
 
 def checkout_state(path):
-    status, reason = run(["git", "-C", path, "--no-optional-locks", "status", "--porcelain"])
+    status, reason = run(["git", "-C", path, "--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"])
     if reason is not None:
         return "-", "-"
     branch, _ = run(["git", "-C", path, "branch", "--show-current"])
