@@ -11,8 +11,10 @@ usage: check-install-config.py <directory>
   - <directory>/package.json: `overrides`, `resolutions` and `pnpm.overrides`. npm reads overrides
     from the root package.json only, so no other package.json is looked at
 
-npm is started with --logs-max=0 --no-update-notifier, so it writes no debug log and runs no update
-check; neither option is one of the checked keys, so the reported values do not change.
+npm is started with --logs-max=0 --no-update-notifier --color=false, so it writes no debug log, runs
+no update check and prints no escape sequences (a color=always setting would otherwise prefix its
+stderr lines with them, and the first `npm error` line could not be found); none of the options is
+one of the checked keys, so the reported values do not change.
 
 "Not exactly `false`" is deliberate: npm prints the configured string as written (`1`, `0`, `False`)
 and `true` for a bare key or an empty value; the script does not reproduce npm's own parsing of those
@@ -47,7 +49,7 @@ import subprocess
 import sys
 
 KEYS = ("legacy-peer-deps", "force")
-NPM_FLAGS = ("--logs-max=0", "--no-update-notifier")
+NPM_FLAGS = ("--logs-max=0", "--no-update-notifier", "--color=false")
 OVERRIDE_FIELDS = ("overrides", "resolutions")  # pnpm.overrides is handled separately
 
 
