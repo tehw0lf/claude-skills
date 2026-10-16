@@ -12,6 +12,16 @@
 - Where the default branch has no required status check, or the checks could not be read, the worker stops at an open, reviewed PR and does not merge. That is by design.
 - One trigger per repository. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other: the assignee check only stops on an assignee other than the account itself.
 
+## Gates against an unattended merge are yours
+
+Once an issue carries `auto-work` and the default branch requires a status check, a run merges without a person, and it is used at your own risk (the plugin is MIT licensed). The plugin's own stop at a missing required check is not a gate you set. Any gate against the merge is yours to build, alone or combined:
+
+- **An instruction in a `CLAUDE.md`.** The model follows it; Claude Code does not enforce it. Which files a run loads is under "What the run reads and leaves behind".
+- **A Claude Code permission rule** (`deny` or `ask` on `Bash(gh pr merge *)`). Claude Code enforces it: rules are evaluated `deny`, then `ask`, then `allow`, so a `deny` beats the `Bash(gh pr *)` allow of the example list, and with `--permission-prompts none` an `ask` acts as a denial. It does not cover a REST merge while `Bash(gh api *)` is allowed (see "Permissions"), and a mod installed in Claude Code can approve a call that a `deny` rule refuses unless managed settings or a Team or Enterprise plan hold the rule.
+- **A required approving review in a ruleset.** GitHub enforces it, but an account on the ruleset's bypass list is not held by it. A merge that GitHub refuses is reported by the worker, not worked around. How GitHub treats a self-approval or an administrator's merge was not checked.
+
+No gate is promised to be impossible to bypass.
+
 ## Local: systemd user timer
 
 Verified once, on one machine: a timer started the service, the skill took one `auto-work` issue, the planner posted its plan, the worker opened a PR, the independent review ran on Opus and the PR was squash-merged with both required checks green. The run took about seven minutes. Run it once the same way (a labelled test issue, `--max 1`, the 30-second drop-in below) before leaving the hourly timer on.
