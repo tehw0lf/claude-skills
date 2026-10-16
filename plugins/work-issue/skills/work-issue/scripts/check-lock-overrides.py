@@ -16,7 +16,7 @@ a workspace) are not.
   - composer.json: `config.platform` (Composer stops checking dependencies against the real platform)
     and inline aliases, i.e. values in `require` or `require-dev` that contain ` as ` (a branch then
     satisfies a constraint it does not declare)
-An absent key is not reported, and an empty one is not either.
+An absent key is not reported, and neither is an empty list, table or object of the right type.
 
 Output, one tab-separated line per finding (fields have tabs and newlines replaced by a space), nothing
 for a clean directory:
@@ -29,7 +29,7 @@ for a clean directory:
   SKIPPED   <file>                 <reason>        a file that exists but could not be read or parsed
   SKIPPED   manifest               none of the four files exists (a call with the wrong directory)
 A value of the wrong type (a key that must be a table, object or list, and is not) prints one line with `-`
-in place of the entries and the compact JSON; an empty list, table or object prints nothing.
+in place of the entries and the compact JSON, also when that value is empty (`[]`, `""`, `0`).
 
 Exit codes: 0 every file that exists was read (findings do not change it), 1 at least one SKIPPED line,
 2 usage error.
