@@ -43,7 +43,7 @@ classify_repo() { # <repo-path>
   base=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) \
     || { printf '# %s\tSKIPPED: no origin/HEAD (try: git remote set-head origin -a)\n' "$repo"; return; }
   base="${base#refs/remotes/origin/}"
-  tree=clean; [ -z "$(git status --porcelain)" ] || tree=dirty
+  tree=clean; [ -z "$(git status --porcelain --untracked-files=normal)" ] || tree=dirty
   printf '# %s\tbase=%s\ttree=%s\n' "$repo" "$base" "$tree"
 
   while IFS='|' read -r b up track; do
