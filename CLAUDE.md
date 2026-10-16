@@ -35,6 +35,7 @@ node plugins/nx-migrate/skills/nx-migrate/scripts/verify-nx-provenance.js [<vers
 bash plugins/nx-migrate/skills/nx-migrate/scripts/bump-subpackages.sh   # run in an Nx workspace root with a clean tree plus changes: bumps changed libs/* and apps/* packages and runs npm install
 python3 plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py <repo>   # writes nothing itself; runs npm config get/ls (no log, no update check) in <repo>
 python3 plugins/work-issue/skills/work-issue/scripts/repo-commands.py <checkout root>   # reads files only, runs no tool; prints the repository's commands with their source (CALLER/CI/SCRIPT/MAKE/PROJECT/DOC/FALLBACK/…)
+python3 plugins/work-issue/skills/work-issue/scripts/check-lock-overrides.py <directory>   # reads files only, runs no tool; uv, Cargo, Go and Composer settings that hide a conflict (work-issue only, not shared with nx-migrate)
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py plugins/work-issue/skills/work-issue/scripts/check-install-config.py   # the two copies must stay identical
 python3 plugins/work-issue/skills/work-issue/scripts/bot-activity.py <owner/repo> <pr>   # read-only (needs gh auth); lists what accounts of type Bot wrote on the PR at or after the latest verdict
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/bot-activity.py plugins/work-issue/skills/work-issue/scripts/bot-activity.py   # the two copies must stay identical
