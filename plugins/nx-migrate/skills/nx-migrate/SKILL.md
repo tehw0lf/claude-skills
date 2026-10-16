@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Edit, Write, TodoWrite
 
 ### 1. Pre-flight
 
-Stop unless `nx.json` exists and `git status --short` is empty — ask the user to commit or stash.
+Stop unless `nx.json` exists and `git status --short --untracked-files=normal` is empty — ask the user to commit or stash.
 
 Then check the install configuration, before any branch or install exists:
 

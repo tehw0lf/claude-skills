@@ -515,7 +515,8 @@ def print_manifests():
 
 def print_worktree():
     # --no-optional-locks: a plain `git status` refreshes and rewrites .git/index
-    status, reason = run(["git", "--no-optional-locks", "status", "--porcelain"])
+    # --untracked-files=normal: the user's status.showUntrackedFiles=no would hide an untracked file that is not ignored
+    status, reason = run(["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"])
     if reason is not None:
         skipped("worktree", reason)
         return
