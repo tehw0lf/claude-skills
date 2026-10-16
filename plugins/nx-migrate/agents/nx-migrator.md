@@ -95,6 +95,7 @@ Your final message is the only thing the user sees. Include:
 
 - repo name and version transition (`from` → `to`)
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
+- the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
 - validation results with real numbers (tests passed/total, lint errors)
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - whether the PR was merged, or what blocked it (a finding, a check, no reviewer, automated-review activity after the verdict)

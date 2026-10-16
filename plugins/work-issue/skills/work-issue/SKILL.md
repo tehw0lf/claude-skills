@@ -157,9 +157,19 @@ Dependency conflicts are resolved by choosing versions that both sides declare c
 
 ### 6. Version
 
-Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install --package-lock-only --ignore-scripts`, `uv lock`, `cargo update -w`). `npm version` itself runs the root package's `preversion`, `version` and `postversion` scripts. In a yarn, pnpm or bun project, `npm version patch --no-git-tag-version` changes only `package.json`: run no lockfile sync after it (`npm install --package-lock-only` would create a `package-lock.json` next to the real lockfile), and `git status --short --untracked-files=normal` must show only the manifests; a `package-lock.json` that the bump created is deleted. Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
+Follow the repository's versioning rule. Where it names none and a root `MANIFEST` line carries a version (`package.json`, `pyproject.toml`, `Cargo.toml`): bump the patch version and sync the lockfile (`npm version patch --no-git-tag-version && npm install --package-lock-only --ignore-scripts`, `uv lock`, `cargo update -w`). `npm version` itself runs the root package's `preversion`, `version` and `postversion` scripts, and it is run without `--ignore-scripts`: the repository's own scripts belong to its version bump (for example a `version` script that moves mirrored sub-package versions along with the root).
 
-The bump comes before validation so that the tree that is validated is the tree that is pushed. It is not committed here; step 8 commits it separately from the change.
+For an npm root (a `package.json` with a version; `pyproject.toml` and `Cargo.toml` have no such scripts, skip the rest of this paragraph), before the bump read those three scripts and record the state of the tree in files in the temporary directory (created as step 1 says): the status for new untracked entries, and a snapshot of the tracked content, because a status line does not change when a script edits a file that was already modified:
+
+```bash
+jq -c '.scripts // {} | {preversion, version, postversion} | with_entries(select(.value != null))' package.json   # prints {} when none is set
+git status --porcelain --untracked-files=normal > <temporary directory>/status-before-bump.txt
+b=$(git stash create); echo "${b:-HEAD}" > <temporary directory>/tracked-before-bump.txt   # stash create stores nothing in the stash list and leaves the tree alone; it prints nothing on a clean tree
+```
+
+After the bump (and the lockfile sync), take the same two snapshots again (`a=$(git stash create); a=${a:-HEAD}`) and compare. `git diff --name-status <before> <after>` lists every tracked file the bump changed, already-modified ones included; the root manifest and the lockfile are the bump itself, every other file listed (a sub-package manifest the script moved along, for example) is output of the version scripts that are set. The difference of the two status files shows new untracked entries. With `--untracked-files=normal` a new untracked directory is one `?? <dir>/` entry, not one per file; it is allowed as a whole when a named script ran, and it is named as `git status` printed it (to name the files inside, list it with `git status --porcelain --untracked-files=all -- <dir>/`). The comparison cannot see two things: a script's edit of an untracked file that already existed before the bump, and a file a script adds inside an untracked directory that already existed before the bump (its `?? <dir>/` line does not change), and it attributes to the scripts everything that changed during the bump, so only entries a named script can have produced are counted. In a yarn, pnpm or bun project, `npm version patch --no-git-tag-version` changes only `package.json`: run no lockfile sync after it (`npm install --package-lock-only` would create a `package-lock.json` next to the real lockfile), and the comparison must show only the manifests and the entries the named version scripts produced; a `package-lock.json` that the bump created is deleted. Release pipelines key tags, images and packages on that version and skip one that already exists without failing, so a missing bump shows up nowhere. Sub-package manifests that mirror the root version move with it.
+
+The bump comes before validation so that the tree that is validated is the tree that is pushed. It is not committed here; step 8 commits it separately from the change. Note the version scripts that ran and the files and entries they changed (or "none set"): step 7 keeps those entries, step 8 commits them with the bump and names them in the PR body, and the report names them.
 
 ### 7. Validate
 
@@ -169,7 +179,7 @@ Run the repository's own validation, from the sources of step 4 in their order: 
 - **Format, lint, test, e2e, build:** every distinct command that the CI caller and the documented pre-commit validation name is run, CI first. A check that only the docs name (`gofmt -l .` beside CI's `go vet`) is run too: if the repository uses a command, the run uses it. A same-kind command that differs between CI and the docs runs in both forms, and the difference is named in the report. Commands run as named, flags included; the run adds no flag.
 - **Mixed callers:** each caller's commands run in its `root_dir`.
 
-What a validation command changes outside the change (a rewritten lockfile, generated files, formatter edits to untouched files) is handled by step 8's rule to commit only what the change touched: after the validation, compare `git status --porcelain --untracked-files=normal` with the files the change touched on purpose. Restore every other tracked change (`git restore <file>`) and remove every other new untracked file before the commit, and name them in the report.
+What a validation command changes outside the change (a rewritten lockfile, generated files, formatter edits to untouched files) is handled by step 8's rule to commit only what the change touched: after the validation, compare `git status --porcelain --untracked-files=normal` with the files the change touched on purpose, which include the entries that step 6 recorded as version-script output. Restore every other tracked change (`git restore <file>`) and remove every other new untracked file before the commit, and name them in the report.
 
 Say which source the commands came from, and that a fallback was used when it was. Each command ends in one of three ways:
 
@@ -183,16 +193,16 @@ Done when every validation command either exited 0 on the tree that will be push
 
 ### 8. Commit, push, open the PR
 
-Commit only the files you changed on purpose, with conventional-commit subjects (`fix(scope): …`): first the change, then the version bump of step 6 as a commit of its own. A fix that a review asks for later is a further commit on top; the version is not bumped a second time. Then:
+Commit only the files you changed on purpose, with conventional-commit subjects (`fix(scope): …`): first the change, then the version bump of step 6 as a commit of its own, which also holds the entries the version scripts produced (new untracked ones with an explicit `git add <entry>`). A fix that a review asks for later is a further commit on top; the version is not bumped a second time. Then:
 
 ```bash
 git push -u origin HEAD
 gh pr create --base <default> --title "<type>(<scope>): <what changes>" --body-file <temporary directory>/pr-body.md
 ```
 
-The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff, plus aggregate figures about public data that name their sample, can be reproduced from public data and were derived again after the last change: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
+The body has `Closes #<n>` and the plan comment as the full link `https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<plan comment id>` outside a code span (a later run recognises the PR as its own by exactly that link), then **Why** (the cause, in terms of the code), **What** (each change and its reason, and the root version scripts that ran with the entries they produced as `git status` printed them, or "none set"), **Verification** (the commands that were run and passed) and **Not verified** (what could not be run or observed, and why). It mentions only what is in the repository's code or the diff, plus aggregate figures about public data that name their sample, can be reproduced from public data and were derived again after the last change: no log excerpts, run or session URLs, measurements from live systems, local paths or host names.
 
-Done when the PR is open on a head for which step 7 is done. Report the PR, what was verified, what was not, and the list from step 5.
+Done when the PR is open on a head for which step 7 is done. Report the PR, the version scripts that ran and what they changed, what was verified, what was not, and the list from step 5.
 
 ## Stopping after the branch exists
 
