@@ -4,7 +4,9 @@
 usage: run-context.py [--label <name>] [--checkout owner/repo=<path>]... [<owner/repo> | 'owner/repo#n']...
 
   owner/repo       label mode: every open issue of that repository that carries the label
-                   (default `auto-work`), oldest first
+                   (default `auto-work`), oldest first; read from the label-filtered listing and
+                   from the open-issue listing filtered by the issues' own labels (the first can lag
+                   behind a label set just before the call), each issue once
   'owner/repo#n'   an explicit issue; naming it is the consent (quote the "#")
   no argument      the repository of the current directory, in label mode
   --max <n>        accepted and ignored (the limit is applied by the skill)
@@ -53,7 +55,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 TIMEOUT = 60
 EDIT_PAGE = 100
@@ -377,6 +379,60 @@ def labeler(repo, number, label):
     return actor, role, state
 
 
+def has_label(issue, label):
+    """True when the issue's own `labels` hold an object named `label` (exact match, as the label filter)."""
+    labels = issue.get("labels") if isinstance(issue, dict) else None
+    return isinstance(labels, list) and any(isinstance(l, dict) and l.get("name") == label for l in labels)
+
+
+def merge_issues(filtered, unfiltered, label):
+    """Both listings as one list: each issue number once, oldest first (ties by number).
+
+    `unfiltered` contributes only the entries that carry the label themselves. An entry whose
+    `created_at` cannot be read keeps its place in listing order after the readable ones. Entries
+    that are not objects or have no integer number are passed on unchanged for the caller to report.
+    """
+    seen, merged, odd = set(), [], []
+    for issue in list(filtered) + [i for i in unfiltered if has_label(i, label)]:
+        if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
+            odd.append(issue)
+            continue
+        if issue["number"] in seen:
+            continue
+        seen.add(issue["number"])
+        merged.append(issue)
+
+    def key(issue):
+        try:
+            return (0, parse_time(issue.get("created_at")), issue["number"])
+        except ValueError:
+            return (1, datetime.min.replace(tzinfo=timezone.utc), 0)
+
+    return sorted(merged, key=key) + odd
+
+
+def labelled_issues(full, label):
+    """Open issues carrying the label, from the label-filtered and the unfiltered listing.
+
+    The filtered listing can lag behind a label that was only just set, so the open issues are read
+    without the filter as well. A listing that fails gives one `# SKIPPED issues` line; the other
+    one is still used.
+    """
+    filtered, unfiltered = [], []
+    for extra, target in ((["-f", f"labels={label}"], filtered), ([], unfiltered)):
+        issues, reason = api(
+            f"repos/{full}/issues", "--paginate", "-X", "GET", *extra,
+            "-f", "state=open", "-f", "sort=created", "-f", "direction=asc", "-f", "per_page=100",
+        )
+        if issues is None:
+            skipped("issues", f"{full}: {reason}")
+        elif not isinstance(issues, list):
+            skipped("issues", f"{full}: unexpected answer")
+        else:
+            target.extend(issues)
+    return merge_issues(filtered, unfiltered, label)
+
+
 def main():
     label, given, repos, explicit = parse_args(sys.argv[1:])
     if not repos and not explicit:
@@ -398,17 +454,7 @@ def main():
     printed = {(resolved[n.lower()][0].lower(), i) for n, i in explicit}
     for name in repos:
         full = resolved[name.lower()][0]
-        issues, reason = api(
-            f"repos/{full}/issues", "--paginate", "-X", "GET",
-            "-f", f"labels={label}", "-f", "state=open", "-f", "sort=created", "-f", "direction=asc", "-f", "per_page=100",
-        )
-        if issues is None:
-            skipped("issues", f"{full}: {reason}")
-            continue
-        if not isinstance(issues, list):
-            skipped("issues", f"{full}: unexpected answer")
-            continue
-        for issue in issues:
+        for issue in labelled_issues(full, label):
             if not isinstance(issue, dict) or not isinstance(issue.get("number"), int):
                 skipped("issues", f"{full}: an entry without an issue number")
                 continue
