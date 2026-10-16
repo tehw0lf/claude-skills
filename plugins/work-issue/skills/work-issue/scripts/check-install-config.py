@@ -179,11 +179,11 @@ def npmrc_key(key):
         key = key[1:-1]
         try:
             parsed = json.loads(key, parse_constant=_reject_constant)
+            if isinstance(parsed, list):
+                return js_string(parsed)
         except (ValueError, RecursionError):
-            parsed = None
-        if isinstance(parsed, list):
-            return js_string(parsed)
-        inner = key.strip()
+            pass
+        inner = key.strip(" \t\n\r")  # JSON whitespace: what JSON.parse skips
         if not (len(inner) >= 2 and inner[0] == inner[-1] == '"'):
             return strip_array(key)
         key = inner
