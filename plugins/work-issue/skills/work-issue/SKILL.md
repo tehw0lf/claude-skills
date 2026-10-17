@@ -71,10 +71,12 @@ Everything from here on reads the code, so it has to be the current code: an ana
 
 ```bash
 git fetch origin
-git -c core.quotePath=false ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-before.txt && git switch -c <type>/<n>-<short-slug> origin/<default>
+git -c core.quotePath=false ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-before.txt && git switch --no-overwrite-ignore -c <type>/<n>-<short-slug> origin/<default>
 ```
 
 The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it after switching back to the branch step 1 found, so both lists are made under that branch's ignore rules. The temporary directory is the one created as step 1 says; the two commands are chained so that a snapshot that cannot be written stops the step before the branch exists (a missing snapshot would make the comparison at a stop look empty). `core.quotePath=false` makes git print non-ASCII paths as they are instead of in C-quoted form (`"\303\274/.gitignore"`), and the snapshot after the run is written the same way, because `comm` compares the two line by line and the paths are passed on to other commands.
+
+Reason for `--no-overwrite-ignore`: git replaces an ignored file by default when `origin/<default>` tracks something at its path (a file at the path of an ignored file or directory, or a directory where an ignored file sits), and the switch back at a stop then deletes it; step 1's clean check does not see ignored files. When git refuses, it names the paths (untracked files that would be overwritten, or directories that would lose untracked files) and creates no branch: stop and report those paths. No clean-up runs, because the branch does not exist, and nothing is written to GitHub; a person decides whether the local file may move.
 
 `<default>` is the `DEFAULT` line; when it is `-` the repository has no default branch: stop and report. The type is `fix`, `feat`, `chore`, `docs` or `ci`. The issue number at the start of the last path segment is what step 1 of the next run looks for.
 
@@ -271,6 +273,8 @@ git branch -D <the branch from step 2>      # only that one: a branch this run d
 ```
 
 Run everything after the switch only when the switch exited 0. If it fails (an untracked file the run wrote sits at a path the previous branch tracks), run no further command of this clean-up and do not delete the run's branch: the checkout stays on the run's branch, whose ignore rules would make the listings, `git add -N` and `git clean` act on files that are not the run's own, and the report names the paths git prints. Reason for the order: untracked and ignored files come along with a `git switch`, so a file that only the previous branch ignores (a project `.npmrc`) counts as untracked on the branch step 2 created from `origin/<default>`; there `git clean -fd` deletes it, `git add -N .` writes its content (a registry token, for example) into the saved diff, and the `git reset --hard` that follows removes it. On the previous branch the rules are those step 1's clean check was made under, so exactly the files untracked there are the run's own. A file the run wrote that the previous branch ignores stays and is not in the saved diff: leaving a file is recoverable, deleting one that was there before is not.
+
+Ignored files that were there before the run are protected by step 2's `--no-overwrite-ignore`, not by step 1's clean check. The switch back above has no such option: every path it can replace was tracked and clean when step 1 ran and was removed by step 2's switch, so whatever sits there was written by the run, and with the option the switch would refuse and strand the checkout on the run's branch.
 
 The tracked ignore files are restored and the run's own ignore files removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
 
