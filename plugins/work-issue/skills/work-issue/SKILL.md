@@ -228,16 +228,15 @@ A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree 
 ```bash
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
 git reset --hard                            # restores the tracked ignore files first, so that only HEAD's rules decide what is ignored
-git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'                        # ignore files the run created
-git ls-files --others --ignored --exclude-standard --directory -- ':(glob)**/.gitignore'  # the ones that ignore themselves ("*" with "!.npmrc"); a path ending in "/" is an ignored directory, not an ignore file
+git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created
 ```
 
-Only when one of the two listings printed a path that does not end in `/` (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third.
+Only when the listing printed a path (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third.
 
 ```bash
-git add -N -f -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff; -f because a self-ignoring file is ignored
+git add -N -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
 git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
-git clean -f -x -- <the listed paths>       # without a saved diff: removes them (-x because a self-ignoring file is ignored; only those paths)
+git clean -f -- <the listed paths>          # without a saved diff: removes them
 ```
 
 Then, always, in this order:
@@ -250,6 +249,8 @@ git branch -D <the branch from step 2>      # only that one: a branch this run d
 ```
 
 The ignore files are restored and removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
+
+The listing sees only ignore files that are not ignored themselves. An ignore file that ignores itself (`*` with `!.npmrc`) is not found, and the files it un-ignores would be deleted by the clean-up, so the run never creates one: when the plan's change needs such a file, the run stops and reports it (it cannot be told apart from ignored files that existed before the run, such as the one inside a virtual environment, which stay).
 
 A branch left behind would make the next run look for started work, and files left behind would make it stop on a dirty working tree. Once step 8 has committed, nothing is discarded any more: a stop after that reports the branch and the PR as they are.
 
