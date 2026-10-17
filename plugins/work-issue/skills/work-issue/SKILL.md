@@ -74,7 +74,7 @@ git fetch origin
 git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-before.txt && git switch -c <type>/<n>-<short-slug> origin/<default>
 ```
 
-The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it. The temporary directory is the one created as step 1 says; the two commands are chained so that a snapshot that cannot be written stops the step before the branch exists (a missing snapshot would make the comparison at a stop look empty).
+The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it, on this same branch. The temporary directory is the one created as step 1 says; the two commands are chained so that a snapshot that cannot be written stops the step before the branch exists (a missing snapshot would make the comparison at a stop look empty).
 
 `<default>` is the `DEFAULT` line; when it is `-` the repository has no default branch: stop and report. The type is `fix`, `feat`, `chore`, `docs` or `ci`. The issue number at the start of the last path segment is what step 1 of the next run looks for.
 
@@ -231,11 +231,12 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, the 
 
 ## Stopping after the branch exists
 
-A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
+A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own. The sequence therefore goes back to that branch before it decides what is the run's own:
 
 ```bash
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
-git reset --hard                            # restores the tracked ignore files first, so that only HEAD's rules decide what is ignored
+git reset --hard                            # on the run's branch: discards the tracked changes (a rewritten lockfile, edited tracked ignore files), so that the switch neither refuses nor carries them over
+git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created
 git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-after.txt   # ignore files that ignore themselves, now
 LC_ALL=C comm -13 <temporary directory>/ignored-ignore-files-before.txt <temporary directory>/ignored-ignore-files-after.txt   # those that appeared during the run
@@ -264,13 +265,14 @@ Then, always, in this order:
 ```bash
 git add -N . && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff only: now only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
-git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
 ```
 
-The ignore files are restored and removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
+Run everything after the switch only when the switch exited 0. If it fails (an untracked file the run wrote sits at a path the previous branch tracks), run no further command of this clean-up and do not delete the run's branch: the checkout stays on the run's branch, whose ignore rules would make the listings, `git add -N` and `git clean` act on files that are not the run's own, and the report names the paths git prints. Reason for the order: untracked and ignored files come along with a `git switch`, so a file that only the previous branch ignores (a project `.npmrc`) counts as untracked on the branch step 2 created from `origin/<default>`; there `git clean -fd` deletes it, `git add -N .` writes its content (a registry token, for example) into the saved diff, and the `git reset --hard` that follows removes it. On the previous branch the rules are those step 1's clean check was made under, so exactly the files untracked there are the run's own. A file the run wrote that the previous branch ignores stays and is not in the saved diff: leaving a file is recoverable, deleting one that was there before is not.
 
-The first listing sees only ignore files that are not ignored themselves. An ignore file that ignores itself (`*` with `!.npmrc`) is found by the second listing compared with the snapshot of step 2, and the negation test with the check of its directory selects the ones git reads and that re-include a file: left in place, the files they un-ignore would be marked intent-to-add, written into the saved diff and deleted by the clean-up. The comparison is by path, so an ignore file that existed before the run (the one inside a virtual environment) is never selected, and neither is a new one without a negation. The run never creates an ignore file that ignores itself and re-includes a file: when the plan's change needs one, the run stops and reports it.
+The tracked ignore files are restored and the run's own ignore files removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
+
+The first listing sees only ignore files that are not ignored themselves. An ignore file that ignores itself (`*` with `!.npmrc`) is found by the second listing compared with the snapshot of step 2 (taken on the same branch, so both lists are made under the same rules), and the negation test with the check of its directory selects the ones git reads and that re-include a file: left in place, the files they un-ignore would be marked intent-to-add, written into the saved diff and deleted by the clean-up. The comparison is by path, so an ignore file that existed before the run (the one inside a virtual environment) is never selected, and neither is a new one without a negation. The run never creates an ignore file that ignores itself and re-includes a file: when the plan's change needs one, the run stops and reports it.
 
 A branch left behind would make the next run look for started work, and files left behind would make it stop on a dirty working tree. Once step 8 has committed, nothing is discarded any more: a stop after that reports the branch and the PR as they are.
 
