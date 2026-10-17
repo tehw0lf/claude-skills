@@ -228,11 +228,22 @@ A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree 
 ```bash
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
 git reset --hard                            # restores the tracked ignore files first, so that only HEAD's rules decide what is ignored
-git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created; run the next group only when this printed a path
-git add -N -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
-git clean -f -- ':(glob)**/.gitignore'      # without a saved diff: removes them (exits 0 when nothing matches)
+git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'                        # ignore files the run created
+git ls-files --others --ignored --exclude-standard --directory -- ':(glob)**/.gitignore'  # the ones that ignore themselves ("*" with "!.npmrc"); a path ending in "/" is an ignored directory, not an ignore file
+```
+
+Only when one of the two listings printed a path that does not end in `/` (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third.
+
+```bash
+git add -N -f -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff; -f because a self-ignoring file is ignored
 git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
-git add -N . && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff: only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
+git clean -f -x -- <the listed paths>       # without a saved diff: removes them (-x because a self-ignoring file is ignored; only those paths)
+```
+
+Then, always, in this order:
+
+```bash
+git add -N . && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff only: now only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
