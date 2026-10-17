@@ -70,7 +70,7 @@ To test the timer without waiting for the full hour, add `~/.config/systemd/user
 
 ### Permissions
 
-With `--permission-prompts none` anything that would prompt is denied, and nobody can answer. The first runs showed which steps need a rule, in this order: the planner agent was denied the `plan-issue` skill; then the orchestrator's re-check, `issue-context.py` piped through `grep`, was denied as a compound command. `--settings` loads a file in addition to the user's settings, so the rules apply to this run only. The list below is the file `~/.config/work-issue/settings.json` that completed the run above, plus two rules; the transcripts of that run show no denied tool call, so the file was sufficient for it. It was not reduced to a minimum, and which rules were exercised was not counted. Two added rules do not come from a run: `Bash(gh label create needs-decision *)` comes from the last step of `plan-issue` (creating the `needs-decision` label when a plan ends in open questions and the repository has none), and `Bash(*check-lock-overrides.py*)` from step 5 of `work-issue` (the check for uv, Cargo, Go and Composer, which a run that touches no dependencies never calls). The questions path of a scheduled run was not exercised:
+With `--permission-prompts none` anything that would prompt is denied, and nobody can answer. The first runs showed which steps need a rule, in this order: the planner agent was denied the `plan-issue` skill; then the orchestrator's re-check, `issue-context.py` piped through `grep`, was denied as a compound command. `--settings` loads a file in addition to the user's settings, so the rules apply to this run only. The list below is the file `~/.config/work-issue/settings.json` that completed the run above, plus three rules; the transcripts of that run show no denied tool call, so the file was sufficient for it. It was not reduced to a minimum, and which rules were exercised was not counted. Three added rules do not come from a run: `Bash(gh label create needs-decision *)` comes from the last step of `plan-issue` (creating the `needs-decision` label when a plan ends in open questions and the repository has none), and `Bash(*check-lock-overrides.py*)` from step 5 of `work-issue` (the check for uv, Cargo, Go and Composer, which a run that touches no dependencies never calls), and `Bash(git -c core.quotePath=false ls-files*)` from step 2 and the stop clean-up of `work-issue`, which list ignore files with that form (the prefix rule `git ls-files*` does not match it). The questions path of a scheduled run was not exercised:
 
 ```json
 {
@@ -86,7 +86,7 @@ With `--permission-prompts none` anything that would prompt is denied, and nobod
       "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git fetch*)",
       "Bash(git switch*)", "Bash(git checkout*)", "Bash(git branch*)", "Bash(git add*)", "Bash(git commit*)",
       "Bash(git push*)", "Bash(git rebase*)", "Bash(git merge*)", "Bash(git rev-parse*)", "Bash(git remote*)",
-      "Bash(git ls-files*)", "Bash(git worktree*)", "Bash(git cat-file*)",
+      "Bash(git ls-files*)", "Bash(git -c core.quotePath=false ls-files*)", "Bash(git worktree*)", "Bash(git cat-file*)",
       "Bash(ls*)", "Bash(cat *)", "Bash(grep *)", "Bash(jq *)", "Bash(head *)", "Bash(tail *)",
       "Bash(wc *)", "Bash(sort *)", "Bash(cut *)"
     ]
