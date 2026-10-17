@@ -35,13 +35,21 @@ Output, one tab-separated line per fact on stdout:
              follows the head while the comment still applies). Issue comment: no commit, -.
   BASE     <created_at>  <previous base branch>  <current base branch>
              one line per change of the PR's base branch at or after the verdict, after the BOT lines.
+  LASTBASE <created_at>
+             the newest change of the PR's base branch of the whole timeline, whatever the verdict: no line
+             when the base never changed or the base changes were not read. Unlike BASE it is not bound to
+             the verdict, because after the round a BASE line causes, the verdict is newer than the change and
+             no BASE line is printed any more. The caller compares it with the start time of the checks: a
+             check that started before it ran against the merge result of the old base (a `pull_request`
+             workflow without the `edited` activity type does not run again on a retarget, and the head SHA
+             does not change). Printed after the BASE lines, also without a verdict.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
              base changes (also when the timeline holds more events than were returned), verdict. With
              no verdict comment there is no reference time: `SKIPPED verdict ...` and no BOT and no BASE
              lines.
 Exit codes: 0 every source was read (with or without BOT or BASE lines), 1 at least one SKIPPED line,
-2 usage error. BOT and BASE lines do not change the exit code: the caller acts on them.
+2 usage error. BOT, BASE and LASTBASE lines do not change the exit code: the caller acts on them.
 """
 import json
 import re
@@ -184,6 +192,8 @@ def main():
             if e.get("createdAt", "") >= since:
                 print("BASE\t%s\t%s\t%s" % (clean(e["createdAt"]), clean(e["previousRefName"]),
                                               clean(e["currentRefName"])))
+    if base_events:
+        print("LASTBASE\t%s" % clean(max(e.get("createdAt", "") for e in base_events)))
     return 1 if skipped else 0
 
 
