@@ -369,7 +369,7 @@ def labeler(repo, number, label):
         return None, None, None
     # a tie counts as removed: the order within one second cannot be read from the timestamps
     if removed is not None and removed >= since:
-        skipped("labeler", f"{repo}#{number}: label {label} was removed after the newest labeled event")
+        skipped("labeler", f"{repo}#{number}: label {label} was removed at or after the newest labeled event")
         return None, None, None
     role, reason = role_of(repo, actor)
     if role is None:
