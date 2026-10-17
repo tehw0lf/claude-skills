@@ -57,13 +57,13 @@ For an own PR, steps 2, 3, 5, 6 and 8 do not apply: nothing is planned, changed,
 - Step 4 installs the dependencies (no reproduction), step 7 validates the head that `RESUME` names. A failing validation is not fixed here: stop and report it. A resumed PR is never changed by a run: no commit, no push, also not for a finding of a review. A fix is a change to the PR and belongs to a person.
 - Done when step 7 holds for the PR head. Report the PR, the head, the validation result and the verdict head from `RESUME`.
 
-A stop in resume mode puts the checkout back in three separate commands (step 1 found the working tree clean, so every uncommitted change and every untracked file is this run's own):
+A stop in resume mode puts the checkout back in three separate commands (step 1 found the working tree clean, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own):
 
 1. `git reset --hard` on the PR branch: it discards what the install and the validation changed in tracked files (a rewritten lockfile).
 2. `git switch <branch WORKTREE named>` (or `git switch --detach <commit kept in step 1>`): untracked files come along.
 3. `git clean -fd`, only after the switch succeeded; ignored files stay, no branch is deleted.
 
-Run each as a plain command, with no `&&` between the switch and the clean. If the switch fails (an untracked file the run wrote sits at a path the previous branch tracks), run no `git clean`: leave the checkout on the PR branch and report the paths git names. Reason: a lockfile that the install rewrote differs between the PR branch and the default branch, so a switch without the reset either refuses or carries the change onto the default branch, and the next run stops on a dirty checkout. The clean runs on the previous branch because its ignore rules are the ones step 1's clean check was made under; on the PR branch a file whose ignore rule the PR removed (a project `.npmrc`) counts as untracked and would be deleted. The commits stay on the remote.
+Run the clean only when the switch exited 0: after a failed switch the checkout is still on the PR branch, whose ignore rules would make it delete files that are not the run's own. If the switch fails (an untracked file the run wrote sits at a path the previous branch tracks), run no `git clean`: leave the checkout on the PR branch and report the paths git names. Reason: a lockfile that the install rewrote differs between the PR branch and the default branch, so a switch without the reset either refuses or carries the change onto the default branch, and the next run stops on a dirty checkout. The clean runs on the previous branch because its ignore rules are the ones step 1's clean check was made under; on the PR branch a file whose ignore rule the PR removed (a project `.npmrc`) counts as untracked and would be deleted. The commits stay on the remote.
 
 ### 2. Bring the checkout up to date
 
@@ -229,7 +229,7 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, the 
 
 ## Stopping after the branch exists
 
-A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
+A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own:
 
 ```bash
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
