@@ -71,8 +71,11 @@ Everything from here on reads the code, so it has to be the current code: an ana
 
 ```bash
 git fetch origin
+git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-before.txt
 git switch -c <type>/<n>-<short-slug> origin/<default>
 ```
+
+The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it. The temporary directory is the one step 1 creates.
 
 `<default>` is the `DEFAULT` line; when it is `-` the repository has no default branch: stop and report. The type is `fix`, `feat`, `chore`, `docs` or `ci`. The issue number at the start of the last path segment is what step 1 of the next run looks for.
 
@@ -235,14 +238,26 @@ A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree 
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
 git reset --hard                            # restores the tracked ignore files first, so that only HEAD's rules decide what is ignored
 git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created
+git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-after.txt   # ignore files that ignore themselves, now
+LC_ALL=C comm -13 <temporary directory>/ignored-ignore-files-before.txt <temporary directory>/ignored-ignore-files-after.txt   # those that appeared during the run
 ```
 
-Only when the listing printed a path (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third.
+Only when the comparison printed a path, test those paths for a negation line: `grep -l -e '^!' -- <the paths the comparison printed>`. A path that grep prints is an ignore file of the run that ignores itself and re-includes a file; it is removed with the listed ones, in the block below. The others (the `*`-only files that pytest or ruff write into their caches, a fresh virtual environment's) un-ignore nothing and stay.
+
+Only when the first listing printed a path (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third.
 
 ```bash
 git add -N -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
 git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
 git clean -f -- <the listed paths>          # without a saved diff: removes them
+```
+
+Only when grep printed a path, use the next block with those paths, after the previous one if that ran: they are ignored, so plain `git add -N` refuses them and plain `git clean -f` leaves them. With a saved diff its first two commands, without a saved diff only its third.
+
+```bash
+git add -N -f -- <the paths grep printed> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
+git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
+git clean -fx -- <the paths grep printed>   # without a saved diff: removes them
 ```
 
 Then, always, in this order:
@@ -256,7 +271,7 @@ git branch -D <the branch from step 2>      # only that one: a branch this run d
 
 The ignore files are restored and removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
 
-The listing sees only ignore files that are not ignored themselves. An ignore file that ignores itself (`*` with `!.npmrc`) is not found, and the files it un-ignores would be deleted by the clean-up, so the run never creates one: when the plan's change needs such a file, the run stops and reports it (it cannot be told apart from ignored files that existed before the run, such as the one inside a virtual environment, which stay).
+The first listing sees only ignore files that are not ignored themselves. An ignore file that ignores itself (`*` with `!.npmrc`) is found by the second listing compared with the snapshot of step 2, and the negation test selects the ones that re-include a file: left in place, the files they un-ignore would be marked intent-to-add, written into the saved diff and deleted by the clean-up. The comparison is by path, so an ignore file that existed before the run (the one inside a virtual environment) is never selected, and neither is a new one without a negation. The run never creates an ignore file that ignores itself and re-includes a file: when the plan's change needs one, the run stops and reports it.
 
 A branch left behind would make the next run look for started work, and files left behind would make it stop on a dirty working tree. Once step 8 has committed, nothing is discarded any more: a stop after that reports the branch and the PR as they are.
 
