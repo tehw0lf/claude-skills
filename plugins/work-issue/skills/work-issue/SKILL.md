@@ -226,11 +226,19 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, the 
 A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change and every untracked file is this run's own:
 
 ```bash
-git add -N . && git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: -N makes new files part of the diff, HEAD includes what is already staged (a `git mv`, a `git rm`). Outside the checkout, or the next line deletes it; name the file in the report
+git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
+git reset --hard                            # restores the tracked ignore files first, so that only HEAD's rules decide what is ignored
+git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created; run the next group only when this printed a path
+git add -N -- <the listed paths> && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
+git clean -f -- ':(glob)**/.gitignore'      # without a saved diff: removes them (exits 0 when nothing matches)
+git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
+git add -N . && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff: only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
 ```
+
+The ignore files are restored and removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes.
 
 A branch left behind would make the next run look for started work, and files left behind would make it stop on a dirty working tree. Once step 8 has committed, nothing is discarded any more: a stop after that reports the branch and the PR as they are.
 
