@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""List what an automated reviewer wrote on a pull request, and every change of its base branch, at or after the latest verdict.
-Read-only on GitHub.
+"""List bot entries and base-branch changes of a pull request at or after the latest verdict. Read-only on GitHub.
 
 usage: bot-activity.py <owner/repo> <pr>
 
@@ -16,13 +15,15 @@ verdict's `created_at`. `updated_at` is needed because an automated reviewer pos
 and edits it when its review is done, so the creation time alone misses the finished review. "At or
 after" because equal timestamps cannot be ordered and one round too many costs less than a missed
 review. The reference time is when the verdict was posted, not when the reviewer last read the three
-places (just before writing it): a bot entry or base change in between is neither read by the reviewer nor
+places (just before writing it): a bot entry in between is neither read by the reviewer nor
 listed here; only the verdict's `Not covered` can catch it. The three places are read through the API: `gh pr view --comments`, run non-interactively,
 leaves out minimized comments without saying so.
 
 A base change is a `BaseRefChangedEvent` in the PR timeline (GraphQL `timelineItems`, item type
 `BASE_REF_CHANGED_EVENT`) with a `createdAt` at or after the verdict's `created_at`. The verdict binds only
 the head, so a PR retargeted after its review keeps a verdict made against the diff of another base.
+A retarget between the reviewer's read of the base (once, at the start of the review) and the posting of
+the verdict is older than the verdict, so it is neither listed here nor named in `Not covered`.
 
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
@@ -123,8 +124,8 @@ def main():
 
     base_events = None
     owner, _, name = repo.partition("/")
-    out, err = gh(["api", "graphql", "-f", "query=" + BASE_QUERY, "-F", "owner=" + owner,
-                   "-F", "name=" + name, "-F", "number=" + pr])
+    out, err = gh(["api", "graphql", "-f", "query=" + BASE_QUERY, "-f", "owner=" + owner,
+                   "-f", "name=" + name, "-F", "number=" + pr])
     if err:
         skip("base changes", err)
     else:
