@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List what an automated reviewer wrote on a pull request at or after the latest verdict. Read-only on GitHub.
+"""List bot entries and base-branch changes of a pull request at or after the latest verdict. Read-only on GitHub.
 
 usage: bot-activity.py <owner/repo> <pr>
 
@@ -15,9 +15,15 @@ verdict's `created_at`. `updated_at` is needed because an automated reviewer pos
 and edits it when its review is done, so the creation time alone misses the finished review. "At or
 after" because equal timestamps cannot be ordered and one round too many costs less than a missed
 review. The reference time is when the verdict was posted, not when the reviewer last read the three
-places (just before writing it): a bot entry in between is neither read by the reviewer nor listed here;
-only the verdict's `Not covered` can catch it. The three places are read through the API: `gh pr view --comments`, run non-interactively,
+places (just before writing it): a bot entry in between is neither read by the reviewer nor
+listed here; only the verdict's `Not covered` can catch it. The three places are read through the API: `gh pr view --comments`, run non-interactively,
 leaves out minimized comments without saying so.
+
+A base change is a `BaseRefChangedEvent` in the PR timeline (GraphQL `timelineItems`, item type
+`BASE_REF_CHANGED_EVENT`) with a `createdAt` at or after the verdict's `created_at`. The verdict binds only
+the head, so a PR retargeted after its review keeps a verdict made against the diff of another base.
+A retarget between the reviewer's read of the base (once, at the start of the review) and the posting of
+the verdict is older than the verdict, so it is neither listed here nor named in `Not covered`.
 
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
@@ -26,12 +32,15 @@ Output, one tab-separated line per fact on stdout:
              one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
              commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
              follows the head while the comment still applies). Issue comment: no commit, -.
+  BASE     <created_at>  <previous base branch>  <current base branch>
+             one line per change of the PR's base branch at or after the verdict, after the BOT lines.
   SKIPPED  <source>  <reason>
              a source that could not be read: account, head, issue comments, reviews, review comments,
-             verdict. With no verdict comment there is no reference time: `SKIPPED verdict ...` and no
-             BOT lines.
-Exit codes: 0 every source was read (with or without BOT lines), 1 at least one SKIPPED line,
-2 usage error. BOT lines do not change the exit code: the caller acts on them.
+             base changes (also when the timeline holds more events than were returned), verdict. With
+             no verdict comment there is no reference time: `SKIPPED verdict ...` and no BOT and no BASE
+             lines.
+Exit codes: 0 every source was read (with or without BOT or BASE lines), 1 at least one SKIPPED line,
+2 usage error. BOT and BASE lines do not change the exit code: the caller acts on them.
 """
 import json
 import re
@@ -39,6 +48,17 @@ import subprocess
 import sys
 
 HEADING = "## Independent local review"
+
+BASE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      timelineItems(last: 100, itemTypes: [BASE_REF_CHANGED_EVENT]) {
+        filteredCount
+        nodes { ... on BaseRefChangedEvent { createdAt previousRefName currentRefName } }
+      }
+    }
+  }
+}"""
 
 
 def clean(text):
@@ -102,6 +122,23 @@ def main():
     if err:
         skip("review comments", err)
 
+    base_events = None
+    owner, _, name = repo.partition("/")
+    out, err = gh(["api", "graphql", "-f", "query=" + BASE_QUERY, "-f", "owner=" + owner,
+                   "-f", "name=" + name, "-F", "number=" + pr])
+    if err:
+        skip("base changes", err)
+    else:
+        try:
+            items = json.loads(out)["data"]["repository"]["pullRequest"]["timelineItems"]
+            nodes = items["nodes"]
+            if items["filteredCount"] > len(nodes):
+                skip("base changes", "timeline holds %d events, %d returned" % (items["filteredCount"], len(nodes)))
+            else:
+                base_events = nodes
+        except (ValueError, TypeError, KeyError) as e:
+            skip("base changes", "unexpected answer: %s" % clean(e))
+
     verdict = None
     if login and issue_comments is not None:
         mine = [c for c in issue_comments
@@ -142,6 +179,10 @@ def main():
                 print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s" % (
                     c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
                     c.get("original_commit_id") or "-"))
+        for e in base_events or []:
+            if e.get("createdAt", "") >= since:
+                print("BASE\t%s\t%s\t%s" % (clean(e["createdAt"]), clean(e["previousRefName"]),
+                                              clean(e["currentRefName"])))
     return 1 if skipped else 0
 
 
