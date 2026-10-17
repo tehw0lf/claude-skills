@@ -51,6 +51,7 @@ Installed copies come from the marketplace (`/plugin marketplace add tehw0lf/cla
 ## Layout
 
 ```
+README.md                                  # front page: what it is, install, fully automated use; no plugin list
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
 scripts/                                   # repository checks and tools, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description

@@ -12,6 +12,16 @@
 - Where the default branch has no required status check, or the checks could not be read, the worker stops at an open, reviewed PR and does not merge. That is by design.
 - One trigger per repository. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other: the assignee check only stops on an assignee other than the account itself.
 
+## Gates against an unattended merge are yours
+
+A run can merge without a person once an issue carries `auto-work`, the default branch requires a status check, and the conditions under "Merging" in the worker's instructions (`agents/issue-worker.md`) hold. It is used at your own risk (the plugin is MIT licensed). The plugin's own stop at a missing required check is not a gate you set. Any gate against the merge is yours to build, alone or combined:
+
+- **An instruction in a `CLAUDE.md`.** The model follows it; Claude Code does not enforce it. Which files a run loads is under "What the run reads and leaves behind".
+- **A Claude Code permission rule** (`deny` or `ask` on `Bash(gh pr merge *)`). Claude Code evaluates rules `deny`, then `ask`, then `allow`, so a `deny` beats the `Bash(gh pr *)` allow of the example list, and with `--permission-prompts none` an `ask` acts as a denial. A Bash rule matches the text of the command, not what the command does: `gh pr --repo <owner>/<repo> merge <n>` does not start with `gh pr merge` and is allowed by `Bash(gh pr *)`, a REST merge is not covered while `Bash(gh api *)` is allowed (see "Permissions"), and the rules that run arbitrary code (`python3`, `node`, `npx`, `uv`) can call a merge as well. A mod installed in Claude Code can approve a call that an `ask` rule holds. It can also approve a call that a `deny` rule refuses, except that by default it cannot on a machine with managed settings or when signed in with a Team or Enterprise plan; the organization can change that default. These gaps follow from the permission documentation and gh's argument parsing; the matcher was not run against them.
+- **A required approving review in a ruleset.** GitHub enforces it, but an account on the ruleset's bypass list is not held by it. A merge that GitHub refuses is reported by the worker, not worked around. How GitHub treats a self-approval or an administrator's merge was not checked.
+
+No gate is promised to be impossible to bypass.
+
 ## Local: systemd user timer
 
 Verified once, on one machine: a timer started the service, the skill took one `auto-work` issue, the planner posted its plan, the worker opened a PR, the independent review ran on Opus and the PR was squash-merged with both required checks green. The run took about seven minutes. Run it once the same way (a labelled test issue, `--max 1`, the 30-second drop-in below) before leaving the hourly timer on.
