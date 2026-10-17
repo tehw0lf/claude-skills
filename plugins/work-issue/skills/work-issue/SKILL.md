@@ -74,7 +74,7 @@ git fetch origin
 git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-before.txt && git switch -c <type>/<n>-<short-slug> origin/<default>
 ```
 
-The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it, on this same branch. The temporary directory is the one created as step 1 says; the two commands are chained so that a snapshot that cannot be written stops the step before the branch exists (a missing snapshot would make the comparison at a stop look empty).
+The second line records the ignore files that are untracked and ignored themselves (the one inside a virtual environment, for example) before the run writes anything; the clean-up after a stop compares against it after switching back to the branch step 1 found, so both lists are made under that branch's ignore rules. The temporary directory is the one created as step 1 says; the two commands are chained so that a snapshot that cannot be written stops the step before the branch exists (a missing snapshot would make the comparison at a stop look empty).
 
 `<default>` is the `DEFAULT` line; when it is `-` the repository has no default branch: stop and report. The type is `fix`, `feat`, `chore`, `docs` or `ci`. The issue number at the start of the last path segment is what step 1 of the next run looks for.
 
@@ -236,7 +236,7 @@ A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree 
 ```bash
 git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
 git reset --hard                            # on the run's branch: discards the tracked changes (a rewritten lockfile, edited tracked ignore files), so that the switch neither refuses nor carries them over
-git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>
+git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>. Only when it exits 0 do the commands below run
 git ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created
 git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > <temporary directory>/ignored-ignore-files-after.txt   # ignore files that ignore themselves, now
 LC_ALL=C comm -13 <temporary directory>/ignored-ignore-files-before.txt <temporary directory>/ignored-ignore-files-after.txt   # those that appeared during the run
