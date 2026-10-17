@@ -33,8 +33,9 @@ Output, one tab-separated line per fact:
               labeler: the actor of the newest `labeled` event for the label; permission: that
               actor's role on the repository (admin, maintain, write, triage, read; a custom role is shown as
               its base permission: admin, write, read or none). Both are `-`
-              for an explicit reference. An issue whose labeler cannot be determined shows `-` and a
-              # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
+              for an explicit reference. An issue whose labeler cannot be determined, or whose label was
+              removed again (an `unlabeled` event as new as or newer than the newest `labeled` one),
+              shows `-` and a # SKIPPED line. An issue named explicitly and also carrying the label is printed once,
               as `ref`.
               edit: `none` when neither the body nor the title was ever edited (the revision that records the
               creation does not count; a never-edited issue has none);
@@ -339,7 +340,8 @@ def editors_of(repo, number, events):
 
 
 def labeler(repo, number, label):
-    """(actor, role, edit state) for the newest `labeled` event; Nones with a SKIPPED line when unreadable."""
+    """(actor, role, edit state) for the newest `labeled` event; Nones with a SKIPPED line when unreadable
+    or when an `unlabeled` event for the label is as new as or newer than that `labeled` event."""
     events, reason = api(f"repos/{repo}/issues/{number}/events", "--paginate")
     if events is None:
         skipped("labeler", f"{repo}#{number}: {reason}")
@@ -347,19 +349,27 @@ def labeler(repo, number, label):
     if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
         skipped("labeler", f"{repo}#{number}: unexpected answer")
         return None, None, None
-    actor, since = None, None
+    actor, since, removed = None, None, None
     try:
         # the newest by time, whatever the order of the answer
         for event in events:
-            if event.get("event") == "labeled" and str((event.get("label") or {}).get("name")).casefold() == label.casefold():
+            kind = event.get("event")
+            if kind in ("labeled", "unlabeled") and str((event.get("label") or {}).get("name")).casefold() == label.casefold():
                 when = parse_time(event.get("created_at"))
-                if since is None or when > since:
-                    actor, since = login_of(event.get("actor")), when
+                if kind == "labeled":
+                    if since is None or when > since:
+                        actor, since = login_of(event.get("actor")), when
+                elif removed is None or when > removed:
+                    removed = when
     except (ValueError, AttributeError) as error:
         skipped("labeler", f"{repo}#{number}: {error}")
         return None, None, None
     if not actor:
         skipped("labeler", f"{repo}#{number}: no usable `labeled` event for {label}")
+        return None, None, None
+    # a tie counts as removed: the order within one second cannot be read from the timestamps
+    if removed is not None and removed >= since:
+        skipped("labeler", f"{repo}#{number}: label {label} was removed at or after the newest labeled event")
         return None, None, None
     role, reason = role_of(repo, actor)
     if role is None:
