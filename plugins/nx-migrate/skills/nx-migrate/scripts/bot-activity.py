@@ -22,8 +22,9 @@ leaves out minimized comments without saying so.
 A base change is a `BaseRefChangedEvent` in the PR timeline (GraphQL `timelineItems`, item type
 `BASE_REF_CHANGED_EVENT`) with a `createdAt` at or after the verdict's `created_at`. The verdict binds only
 the head, so a PR retargeted after its review keeps a verdict made against the diff of another base.
-A retarget between the reviewer's read of the base (once, at the start of the review) and the posting of
-the verdict is older than the verdict, so it is neither listed here nor named in `Not covered`.
+The reviewer reads the base at the start of the review and again just before writing the verdict, and
+repeats its base-dependent checks when the base changed. A retarget between that last read and the posting
+of the verdict is older than the verdict, so it is neither listed here nor named in `Not covered`.
 
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
