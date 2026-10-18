@@ -23,6 +23,10 @@
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
 #   npm install) is safe.
+# Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
+#   writes nothing, so a failing check stops the script before the first bump. The second bumps. If
+#   `npm version` fails there, the message names the packages bumped so far, says that the lockfile is
+#   not synced, and that a rerun after fixing the cause is safe.
 # No package scripts run: `npm version` and the lockfile sync use --ignore-scripts, so a library's
 #   preversion/version/postversion (or a root install script) cannot act during the migration.
 # Directory names are matched literally (git --literal-pathspecs), never as glob patterns.
@@ -93,7 +97,9 @@ extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages e
   || die "cannot read the workspaces of package.json"
 [ -z "$extra" ] || note "workspace globs not scanned (only libs/* and apps/*): $extra"
 
-bumped=0
+# Pass 1 checks every package and writes nothing: a failing manifest check stops the script before the
+# first bump. plan holds one record per package to report: "bump|already <TAB> dir <TAB> old <TAB> new".
+plan=()
 for dir in libs/*/ apps/*/; do
   dir=${dir%/}
   [ -d "$dir" ] || continue   # the unmatched glob itself: not a package directory (the only silent skip)
@@ -124,17 +130,33 @@ for dir in libs/*/ apps/*/; do
   [ -n "$old" ] || die "$pkg lost its version in this run (HEAD has $head_ver)"
 
   if [ "$old" != "$head_ver" ]; then   # bumped by an earlier run
-    printf '%s\t%s\t%s\n' "$dir" "$head_ver" "$old"
-    bumped=$((bumped + 1))
+    plan+=("already"$'\t'"$dir"$'\t'"$head_ver"$'\t'"$old")
     continue
   fi
 
   [ -n "$tracked$untracked" ] || continue
+  plan+=("bump"$'\t'"$dir"$'\t'"$old"$'\t')
+done
 
-  npm version patch --no-git-tag-version --ignore-scripts --prefix "$dir" >/dev/null || die "npm version failed for $dir"
-  new=$(jq -r '.version // empty' "$pkg") || die "cannot read $pkg after the bump"
-  { [ -n "$new" ] && [ "$new" != "$old" ]; } || die "npm did not change the version of $dir"
+# Pass 2 bumps. A failure here leaves the packages bumped so far in the working tree and the lockfile
+# unsynced: the message says so, and a rerun picks up where this one stopped.
+bumped=0
+done_dirs=""
+fail_bump() {
+  local m="$1"
+  [ -z "$done_dirs" ] || m="$m; already bumped: ${done_dirs# }"
+  die "$m; the lockfile is not synced; rerunning the script after fixing the cause is safe (a bumped package is recognised and not bumped again)"
+}
+for rec in ${plan[@]+"${plan[@]}"}; do
+  IFS=$'\t' read -r kind dir old new <<<"$rec"
+  if [ "$kind" = bump ]; then
+    pkg=$dir/package.json
+    npm version patch --no-git-tag-version --ignore-scripts --prefix "$dir" >/dev/null || fail_bump "npm version failed for $dir"
+    new=$(jq -r '.version // empty' "$pkg") || fail_bump "cannot read $pkg after the bump"
+    { [ -n "$new" ] && [ "$new" != "$old" ]; } || fail_bump "npm did not change the version of $dir"
+  fi
   printf '%s\t%s\t%s\n' "$dir" "$old" "$new"
+  done_dirs="$done_dirs $dir"
   bumped=$((bumped + 1))
 done
 
