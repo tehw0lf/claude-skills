@@ -35,6 +35,10 @@
 #   writes nothing, so a failing check stops the script before the first bump. The second bumps. If
 #   `npm version` fails there, the message names the packages bumped so far, says that the lockfile is
 #   not synced, and that a rerun after fixing the cause is safe.
+# Formatting: `npm version` rewrites the whole package.json, not only "version". Observed with npm 12.2.0
+#   on an indented manifest: arrays expanded to one element per line, \uXXXX escapes written as the
+#   literal characters, a final newline added; a compact one-line manifest stayed compact. The diff of
+#   a bumped manifest can therefore show more than the version line (the root bump in step 10 does the same).
 # No package scripts run: `npm version` and the lockfile sync use --ignore-scripts, so a library's
 #   preversion/version/postversion (or a root install script) cannot act during the migration.
 # Directory names are matched literally (git --literal-pathspecs), never as glob patterns.
