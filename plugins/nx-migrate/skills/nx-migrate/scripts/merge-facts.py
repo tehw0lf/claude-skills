@@ -1,40 +1,26 @@
 #!/usr/bin/env python3
-"""List bot entries and base-branch changes of a pull request at or after the latest verdict. Read-only on GitHub.
+"""List the verdict and the base-branch changes of a pull request. Read-only on GitHub.
 
-usage: bot-activity.py <owner/repo> <pr>
+usage: merge-facts.py <owner/repo> <pr>
 
 Needs `gh` with authentication. The verdict is the latest issue comment on the PR whose first line is
 exactly `## Independent local review` and whose author is the account `gh` works as (anyone can comment
 on a PR, so the author is part of the test; a comment that only quotes the heading does not start with it).
-
-An automated reviewer is any author whose account type is `Bot`, not a list of names: a name list goes
-stale. The cost is that a bot comment which is not a review, posted after the verdict, is listed too.
-
-"After the verdict" means a `created_at` or `updated_at` (reviews: `submitted_at`) at or after the
-verdict's `created_at`. `updated_at` is needed because an automated reviewer posts a placeholder comment
-and edits it when its review is done, so the creation time alone misses the finished review. "At or
-after" because equal timestamps cannot be ordered and one round too many costs less than a missed
-review. The reference time is when the verdict was posted, not when the reviewer last read the three
-places (just before writing it): a bot entry in between is neither read by the reviewer nor
-listed here; only the verdict's `Not covered` can catch it. The three places are read through the API: `gh pr view --comments`, run non-interactively,
-leaves out minimized comments without saying so.
+Comments are read through the API: `gh pr view --comments`, run non-interactively, leaves out minimized
+comments without saying so.
 
 A base change is a `BaseRefChangedEvent` in the PR timeline (GraphQL `timelineItems`, item type
 `BASE_REF_CHANGED_EVENT`) with a `createdAt` at or after the verdict's `created_at`. The verdict binds only
 the head, so a PR retargeted after its review keeps a verdict made against the diff of another base.
 The reviewer reads the base at the start of the review and again just before writing the verdict, and
 repeats its base-dependent checks when the base changed. A retarget between that last read and the posting
-of the verdict is older than the verdict, so it is neither listed here nor named in `Not covered`.
+of the verdict is older than the verdict, so it is not listed here.
 
 Output, one tab-separated line per fact on stdout:
   VERDICT  <comment id>  <created_at>  <sha of the `Reviewed head:` line, - when absent>
   HEAD     <sha>                       the current head of the PR
-  BOT      <issue-comment|review|review-comment>  <id>  <login>  <created_at>  <updated_at>  <commit or ->
-             one line per bot entry at or after the verdict. Review: both times are `submitted_at`, the
-             commit is `commit_id`. Inline comment: the commit is `original_commit_id` (`commit_id`
-             follows the head while the comment still applies). Issue comment: no commit, -.
   BASE     <created_at>  <previous base branch>  <current base branch>
-             one line per change of the PR's base branch at or after the verdict, after the BOT lines.
+             one line per change of the PR's base branch at or after the verdict.
   LASTBASE <created_at>
              the newest change of the PR's base branch of the whole timeline, whatever the verdict: no line
              when the base never changed or the base changes were not read. Unlike BASE it is not bound to
@@ -44,12 +30,12 @@ Output, one tab-separated line per fact on stdout:
              workflow without the `edited` activity type does not run again on a retarget, and the head SHA
              does not change). Printed after the BASE lines, also without a verdict.
   SKIPPED  <source>  <reason>
-             a source that could not be read: account, head, issue comments, reviews, review comments,
+             a source that could not be read: account, head, issue comments,
              base changes (also when the timeline holds more events than were returned), verdict. With
-             no verdict comment there is no reference time: `SKIPPED verdict ...` and no BOT and no BASE
-             lines.
-Exit codes: 0 every source was read (with or without BOT or BASE lines), 1 at least one SKIPPED line,
-2 usage error. BOT, BASE and LASTBASE lines do not change the exit code: the caller acts on them.
+             no verdict comment there is no reference time: `SKIPPED verdict ...` and no BASE
+             line.
+Exit codes: 0 every source was read (with or without BASE lines), 1 at least one SKIPPED line,
+2 usage error. BASE and LASTBASE lines do not change the exit code: the caller acts on them.
 """
 import json
 import re
@@ -124,12 +110,6 @@ def main():
     issue_comments, err = pages("%s/issues/%s/comments" % (base, pr))
     if err:
         skip("issue comments", err)
-    reviews, err = pages("%s/pulls/%s/reviews" % (base, pr))
-    if err:
-        skip("reviews", err)
-    inline, err = pages("%s/pulls/%s/comments" % (base, pr))
-    if err:
-        skip("review comments", err)
 
     base_events = None
     owner, _, name = repo.partition("/")
@@ -171,23 +151,6 @@ def main():
     if verdict:
         since = verdict["created_at"]  # ISO 8601 UTC with Z: strings compare in time order
 
-        def is_bot(item):
-            return (item.get("user") or {}).get("type") == "Bot"
-
-        for c in issue_comments or []:
-            if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\tissue-comment\t%s\t%s\t%s\t%s\t-" % (
-                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"]))
-        for r in reviews or []:
-            t = r.get("submitted_at") or ""
-            if is_bot(r) and t >= since:
-                print("BOT\treview\t%s\t%s\t%s\t%s\t%s" % (
-                    r["id"], r["user"]["login"], t, t, r.get("commit_id") or "-"))
-        for c in inline or []:
-            if is_bot(c) and max(c["created_at"], c.get("updated_at") or "") >= since:
-                print("BOT\treview-comment\t%s\t%s\t%s\t%s\t%s" % (
-                    c["id"], c["user"]["login"], c["created_at"], c.get("updated_at") or c["created_at"],
-                    c.get("original_commit_id") or "-"))
         for e in base_events or []:
             if e.get("createdAt", "") >= since:
                 print("BASE\t%s\t%s\t%s" % (clean(e["createdAt"]), clean(e["previousRefName"]),
