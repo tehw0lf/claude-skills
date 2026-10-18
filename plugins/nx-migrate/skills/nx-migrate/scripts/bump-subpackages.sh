@@ -12,10 +12,10 @@
 # Bumped:  a package that is in HEAD with a non-empty string "version", and is changed.
 # Skipped, each with a "# note:" line on stderr: a symlinked package directory; a directory name with a
 #   tab or newline (it would break the output format); a package that is not in HEAD (new or renamed in
-#   this run: no earlier version); a package whose HEAD manifest has no "version" and whose directory
+#   this run: no earlier version; a git-ignored package directory gets its own note); a package whose HEAD manifest has no "version" and whose directory
 #   has changes (none is added); a directory with changes but no regular package.json (deleted, a
 #   directory, a symlink); workspace globs other than exactly libs/* and apps/* (libs/**, libs/group/*,
-#   packages/* ...); neither libs/ nor apps/ existing.
+#   packages/* ...; workspace entries with a leading ! are listed as exclusions that are not applied); neither libs/ nor apps/ existing.
 # Skipped silently (the only silent skips, none of them hides a change): an unchanged package (with or
 #   without "version"); an unchanged directory under libs/ or apps/ without a regular package.json (not
 #   a package); a plain file or a dot-directory under libs/ or apps/ (the glob does not match them, as
@@ -42,7 +42,7 @@
 #
 # Output on stdout, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
 # Preconditions (exit 1, each with its own message): git, jq and npm on PATH; HEAD resolvable; nx.json
-#   present and non-empty; package.json one valid JSON object (its own "version" is not checked) whose "workspaces"
+#   present and not empty or whitespace-only; package.json one valid JSON object (its own "version" is not checked) whose "workspaces"
 #   field, if present, is an array of strings or an object with a "packages" array of strings (null, a
 #   string, a boolean or an object without "packages" is rejected; an absent field or [] is accepted on
 #   purpose, because publishable libraries need not be npm workspaces and the scan uses libs/* and apps/*); libs and apps, where they exist, real
@@ -67,7 +67,7 @@ manifest_version() {
             elif (.[0] | type) != "object" then error("is not a JSON object")
             elif (.[0] | has("version")) and ((.[0].version | type) != "string" or .[0].version == "") then error("has a version that is not a non-empty string")
             elif (.[0] | has("version")) and (.[0].version | test("[\u0000-\u001f\u007f]")) then error("has a version with a control character")
-            else (.[0].version // empty) end' 2>&1 | sed 's/^jq: error (at [^)]*): //'
+            else (.[0].version // empty) end' 2>&1 | sed -e 's/^jq: error (at [^)]*): //' -e 's/^jq: //'
 }
 
 # Semantic-version precedence (semver.org 11; build metadata is ignored). `is_increase <old> <new>` exits
@@ -87,14 +87,14 @@ is_increase() {
 # (b) the workspace root: nx.json (step 1 of the skill requires it) next to package.json.
 [ -e nx.json ] && [ ! -f nx.json ] && die "nx.json is not a file"
 [ -f nx.json ] || die "no nx.json in $(pwd): run it in the root of the Nx workspace, not inside a package"
-[ -s nx.json ] || die "nx.json is empty"
+grep -q '[^[:space:]]' nx.json || die "nx.json is empty or holds only whitespace"
 # (a) the root manifest: one valid JSON object (its own "version" is not read or checked: the script
 #     never bumps the root), and a usable "workspaces" field when there is one.
 [ -f package.json ] || die "no package.json in $(pwd): run it in the root of the Nx workspace"
 msg=$(jq -s -r 'if length == 0 then error("is empty")
                 elif length > 1 then error("holds more than one JSON document")
                 elif (.[0] | type) != "object" then error("is not a JSON object")
-                else "ok" end' package.json 2>&1 | sed 's/^jq: error (at [^)]*): //') && [ "$msg" = ok ] \
+                else "ok" end' package.json 2>&1 | sed -e 's/^jq: error (at [^)]*): //' -e 's/^jq: //') && [ "$msg" = ok ] \
   || die "package.json ${msg:-is invalid}"
 ok=$(jq -r 'if has("workspaces") | not then true
             elif (.workspaces | type) == "array" then all(.workspaces[]; type == "string")
@@ -112,12 +112,17 @@ done
 [ "$scanned" -eq 1 ] || note "neither libs/ nor apps/ exists in $(pwd): nothing to scan"
 
 # Workspace globs the scan does not cover: everything except exactly libs/* and apps/*
-# (a leading ./ and a trailing / are ignored).
+# (a leading ./ and a trailing / are ignored). A leading ! is an exclusion, not a glob: it is listed
+# apart, because the scan does not honour it.
 extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
                | map(sub("^\\./"; "") | sub("/+$"; ""))
-               | map(select((. == "libs/*" or . == "apps/*") | not)) | join(" ")' package.json) \
+               | map(select((startswith("!") or . == "libs/*" or . == "apps/*") | not)) | join(" ")' package.json) \
   || die "cannot read the workspaces of package.json"
 [ -z "$extra" ] || note "workspace globs not scanned (only libs/* and apps/*): $extra"
+excluded=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
+                  | map(select(startswith("!"))) | join(" ")' package.json) \
+  || die "cannot read the workspaces of package.json"
+[ -z "$excluded" ] || note "workspace exclusions not applied (every package under libs/* and apps/* is scanned): $excluded"
 
 # Pass 1 checks every package and writes nothing: a failing manifest check stops the script before the
 # first bump. plan holds one record per package to report: "bump|already <TAB> dir <TAB> old <TAB> new".
@@ -139,7 +144,9 @@ for dir in libs/*/ apps/*/; do
 
   # The committed manifest. "HEAD:./path" is relative to the current directory, not to the git root.
   if ! git cat-file -e "HEAD:./$pkg" 2>/dev/null; then
-    note "$pkg is not in HEAD (new or renamed in this run), skipped"
+    ignored=$(git --literal-pathspecs ls-files --others --ignored --exclude-standard -- "$pkg") || die "git ls-files failed for $pkg"
+    if [ -n "$ignored" ]; then note "$pkg is git-ignored, skipped"
+    else note "$pkg is not in HEAD (new or renamed in this run), skipped"; fi
     continue
   fi
   head_json=$(git show "HEAD:./$pkg") || die "cannot read HEAD:$pkg"
