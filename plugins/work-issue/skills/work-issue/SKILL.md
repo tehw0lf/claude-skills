@@ -236,7 +236,7 @@ Done when every validation command either exited 0 on the tree that will be push
 
 ### 8. Commit, push, open the PR
 
-Commit only the files you changed on purpose, with conventional-commit subjects (`fix(scope): …`): first the change, then the version bump of step 6 as a commit of its own, which also holds the entries the version scripts produced (new untracked ones with an explicit `git add -- '<entry>'`, the entry as step 6 recorded it; see the rule on paths taken from printed output). A fix that a review asks for later is a further commit on top; the version is not bumped a second time. Then:
+Commit only the files you changed on purpose, with conventional-commit subjects (`fix(scope): …`): first the change, then the version bump of step 6 as a commit of its own, which also holds the entries the version scripts produced (new untracked ones with an explicit `git add -- ':(literal)<entry>' …`, one argument per entry, the entry as step 6 recorded it; see the rule on paths taken from printed output). Each entry is a `:(literal)` argument because git reads the arguments as pathspecs: without it a `*`, `?` or `[` in a name (`new[1].txt`) would also stage another untracked file (`new1.txt`) that is not version-script output. A fix that a review asks for later is a further commit on top; the version is not bumped a second time. Then:
 
 ```bash
 git push -u origin HEAD

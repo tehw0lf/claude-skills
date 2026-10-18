@@ -139,8 +139,10 @@ It prints one line per bumped package (directory, old version, new version) on s
 ```bash
 git add package.json package-lock.json nx.json .nx/ tsconfig*.json
 git add -u
-git add <each new untracked entry that step 10 recorded as version-script output>   # `git add -u` adds tracked files only
+git add -- ':(literal)<entry>' …   # each new untracked entry that step 10 recorded as version-script output, one argument per entry; `git add -u` adds tracked files only
 ```
+
+Each entry is a `:(literal)` argument because git reads the arguments as pathspecs: without it a `*`, `?` or `[` in a name would also stage other untracked files that are not version-script output.
 
 ```
 chore(deps): migrate nx to vX.Y.Z
