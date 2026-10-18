@@ -22,7 +22,9 @@
 #   for npm); a package directory that was deleted (it no longer exists, so it is not scanned).
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
-#   npm install) is safe.
+#   npm install) is safe. That is accepted only when the working-tree version ranks above HEAD's by
+#   semantic-version precedence (build metadata ignored); a lower or equal version, or a version that
+#   is not valid semver, is an error, and so is a version with a control character in any manifest.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
 #   writes nothing, so a failing check stops the script before the first bump. The second bumps. If
 #   `npm version` fails there, the message names the packages bumped so far, says that the lockfile is
@@ -41,7 +43,7 @@
 #   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (git, jq or
 #   npm missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
-#   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string), npm not changing the version). Nothing is skipped silently on an error.
+#   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string) or one with a control character, an earlier bump that is not a semver increase, npm not changing the version). Nothing is skipped silently on an error.
 set -uo pipefail
 
 die() { echo "bump-subpackages: $*" >&2; exit 1; }
@@ -58,7 +60,21 @@ manifest_version() {
             elif length > 1 then error("holds more than one JSON document")
             elif (.[0] | type) != "object" then error("is not a JSON object")
             elif (.[0] | has("version")) and ((.[0].version | type) != "string" or .[0].version == "") then error("has a version that is not a non-empty string")
+            elif (.[0] | has("version")) and (.[0].version | test("[\u0000-\u001f\u007f]")) then error("has a version with a control character")
             else (.[0].version // empty) end' 2>&1 | sed 's/^jq: error (at [^)]*): //'
+}
+
+# Semantic-version precedence (semver.org 11; build metadata is ignored). `is_increase <old> <new>` exits
+# 0 when <new> ranks above <old>, 1 when it ranks equal or lower, 2 when either is not a valid version.
+is_increase() {
+  jq -n -e --arg a "$1" --arg b "$2" '
+    def key: capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
+      | [(.m, .n, .p | tonumber),
+         (if .pre == null then [1]
+          else [0] + (.pre | split(".") | map(if test("^[0-9]+$") then [0, tonumber] else [1, .] end)) end)];
+    (try ($a | key) catch null) as $x | (try ($b | key) catch null) as $y
+    | if $x == null or $y == null then error("invalid") else $y > $x end' >/dev/null 2>&1
+  case $? in 0) return 0;; 1) return 1;; *) return 2;; esac
 }
 
 # Preconditions. Each failure is exit 1 with its own message, before anything is bumped.
@@ -129,7 +145,10 @@ for dir in libs/*/ apps/*/; do
   fi
   [ -n "$old" ] || die "$pkg lost its version in this run (HEAD has $head_ver)"
 
-  if [ "$old" != "$head_ver" ]; then   # bumped by an earlier run
+  if [ "$old" != "$head_ver" ]; then   # bumped by an earlier run: only an increase is reported as a bump
+    is_increase "$head_ver" "$old"; rc=$?
+    [ "$rc" -ne 2 ] || die "$pkg: the version $old or the one in HEAD ($head_ver) is not a valid semantic version, so the change is not checked as a bump"
+    [ "$rc" -eq 0 ] || die "$pkg: the version $old is not higher than the one in HEAD ($head_ver): a bump only raises the version, fix it by hand"
     plan+=("already"$'\t'"$dir"$'\t'"$head_ver"$'\t'"$old")
     continue
   fi
