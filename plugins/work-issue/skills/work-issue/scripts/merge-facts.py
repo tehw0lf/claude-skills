@@ -25,7 +25,7 @@ Output, one tab-separated line per fact on stdout:
              the newest change of the PR's base branch of the whole timeline, whatever the verdict: no line
              when the base never changed or the base changes were not read. Unlike BASE it is not bound to
              the verdict, because after the round a BASE line causes, the verdict is newer than the change and
-             no BASE line is printed any more. The caller compares it with the start time of the checks: a
+             no BASE line is printed any more. The caller compares it with the start time of the required checks: a
              check that started before it ran against the merge result of the old base (a `pull_request`
              workflow without the `edited` activity type does not run again on a retarget, and the head SHA
              does not change). Printed after the BASE lines, also without a verdict.

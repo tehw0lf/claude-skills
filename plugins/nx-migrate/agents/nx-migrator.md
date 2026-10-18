@@ -1,6 +1,6 @@
 ---
 name: nx-migrator
-description: Migrates a single Nx monorepo to the latest stable Nx version end to end — migration, validation, PR, independent review, and merge once the review is clean and CI is fully green. Use when asked to migrate, update, or upgrade Nx in one or more repositories. Spawn one agent per repository.
+description: Migrates a single Nx monorepo to the latest stable Nx version end to end — migration, validation, PR, independent review, and merge once the review is clean and the required checks are green. Use when asked to migrate, update, or upgrade Nx in one or more repositories. Spawn one agent per repository.
 model: sonnet
 ---
 
@@ -49,7 +49,7 @@ Post the verdict file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body
 Merge only when all hold:
 
 - the review of the **current** head has zero `blocking` and zero `fix-in-PR`
-- the base branch requires at least one check, and every required check has concluded **green** — not pending, not "failed but probably unrelated". Checks that are not required are neither waited for nor a merge condition, whatever their state. Reason: no merge condition depends on an account posting, or not posting, something. When no check is required (`gh pr checks --required` exits 1 with "no required checks reported"), nothing gates the merge: do not merge, stop and report
+- the base branch requires at least one check, and every required check has concluded **green** — not pending, not "failed but probably unrelated". Checks that are not required are neither waited for nor a merge condition, whatever their state. Reason: no merge condition depends on an account posting, or not posting, something; the required checks are named by the repository's own ruleset and enforced by the base branch. When `gh pr checks --required` reports no required check (exit 1, "no required checks reported" or "no checks reported"), nothing is known to gate the merge: either the base branch requires none or a required check has not reported yet, and the command cannot tell which. Do not merge, stop and report
 - the PR has no merge conflicts
 - every required check on the head started after the PR's latest base change (a retarget keeps the head SHA, and a `pull_request` workflow without the `edited` activity type does not run again, so green checks can come from the merge with the old base; checked as described below)
 - lint, test, build, and e2e (where targets exist) passed locally
