@@ -25,6 +25,12 @@
 #   npm install) is safe. That is accepted only when the working-tree version ranks above HEAD's by
 #   semantic-version precedence (build metadata ignored); a lower or equal version, or a version that
 #   is not valid semver, is an error, and so is a version with a control character in any manifest.
+# Exact internal pins: if a manifest of the workspace (the root, libs/*, apps/*) pins a package that is
+#   going to be bumped (or was bumped by an earlier run) to the version HEAD has, as "1.0.0" or "=1.0.0"
+#   in dependencies, devDependencies, peerDependencies or optionalDependencies, the script lists each pin
+#   and exits 1 before the first bump: after the bump that version exists nowhere and the lockfile sync
+#   fails with a 404. Change the pin to a range or to the new version, then rerun. A package without a
+#   "name" gets a note (its pins are not checked); a manifest that cannot be read gets one too.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
 #   writes nothing, so a failing check stops the script before the first bump. The second bumps. If
 #   `npm version` fails there, the message names the packages bumped so far, says that the lockfile is
@@ -43,7 +49,7 @@
 #   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (git, jq or
 #   npm missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
-#   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string) or one with a control character, an earlier bump that is not a semver increase, npm not changing the version). Nothing is skipped silently on an error.
+#   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string) or one with a control character, an earlier bump that is not a semver increase, an exact pin on a package that would be bumped, npm not changing the version). Nothing is skipped silently on an error.
 set -uo pipefail
 
 die() { echo "bump-subpackages: $*" >&2; exit 1; }
@@ -156,6 +162,33 @@ for dir in libs/*/ apps/*/; do
   [ -n "$tracked$untracked" ] || continue
   plan+=("bump"$'\t'"$dir"$'\t'"$old"$'\t')
 done
+
+# An exact pin on a package that is about to move (or has moved) makes the lockfile sync fail: the pinned
+# version no longer exists anywhere. Look for those in every manifest of the workspace before the first bump.
+if [ "${#plan[@]}" -gt 0 ]; then
+  versions='{}'   # package name -> the version HEAD has, which a pin would name
+  for rec in "${plan[@]}"; do
+    IFS=$'\t' read -r kind dir from to <<<"$rec"
+    name=$(jq -r '.name | strings' "$dir/package.json") || die "cannot read the name of $dir/package.json"
+    if [ -z "$name" ]; then note "$dir/package.json has no name, so a pin on it is not checked"; continue; fi
+    versions=$(jq -c --arg n "$name" --arg v "$from" '.[$n] = $v' <<<"$versions") || die "cannot record the name of $dir"
+  done
+  pinned=""
+  for manifest in package.json libs/*/package.json apps/*/package.json; do
+    { [ -f "$manifest" ] && [ ! -L "$manifest" ]; } || continue
+    hits=$(jq -r --argjson v "$versions" --arg m "$manifest" '
+        . as $doc | ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"][] as $f
+        | ($doc[$f] // {}) | if type == "object" then to_entries[] else empty end
+        | select($v[.key] != null and (.value == $v[.key] or .value == "=" + $v[.key]))
+        | "  \($m): \($f) pins \(.key) to \(.value)"' "$manifest" 2>/dev/null) \
+      || { note "cannot read the dependencies of $manifest, so its pins are not checked"; continue; }
+    [ -z "$hits" ] || pinned="$pinned$hits"$'\n'
+  done
+  if [ -n "$pinned" ]; then
+    printf '%s' "$pinned" >&2
+    die "a manifest pins a package that is bumped, and the lockfile sync would fail with a 404; nothing was bumped. Change the pin to a range (or to the new version) and rerun"
+  fi
+fi
 
 # Pass 2 bumps. A failure here leaves the packages bumped so far in the working tree and the lockfile
 # unsynced: the message says so, and a rerun picks up where this one stopped.
