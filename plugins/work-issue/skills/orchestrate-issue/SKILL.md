@@ -51,7 +51,7 @@ Take the remaining issues in order, explicit references in the given order first
 
 ### 4. Plan
 
-For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: an `ISSUE … closed` line means the planner closed the issue on the owner's answer; it is reported as "closed on the owner's answer" with the link of the close comment, and nothing further is spawned for it. `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported.
+For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: an `ISSUE … closed` line together with a planner report of a close (with the link of its `closed` comment) is the outcome "closed on the owner's answer", reported with that link, and nothing further is spawned for it; a closed issue without such a report was closed by someone else during the run (a person, a merged PR) and is reported as closed during the run. `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported.
 
 ### 5. Work
 

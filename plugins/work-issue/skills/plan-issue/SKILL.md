@@ -58,6 +58,8 @@ Fixed rules:
   - for `completed`, the evidence the option names (a merged PR, the `file:line` of the fix) is checked again on `origin/<default>`, read in the detached tree of step 4. When it no longer holds, plan or ask instead of closing
   - the newest trusted comment is not a `closed` comment of this skill (first line `<!-- work-issue:closed -->`). `issue-context.py` counts that comment as an ordinary later comment, so a reopened issue (or one whose close failed after the comment) shows `QUESTIONS … answered` again; the planner then posts a new questions comment and does not close. The script cannot tell the two cases apart without the issue events, and asking again is safe in both
 
+  An answer that refers to no close option (an ordinary "B" for an implementing option, or any answer to a questions comment that offers none) is not affected by this rule and is planned, or asked about, as before. "Ask again" applies only to an answer that refers to a close option but adds a condition, a second option or a further request, or picks an option without a reason.
+
   Reason for the marker: the close comment is written by `ACCOUNT`, which is often the owner's own login, so without a marker of its own it would read like an owner answer that picks the option again.
 - **The repository's own rules decide.** Validation commands, versioning, branch names and PR texts come from its `CLAUDE.md`, README and workflows, not from a question.
 
