@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Print what the orchestrate-issue skill needs before it spawns a planner or worker. Read-only: writes nothing on GitHub, clones nothing, changes no checkout.
 
-usage: run-context.py [--label <name>] [--checkout owner/repo=<path>]... [<owner/repo> | 'owner/repo#n']...
+usage: run-context.py [--label <name>] [--owner <login>]... [--checkout owner/repo=<path>]... [<owner/repo> | 'owner/repo#n']...
 
   owner/repo       label mode: every open issue of that repository that carries the label
                    (default `auto-work`), oldest first; read from the label-filtered listing and
                    from the open-issue listing filtered by the issues' own labels (the first can lag
                    behind a label set just before the call), each issue once
+  --owner <login>  label mode for an account or an organisation (repeatable; only this flag makes a name an
+                   account, a bare word is an error): the repositories with an open issue
+                   carrying the label are found by one issue search (`user:<owner>`, which also
+                   matches an organisation; archived repositories are left out), then each of them is
+                   read as with `owner/repo`. The search only finds repositories; whether an issue is
+                   taken is decided per repository as before. The search index can lag behind a label
+                   set just before the call, so such an issue is found by the next call
   'owner/repo#n'   an explicit issue; naming it is the consent (quote the "#")
-  no argument      the repository of the current directory, in label mode
+  no argument      the repository of the current directory, in label mode (never an account)
   --max <n>        accepted and ignored (the limit is applied by the skill)
   --checkout       a local checkout the caller names for a repository; used as given
 
@@ -16,6 +23,8 @@ Needs `gh` with the `repo` scope. Does not apply the per-run limit (it depends o
 of each issue) and does not read the issues themselves: that is issue-context.py.
 
 Output, one tab-separated line per fact:
+  SCOPE     <owner>  <number of repositories found>
+              one line per `--owner`, before the REPO lines
   REPO      <owner/repo>  <default branch or ->
               owner/repo is the name GitHub stores
   CHECKS    <owner/repo>  <required status check names, tab-separated, or ->  <ruleset|protection|both|->
@@ -29,7 +38,8 @@ Output, one tab-separated line per fact:
               (default ~/Nextcloud/Coding) up to two directory levels below it; `none` when there is
               no candidate. A path given with --checkout is the only line
   ISSUE     <owner/repo#n>  <ref|label>  <labeler or ->  <permission or ->  <createdAt or ->  <edit>
-              explicit references first, in the given order, then labelled issues oldest first.
+              explicit references first, in the given order, then labelled issues oldest first
+              across all repositories (ties by repository, then number).
               labeler: the actor of the newest `labeled` event for the label; permission: that
               actor's role on the repository (admin, maintain, write, triage, read; a custom role is shown as
               its base permission: admin, write, read or none). Both are `-`
@@ -49,10 +59,13 @@ Status lines start with "#":
                                  (`issues` naming the unfiltered listing: only the check against a lagging
                                  label filter is missing; that listing pages through every open issue and
                                  pull request within the 60-second limit, so it can time out on a large repository)
-                                 Sources: rules, protection, issues, labeler, permission, edits, checkouts
+                                 Sources: search, rules, protection, issues, labeler, permission, edits, checkouts
+                                 (`search`: the repositories of an `--owner` come from a search; one that
+                                 cannot be read gives no repository, one that reports itself incomplete
+                                 or holds more than 1000 issues gives the repositories it returned)
 
 Exits non-zero, with the reason on stderr and nothing on stdout, for a malformed argument, `gh`
-missing, or a repository that cannot be resolved. Every `gh` and `git` call is given 60 seconds.
+missing, or a repository or owner that cannot be resolved. Every `gh` and `git` call is given 60 seconds.
 """
 import json
 import os
@@ -124,14 +137,14 @@ def skipped(source, reason):
 
 
 def parse_args(argv):
-    label, given, repos, explicit = DEFAULT_LABEL, {}, [], []
+    label, given, repos, explicit, owners = DEFAULT_LABEL, {}, [], [], []
     index = 0
     while index < len(argv):
         arg = argv[index]
         if arg in ("-h", "--help"):
             print(__doc__.strip())
             sys.exit(0)
-        if arg in ("--label", "--checkout", "--max"):
+        if arg in ("--label", "--checkout", "--max", "--owner"):
             if index + 1 >= len(argv):
                 die(f"{arg} needs a value")
             value = argv[index + 1]
@@ -139,8 +152,12 @@ def parse_args(argv):
             if arg == "--max":
                 if not value.isdigit():
                     die(f"--max needs a number: {value!r}")
+            elif arg == "--owner":
+                if not re.fullmatch(r"[\w.-]+", value):
+                    die(f"not an account or organisation name: {value!r}")
+                owners.append(value)
             elif arg == "--label":
-                if not value.strip() or "," in value:
+                if not value.strip() or "," in value or '"' in value:
                     die(f"not a label name: {value!r}")
                 label = value
             else:
@@ -158,7 +175,7 @@ def parse_args(argv):
         else:
             die(f"not owner/repo or owner/repo#n: {arg!r}")
         index += 1
-    return label, given, repos, explicit
+    return label, given, repos, explicit, owners
 
 
 def local_repository():
@@ -221,8 +238,16 @@ def checkout_state(path):
     return ("dirty" if status.strip() else "clean"), ((branch or "").strip() or "(detached)")
 
 
-def find_checkouts(repo, root):
-    found = []
+_checkout_index = None
+
+
+def checkout_index(root):
+    """{repository (lower case): [path, ...]} for every checkout under root, up to two directory levels below it.
+    Scanned once per run, however many repositories are read."""
+    global _checkout_index
+    if _checkout_index is not None:
+        return _checkout_index
+    _checkout_index = found = {}
     if not os.path.isdir(root):
         skipped("checkouts", f"{root} is not a directory")
         return found
@@ -230,8 +255,9 @@ def find_checkouts(repo, root):
     for current, dirs, _files in os.walk(root):
         depth = current.rstrip(os.sep).count(os.sep) - base_depth
         if ".git" in dirs or os.path.isfile(os.path.join(current, ".git")):
-            if origin_repository(current) == repo.lower():
-                found.append(current)
+            origin = origin_repository(current)
+            if origin:
+                found.setdefault(origin, []).append(current)
             dirs[:] = []
             continue
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")) if depth < 2 else []
@@ -244,7 +270,7 @@ def print_checkouts(repo, given):
         emit("CHECKOUT", repo, given, "given", state, branch)
         return
     root = os.path.abspath(os.path.expanduser(os.environ.get("CODING_ROOT") or "~/Nextcloud/Coding"))
-    candidates = find_checkouts(repo, root)
+    candidates = checkout_index(root).get(repo.lower(), [])
     if not candidates:
         emit("CHECKOUT", repo, "-", "none", "-", "-")
     for path in candidates:
@@ -405,6 +431,14 @@ def readable_labels(issue):
     return isinstance(issue, dict) and isinstance(issue.get("labels"), list) and all(isinstance(l, dict) for l in issue["labels"])
 
 
+def created_key(issue):
+    """Sort key, oldest first, ties by number; an issue whose `created_at` cannot be read comes after the readable ones."""
+    try:
+        return (0, parse_time(issue.get("created_at")), issue["number"])
+    except ValueError:
+        return (1, datetime.min.replace(tzinfo=timezone.utc), 0)
+
+
 def merge_issues(filtered, unfiltered, label):
     """Both listings as one list: each issue number once, oldest first (ties by number).
 
@@ -429,13 +463,7 @@ def merge_issues(filtered, unfiltered, label):
         seen.add(issue["number"])
         merged.append(issue)
 
-    def key(issue):
-        try:
-            return (0, parse_time(issue.get("created_at")), issue["number"])
-        except ValueError:
-            return (1, datetime.min.replace(tzinfo=timezone.utc), 0)
-
-    return sorted(merged, key=key) + odd
+    return sorted(merged, key=created_key) + odd
 
 
 def labelled_issues(full, label):
@@ -461,14 +489,69 @@ def labelled_issues(full, label):
     return merge_issues(filtered, unfiltered, label)
 
 
+SEARCH_LIMIT = 1000  # the search API returns at most this many results
+
+
+def owner_repositories(owner, label):
+    """Repositories of an account or organisation with an open issue carrying the label, from one issue
+    search (`user:` matches organisations too). Dies when the owner does not exist. A search that cannot be read
+    gives a `# SKIPPED search` line and no repository; one that reports itself incomplete or holds more
+    results than the API returns gives the line and the repositories it returned."""
+    info, reason = api(f"users/{owner}")
+    if not isinstance(info, dict) or not info.get("login"):
+        die(f"cannot resolve {owner}: {reason or 'no answer'}")
+    login = info["login"]
+    pages, reason = api(
+        "search/issues", "--paginate", "-X", "GET",
+        "-f", f'q=label:"{label}" is:issue is:open user:{login} archived:false', "-f", "per_page=100",
+    )
+    if pages is None:
+        skipped("search", f"{login}: {reason}")
+        return login, []
+    if isinstance(pages, dict):  # a single page is one object, several are slurped into a list
+        pages = [pages]
+    names, seen, incomplete, total = [], set(), False, 0
+    for page in pages:
+        items = page.get("items") if isinstance(page, dict) else None
+        if not isinstance(items, list):
+            skipped("search", f"{login}: unexpected answer")
+            return login, names
+        incomplete = incomplete or page.get("incomplete_results") is not False
+        total = max(total, page.get("total_count") if isinstance(page.get("total_count"), int) else 0)
+        for item in items:
+            url = item.get("repository_url") if isinstance(item, dict) else None
+            match = re.search(r"/repos/([\w.-]+/[\w.-]+)$", url) if isinstance(url, str) else None
+            if match and match.group(1).lower() not in seen:
+                seen.add(match.group(1).lower())
+                names.append(match.group(1))
+    if incomplete:
+        skipped("search", f"{login}: the search reported an incomplete result")
+    elif total > SEARCH_LIMIT:
+        skipped("search", f"{login}: {total} results, the search returns at most {SEARCH_LIMIT}")
+    return login, names
+
+
 def main():
-    label, given, repos, explicit = parse_args(sys.argv[1:])
-    if not repos and not explicit:
+    label, given, repos, explicit, owners = parse_args(sys.argv[1:])
+    if not repos and not explicit and not owners:
         repos = [local_repository()]
+    scopes = []
+    for owner in owners:
+        login, found = owner_repositories(owner, label)
+        scopes.append((login, found))
+        repos = repos + found
+    unique, keys = [], set()
+    for name in repos:  # a repository named and also found through an owner is read once
+        if name.lower() not in keys:
+            keys.add(name.lower())
+            unique.append(name)
+    repos = unique
     resolved = {}
-    for name in [r for r in repos] + [r for r, _ in explicit]:
+    for name in repos + [r for r, _ in explicit]:
         if name.lower() not in resolved:
             resolved[name.lower()] = repo_info(name)
+    for login, found in scopes:
+        emit("SCOPE", login, len(found))
     for full, default in resolved.values():
         emit("REPO", full, default)
         if default:
@@ -480,6 +563,7 @@ def main():
     for name, number in explicit:
         emit("ISSUE", f"{resolved[name.lower()][0]}#{number}", "ref", "-", "-", "-", "-")
     printed = {(resolved[n.lower()][0].lower(), i) for n, i in explicit}
+    labelled = []  # (sort key, repository, line); oldest first across all repositories
     for name in repos:
         full = resolved[name.lower()][0]
         for issue in labelled_issues(full, label):
@@ -494,7 +578,9 @@ def main():
             except Exception as error:  # last resort: an unforeseen answer must not end the run mid-output
                 skipped("labeler", f"{full}#{issue['number']}: {type(error).__name__}: {error}")
                 actor = role = edit = None
-            emit("ISSUE", f"{full}#{issue['number']}", "label", actor, role, issue.get("created_at"), edit)
+            labelled.append((created_key(issue), full.lower(), (f"{full}#{issue['number']}", "label", actor, role, issue.get("created_at"), edit)))
+    for _key, _repo, fields in sorted(labelled, key=lambda row: (row[0][0], row[0][1], row[1], row[0][2])):
+        emit("ISSUE", *fields)
 
 
 if __name__ == "__main__":
