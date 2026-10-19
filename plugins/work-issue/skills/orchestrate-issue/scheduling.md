@@ -44,6 +44,8 @@ ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp
 # the skills never remove their temporary directories; drop entries older than seven days (the leading `-` keeps a failure from stopping the run; a oneshot unit does not overlap itself, so no running session loses files)
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp -mindepth 1 -mtime +7 -delete
 WorkingDirectory=%h
+# skip the unit, without a failure, when no auto-work issue can be taken (no tokens, see "Skipping empty runs" below)
+ExecCondition=%h/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts/has-work.py <owner>/<repo>
 ExecStart=%h/.local/bin/claude -p "/work-issue:orchestrate-issue --max 1 <owner>/<repo>" --permission-prompts none --permission-mode acceptEdits --add-dir %h/.cache/work-issue/tmp --settings %h/.config/work-issue/settings.json
 ```
 
@@ -66,6 +68,18 @@ systemctl --user daemon-reload
 systemctl --user enable --now work-issue.timer
 journalctl --user -u work-issue.service      # the skill's report is the output of the run
 ```
+
+### Skipping empty runs
+
+Without a check every tick starts a full session, also when no issue carries `auto-work`; such a run costs tokens and, once the usage limit is reached, ends as a failed unit. `scripts/has-work.py <owner>/<repo>...` answers the same question without a model: is there an open issue with the label whose newest questions of the account are not still open? An issue without `needs-decision` is a hit; one with it is a hit unless `issue-context.py` shows `QUESTIONS … open`. The planner removes the label only after it has read the answer, so a test on the label alone would skip an answered issue for good, and the session itself decides by the `QUESTIONS` and `PLAN` lines, not by the label. It lists issues and, for a waiting one, runs `issue-context.py`; it writes nothing.
+
+By `systemd.service(5)` an `ExecCondition=` command that exits 1 to 254 skips the remaining commands and the unit is not marked failed, 255 or an abnormal end marks it failed, and 0 goes on. The script exits 0 on a hit, 1 on none, and 255 when the check itself failed (`gh` missing or not authenticated, GitHub unreachable, a time-out), so a check that breaks while it runs shows as a failed unit and starts no session. That includes `issue-context.py` reporting `# SKIPPED account`, `plan`, `comments` or `permission`, and any unexpected error in the script. A script that systemd cannot start is different: with a path that does not exist, or `python3` not on the unit's `PATH` (the shebang is `#!/usr/bin/env python3`; `env` then exits 127), systemd ends the `ExecCondition=` as `exec-condition`, which skips the unit without a failure (tried in transient user units; systemd 262). Every tick would then be skipped and nothing would report it. The path in the example exists only once the marketplace is registered under that name and `claude plugin marketplace update` has pulled this version. So run the exact `ExecCondition=` command line by hand once (it prints `WORK` or `NONE`), and after the first ticks look in the journal for "Skipped due to 'exec-condition'" next to a `NONE` you expect, not next to an error.
+
+If the unit's session uses another label, pass the same one to the script with `--label`.
+
+The unit above points at the marketplace clone, which follows `main` after `claude plugin marketplace update`; the plugin cache is keyed by version and the path would go stale at each update. `gh` and `python3` must be on the unit's `PATH`, and the `ExecStartPre=` lines run after the check.
+
+It is the simple test of the selection, not the whole of it. These cases pass the check and the session then reports them and spawns nothing, as before: a labeler without write access, an edit by a non-writer, an assignee other than the account, a pull request that already closes the issue (also one waiting for a person under a stop marker), a PR with a conflict. The reverse case does not occur: an issue the session would work is not skipped here, because the check does not read the label alone (an issue with `needs-decision` and no questions of the account, for example a label set by hand, is a hit). A label set so recently that the label-filtered listing lacks it is found by the next tick. Not checked: a full scheduled run of the unit; the script was run by hand against GitHub (no hit, a failing repository, bad arguments) and with a stubbed `gh` (hit kinds, a failing `gh api user`, a `null` listing); the open-questions case only with a stubbed `issue-context.py` output.
 
 A systemd user manager runs only while the account has a login session, unless lingering is on: check with `loginctl show-user "$USER" -p Linger`, enable with `loginctl enable-linger "$USER"` if runs must continue while logged out. Without it the hourly run does not happen while logged out, and `Persistent=true` catches up only once at the next login. A run without a login session was not tested, and neither was whether `gh` and Claude Code find their credentials there.
 
