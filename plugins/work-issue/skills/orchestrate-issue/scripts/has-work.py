@@ -8,9 +8,11 @@ usage: has-work.py [--label <name>] <owner/repo>...
 Needs `gh` with the `repo` scope. For each repository, in the given order, it lists the open issues
 that carry the label (one `gh issue list`, at most 1000) and stops at the first hit:
   - an issue without `needs-decision`: a hit
-  - an issue with `needs-decision`: a hit only when `issue-context.py` (work-issue skill) reports its
-    newest `QUESTIONS` line as `answered`. The planner removes the label only after it has read the
-    answer, so a label-only test would skip an answered issue for good
+  - an issue with `needs-decision`: a hit unless `issue-context.py` (work-issue skill) reports its
+    newest `QUESTIONS` line as `open`, i.e. it waits for the owner. The planner removes the label only
+    after it has read the answer, so a label-only test would skip an answered issue for good. The
+    session does not read the label either: it decides by the `QUESTIONS` and `PLAN` lines, so an
+    issue with the label and no questions of the account's own (a label set by hand) is a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
 permission, the edit history, an assignee other than the account, a pull request that already closes
@@ -18,15 +20,18 @@ the issue (including one that waits for a person) or the stop marker; such an is
 the session then reports it and spawns nothing.
 
 Output, one line:
-  WORK  <owner/repo#n>  <label|answered>     a hit
+  WORK  <owner/repo#n>  <label|answered-or-unasked>     a hit
   NONE                                       no hit in any repository
 
 Exit codes, as systemd.service(5) reads them for ExecCondition=:
   0    a hit: the unit goes on
   1    no hit: the unit is skipped and is not marked failed
-  255  the check itself failed (bad argument, `gh` missing or failing, time-out): the unit is marked
-       failed and no session starts. The reason is on stderr, nothing on stdout. Every `gh` and
-       `issue-context.py` call is given 60 seconds
+  255  the check itself failed (bad argument, `gh` missing or failing, time-out, an unexpected error,
+       or `issue-context.py` reporting `# SKIPPED account`, `plan`, `comments` or `permission`, which
+       leaves the questions unreadable): the unit is marked failed and no session starts. The reason
+       is on stderr, nothing on stdout. Every `gh` and `issue-context.py` call is given 60 seconds.
+       A script that systemd cannot start at all (path missing, `python3` not on the unit's PATH) is
+       not 255: systemd skips the unit, see scheduling.md
 """
 import json
 import os
@@ -38,6 +43,7 @@ import tempfile
 TIMEOUT = 60
 DEFAULT_LABEL = "auto-work"
 WAITING_LABEL = "needs-decision"
+UNREADABLE = {"account", "plan", "comments", "permission"}
 ISSUE_CONTEXT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "work-issue", "scripts", "issue-context.py"
 )
@@ -80,14 +86,20 @@ def parse(argv):
     return label, repos
 
 
-def answered(repo, number):
+def waiting(repo, number):
+    """True when the newest questions of the account are still open."""
     with tempfile.TemporaryDirectory() as scratch:
         out = run([sys.executable, ISSUE_CONTEXT, f"{repo}#{number}"], cwd=scratch)
+    questions = None
     for line in out.splitlines():
         fields = line.split("\t")
         if fields[0] == "QUESTIONS":
-            return fields[-1] == "answered"
-    return False
+            questions = fields[-1]
+        elif line.startswith("# SKIPPED "):
+            source = line[len("# SKIPPED "):].split(":")[0].strip()
+            if source in UNREADABLE:
+                fail(f"issue-context.py could not read {source} of {repo}#{number}")
+    return questions == "open"
 
 
 def main():
@@ -101,17 +113,22 @@ def main():
             issues = json.loads(out)
         except json.JSONDecodeError:
             fail(f"gh issue list for {repo} did not return JSON")
+        if not isinstance(issues, list):
+            fail(f"gh issue list for {repo} did not return a list")
         for issue in sorted(issues, key=lambda item: item["number"]):
             names = {entry["name"] for entry in issue["labels"]}
             if WAITING_LABEL not in names:
                 print(f"WORK\t{repo}#{issue['number']}\tlabel")
                 sys.exit(0)
-            if answered(repo, issue["number"]):
-                print(f"WORK\t{repo}#{issue['number']}\tanswered")
+            if not waiting(repo, issue["number"]):
+                print(f"WORK\t{repo}#{issue['number']}\tanswered-or-unasked")
                 sys.exit(0)
     print("NONE")
     sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:  # an uncaught exception would exit 1, which systemd reads as "skip"
+        fail(f"unexpected {type(error).__name__}: {error}")
