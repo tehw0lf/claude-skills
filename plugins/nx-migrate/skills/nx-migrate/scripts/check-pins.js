@@ -10,7 +10,8 @@
 //   exit:   0 = checked (hits or not: the caller decides on stdout); 1 = failure, message on stderr
 //           (npm's modules cannot be loaded, workspaces cannot be mapped, bad input)
 // A hit: the HEAD version satisfies the spec and the new version does not. A spec the HEAD version
-// already misses resolves to the registry before the bump too: a note, not a hit.
+// already misses resolves to the registry before the bump too: a note (only when the new version misses
+// it as well), not a hit. An alias of the package onto itself ("a": "npm:a@1.0.0") is checked like its sub-spec.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -25,14 +26,23 @@ function note(message) {
 
 const npmBin = process.argv[2];
 if (!npmBin) fail('usage: check-pins.js <path of npm> < records.json');
+function npmPackageDir(real) {
+  const dir = path.dirname(path.dirname(real));
+  const name = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).name;
+  if (name !== 'npm') throw new Error(`${dir} is not the npm package`);
+  return dir;
+}
 let npmDir;
 try {
-  const real = fs.realpathSync(npmBin);
-  npmDir = path.dirname(path.dirname(real));
-  const name = JSON.parse(fs.readFileSync(path.join(npmDir, 'package.json'), 'utf8')).name;
-  if (name !== 'npm') throw new Error(`${npmDir} is not the npm package`);
-} catch (e) {
-  fail(`cannot find the npm package directory from ${npmBin} (${e.message}); the pins are not checked, so nothing is bumped`);
+  npmDir = npmPackageDir(fs.realpathSync(npmBin));
+} catch (first) {
+  // npm on PATH is a shim (a version manager's wrapper): ask npm where it lives.
+  try {
+    const out = require('child_process').execFileSync(npmBin, ['exec', '-c', 'echo "$npm_execpath"'], { encoding: 'utf8' });
+    npmDir = npmPackageDir(fs.realpathSync(out.trim().split('\n').pop()));
+  } catch (second) {
+    fail(`cannot find the npm package directory from ${npmBin} (${first.message}; ${second.message}); the pins are not checked, so nothing is bumped`);
+  }
 }
 function load(name) {
   try {
@@ -122,13 +132,15 @@ async function main() {
         } catch (e) {
           continue; // npm reports an unparsable spec itself at install time
         }
+        // npm decides an alias of the package onto itself by the version of its sub-spec (dep-valid.js)
+        if (parsed.type === 'alias' && parsed.subSpec && parsed.subSpec.name === dep) parsed = parsed.subSpec;
         if (parsed.type !== 'range' && parsed.type !== 'version') continue;
         if (parsed.fetchSpec === '*') continue; // npm treats * as always valid
-        if (!semver.satisfies(target.head, parsed.fetchSpec, true)) {
-          note(`${rel}: ${field} ${dep} "${spec}" is not satisfied by the version HEAD has (${target.head}) either, so the bump changes nothing for it`);
-          continue;
-        }
-        if (!semver.satisfies(target.next, parsed.fetchSpec, true)) {
+        const headOk = semver.satisfies(target.head, parsed.fetchSpec, true);
+        const nextOk = semver.satisfies(target.next, parsed.fetchSpec, true);
+        if (!headOk && !nextOk) {
+          note(`${rel}: ${field} ${dep} "${spec}" is satisfied neither by the version HEAD has (${target.head}) nor by the new one (${target.next}), so the bump changes nothing for it`);
+        } else if (headOk && !nextOk) {
           process.stdout.write(`  ${rel}: ${field} pins ${dep} to ${spec} (${target.next} does not satisfy it)\n`);
         }
       }

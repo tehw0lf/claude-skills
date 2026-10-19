@@ -34,9 +34,10 @@
 #   workspace package: npm looks the spec up in the registry (a 404 if it was never published, otherwise
 #   it installs the registry copy). The owner decides whether the spec becomes a range or the new version,
 #   then the script is rerun. The decision is made by check-pins.js (next to this script) with npm's own
-#   semver, npm-package-arg and @npmcli/map-workspaces, found from the npm on PATH; if they cannot be
-#   loaded the script exits 1 before any bump. A spec that npm does not match by version (npm: aliases,
-#   file:, git, tags) and * are not checked; a spec HEAD's version already misses gets a note. A package
+#   semver, npm-package-arg and @npmcli/map-workspaces, found from the npm on PATH (through the shim too,
+#   by asking npm for its location); if they cannot be loaded the script exits 1 before any bump. An
+#   alias of the package onto itself ("a": "npm:a@1.0.0") is checked like its version. Other specs that npm
+#   does not match by version (other aliases, file:, git, tags) and * are not checked; a spec HEAD's version already misses gets a note. A package
 #   outside the mapped workspaces, or without a "name", gets a note (its pins are not checked); so does a
 #   manifest that cannot be read. The bump scan itself still covers exactly libs/*/ and apps/*/.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
