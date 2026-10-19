@@ -52,6 +52,8 @@ Step 1 checked the tree that was checked out before the switch, so run the check
 
 If it prints any line or exits non-zero, switch back (`git switch <recorded branch>`, or `git switch --detach <recorded commit>`), delete the empty branch with `git branch -D chore/nx-migrate-latest` (it holds no commits of this run), and handle the lines as step 1 says.
 
+Then install what the new tree declares, with a plain `npm ci` (no flags; a failing install is the repository's own state: stop and report the output). Step 3's `npx nx@latest migrate latest` chooses its migrations by comparing against the Nx and plugin versions in `node_modules`, which still hold the tree checked out before the switch. Record the installed version again with the command from step 1: this is the "from" version, and it replaces the one step 1 recorded.
+
 ### 3. Migrate
 
 ```bash
