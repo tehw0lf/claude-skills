@@ -51,6 +51,7 @@ Merge only when all hold:
 - the review of the **current** head has zero `blocking` and zero `fix-in-PR`
 - the base branch requires at least one check, and every required check has concluded **green** — not pending, not "failed but probably unrelated". Checks that are not required are neither waited for nor a merge condition, whatever their state. Reason: no merge condition depends on an account posting, or not posting, something; the required checks are named by the repository's own ruleset and enforced by the base branch. When `gh pr checks --required` reports no required check (exit 1, "no required checks reported" or "no checks reported"), nothing is known to gate the merge: either the base branch requires none or a required check has not reported yet, and the command cannot tell which. Do not merge, stop and report
 - the PR has no merge conflicts
+- the PR's base is the default branch (otherwise the change lands in another PR's branch, and the review looked at the diff against that branch), and no open PR in the repository has this PR's head branch as its base (the merge deletes the head branch, and a PR based on it would be closed or retargeted without anybody deciding it)
 - every required check on the head started after the PR's latest base change (a retarget keeps the head SHA, and a `pull_request` workflow without the `edited` activity type does not run again, so green checks can come from the merge with the old base; checked as described below)
 - lint, test, build, and e2e (where targets exist) passed locally
 
@@ -61,6 +62,20 @@ gh pr checks <PR> --required --watch    # then confirm with: gh pr checks <PR> -
 gh pr checks <PR>    # once, for the report only: name each check that is not required and red or still pending
 gh pr view <PR> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
+
+Then the base, each as its own command:
+
+```bash
+gh pr view <PR> -R <owner>/<repo> --json baseRefName,headRefName    # baseRefName must equal the default branch
+gh pr list -R <owner>/<repo> --base <headRefName> --state open --json number    # must be empty
+```
+
+Either condition failing means no merge: stop and report, naming the base or the dependent PR numbers.
+
+- **Base is not the default branch:** this PR is itself the stacked one. Report that a person decides: merge by hand, or retarget it to the default branch and get a new review, because the existing verdict covers the diff against the other branch while the retargeted diff also holds that branch's commits (the head SHA stays the same, so the verdict would still match it; the `BASE` line of the script below catches a retarget made after the verdict).
+- **Dependent PRs exist:** report that a person retargets them to the default branch, or merges by hand, because `--delete-branch` would otherwise close or retarget them.
+
+The skill opens every PR against the default branch, so a stacked PR or a dependent PR can only come from a person.
 
 Then read the verdict and base facts. This is the last check before the merge, after the required checks are green. `<skill directory>` is the `nx-migrate` skill directory shown when the skill was invoked.
 
@@ -75,7 +90,7 @@ It prints the latest verdict of this account (`VERDICT`, with the head it review
 - `BASE` lines → the latest verdict was made against the diff of another base, and it binds only the head, so the retargeted PR passes a head comparison with a review that never saw its current diff. Get a further review round as in "Independent review": a fresh reviewer without a model override, told about the earlier rounds and that the base changed after the previous verdict (from, to), so that it reviews the current head against the current base as a whole. It is not bound by the limit of 4 rounds; each further round needs another retarget, and only a person retargets a PR. Its `blocking` and `fix-in-PR` findings are handled as under "Independent review" (stop, or fix and push). Afterwards check all merge conditions again for the new verdict, including this script
 - a `LASTBASE` line → the required checks must postdate it. Read their names with `gh pr checks <PR> --required --json name` and their start times with `gh pr view <PR> --json statusCheckRollup` (`startedAt` of each entry, matched by `name` for a check run or `context` for a commit status; its `startedAt` is the time it was created, whereas `gh pr checks --json startedAt` reports the zero date for it) and stop and report (no marker), naming the checks that predate the base change when any required check's `startedAt` is before or equal to the `LASTBASE` time, or is empty, unreadable, missing from the rollup or the zero date `0001-01-01T00:00:00Z` (unverified): that check ran, or may have run, against the merge result of the old base. The line stays after the `BASE` round and in every later run, because it ignores the verdict. Every required check counts, also one that does not depend on the base. Only a person decides how to get checks on the current base (a new event, or a manual merge). The condition applies again after each round above, with the script run again.
 
-Windows stay open. A retarget between the reviewer's last read of the base and the posting of the verdict is caught by nothing. A required check that has not reported yet is not listed by `--required`, so the wait cannot see it. Three cases of the check-start rule stay open, because `startedAt` is when a job started or a status was last posted, not when its event happened: a run triggered before the retarget whose jobs only start after it (waiting for a runner or in a concurrency group), and a re-run after the retarget, which keeps its original event, and an external check that started before the retarget and posts its result as a commit status afterwards (the status's `startedAt` is the time of its last state). All three pass the rule although they may have tested the old base. And a person can retarget the PR in the seconds between this script and the merge; `--match-head-commit` covers the head only, not the base.
+Windows stay open. A retarget between the reviewer's last read of the base and the posting of the verdict is caught by nothing. A required check that has not reported yet is not listed by `--required`, so the wait cannot see it. Three cases of the check-start rule stay open, because `startedAt` is when a job started or a status was last posted, not when its event happened: a run triggered before the retarget whose jobs only start after it (waiting for a runner or in a concurrency group), and a re-run after the retarget, which keeps its original event, and an external check that started before the retarget and posts its result as a commit status afterwards (the status's `startedAt` is the time of its last state). All three pass the rule although they may have tested the old base. And a person can retarget the PR in the seconds between this script and the merge; `--match-head-commit` covers the head only, not the base (the base check above runs earlier).
 
 Then, as one plain command — not in a loop or a compound command:
 
@@ -94,6 +109,6 @@ Your final message is the only thing the user sees. Include:
 - the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
 - validation results with real numbers (tests passed/total, lint errors)
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
-- whether the PR was merged, or what blocked it (a finding, a required check, no required check, no reviewer)
+- whether the PR was merged, or what blocked it (a finding, a required check, no required check, no reviewer, a non-default base or dependent PRs)
 - the checks that were not required and red or still pending at the merge, by name
 - anything out of scope you noticed and left alone

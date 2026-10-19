@@ -34,7 +34,25 @@ Then record the installed version: `node -p "require('./node_modules/nx/package.
 
 ### 2. Branch
 
-`git checkout -b chore/nx-migrate-latest`
+Record the current branch (`git branch --show-current`; empty output means a detached HEAD, record `git rev-parse HEAD` instead), then create the branch from the fetched default branch:
+
+```bash
+git fetch origin
+gh repo view --json defaultBranchRef -q .defaultBranchRef.name    # <default>
+git switch --no-overwrite-ignore -c chore/nx-migrate-latest origin/<default>
+```
+
+`--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
+
+Step 1 checked the tree that was checked out before the switch, so run the check again on the tree the migration installs on (no install has happened yet):
+
+```bash
+<skill directory>/scripts/check-install-config.py "$PWD"
+```
+
+If it prints any line or exits non-zero, switch back (`git switch <recorded branch>`, or `git switch --detach <recorded commit>`), delete the empty branch with `git branch -D chore/nx-migrate-latest` (it holds no commits of this run), and handle the lines as step 1 says.
+
+Then install what the new tree declares, with a plain `npm ci` (no flags; a failing install is the repository's own state: stop and report the output). Step 3's `npx nx@latest migrate latest` chooses its migrations by comparing against the Nx and plugin versions in `node_modules`, which still hold the tree checked out before the switch. Record the installed version again with the command from step 1: this is the "from" version, and it replaces the one step 1 recorded.
 
 ### 3. Migrate
 
@@ -161,7 +179,7 @@ chore(deps): migrate nx to vX.Y.Z
 
 ```bash
 git push -u origin chore/nx-migrate-latest
-gh pr create --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
+gh pr create --base <default> --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
 ## Summary
 
 - Migrated Nx workspace to vX.Y.Z
@@ -179,5 +197,7 @@ gh pr create --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+The PR is always opened against the default branch, never on the branch of another PR (no stacked PRs). Reason: the merge deletes the head branch, and an open PR based on it would be closed or retargeted without anybody deciding it.
 
 Done when the PR is open and lint, test, build (and e2e unless skipped) pass locally.
