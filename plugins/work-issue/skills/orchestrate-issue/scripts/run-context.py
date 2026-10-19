@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Print what the orchestrate-issue skill needs before it spawns a planner or worker. Read-only: writes nothing on GitHub, clones nothing, changes no checkout.
 
-usage: run-context.py [--label <name>] [--checkout owner/repo=<path>]... [<owner> | <owner/repo> | 'owner/repo#n']...
+usage: run-context.py [--label <name>] [--owner <login>]... [--checkout owner/repo=<path>]... [<owner/repo> | 'owner/repo#n']...
 
   owner/repo       label mode: every open issue of that repository that carries the label
                    (default `auto-work`), oldest first; read from the label-filtered listing and
                    from the open-issue listing filtered by the issues' own labels (the first can lag
                    behind a label set just before the call), each issue once
-  owner            label mode for an account or an organisation: the repositories with an open issue
+  --owner <login>  label mode for an account or an organisation (repeatable; only this flag makes a name an
+                   account, a bare word is an error): the repositories with an open issue
                    carrying the label are found by one issue search (`user:<owner>`, which also
                    matches an organisation; archived repositories are left out), then each of them is
                    read as with `owner/repo`. The search only finds repositories; whether an issue is
@@ -23,7 +24,7 @@ of each issue) and does not read the issues themselves: that is issue-context.py
 
 Output, one tab-separated line per fact:
   SCOPE     <owner>  <number of repositories found>
-              one line per `owner` argument, before the REPO lines
+              one line per `--owner`, before the REPO lines
   REPO      <owner/repo>  <default branch or ->
               owner/repo is the name GitHub stores
   CHECKS    <owner/repo>  <required status check names, tab-separated, or ->  <ruleset|protection|both|->
@@ -59,9 +60,9 @@ Status lines start with "#":
                                  label filter is missing; that listing pages through every open issue and
                                  pull request within the 60-second limit, so it can time out on a large repository)
                                  Sources: search, rules, protection, issues, labeler, permission, edits, checkouts
-                                 (`search`: the repositories of an `owner` come from a search that
-                                 failed, reported itself as incomplete or holds more than 1000 issues;
-                                 the repositories found so far are still read)
+                                 (`search`: the repositories of an `--owner` come from a search; one that
+                                 cannot be read gives no repository, one that reports itself incomplete
+                                 or holds more than 1000 issues gives the repositories it returned)
 
 Exits non-zero, with the reason on stderr and nothing on stdout, for a malformed argument, `gh`
 missing, or a repository or owner that cannot be resolved. Every `gh` and `git` call is given 60 seconds.
@@ -143,7 +144,7 @@ def parse_args(argv):
         if arg in ("-h", "--help"):
             print(__doc__.strip())
             sys.exit(0)
-        if arg in ("--label", "--checkout", "--max"):
+        if arg in ("--label", "--checkout", "--max", "--owner"):
             if index + 1 >= len(argv):
                 die(f"{arg} needs a value")
             value = argv[index + 1]
@@ -151,6 +152,10 @@ def parse_args(argv):
             if arg == "--max":
                 if not value.isdigit():
                     die(f"--max needs a number: {value!r}")
+            elif arg == "--owner":
+                if not re.fullmatch(r"[\w.-]+", value):
+                    die(f"not an account or organisation name: {value!r}")
+                owners.append(value)
             elif arg == "--label":
                 if not value.strip() or "," in value or '"' in value:
                     die(f"not a label name: {value!r}")
@@ -163,15 +168,12 @@ def parse_args(argv):
             continue
         issue = re.fullmatch(r"([\w.-]+/[\w.-]+)#(\d+)", arg)
         repo = re.fullmatch(r"[\w.-]+/[\w.-]+", arg)
-        owner = re.fullmatch(r"[\w.-]+", arg)
         if issue:
             explicit.append((issue.group(1), int(issue.group(2))))
         elif repo:
             repos.append(arg)
-        elif owner:
-            owners.append(arg)
         else:
-            die(f"not owner, owner/repo or owner/repo#n: {arg!r}")
+            die(f"not owner/repo or owner/repo#n: {arg!r}")
         index += 1
     return label, given, repos, explicit, owners
 
@@ -492,9 +494,9 @@ SEARCH_LIMIT = 1000  # the search API returns at most this many results
 
 def owner_repositories(owner, label):
     """Repositories of an account or organisation with an open issue carrying the label, from one issue
-    search (`user:` matches organisations too). Dies when the owner does not exist. A search that fails,
-    reports itself incomplete or holds more results than the API returns gives a `# SKIPPED search` line
-    and the repositories found so far."""
+    search (`user:` matches organisations too). Dies when the owner does not exist. A search that cannot be read
+    gives a `# SKIPPED search` line and no repository; one that reports itself incomplete or holds more
+    results than the API returns gives the line and the repositories it returned."""
     info, reason = api(f"users/{owner}")
     if not isinstance(info, dict) or not info.get("login"):
         die(f"cannot resolve {owner}: {reason or 'no answer'}")

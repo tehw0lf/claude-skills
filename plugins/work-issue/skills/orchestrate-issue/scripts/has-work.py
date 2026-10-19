@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Say whether a scheduled orchestrate-issue run has anything to do, without starting a session. Read-only: writes nothing on GitHub, clones nothing, changes no checkout. Meant for `ExecCondition=` of a systemd unit.
 
-usage: has-work.py [--label <name>] <owner | owner/repo>...
+usage: has-work.py [--label <name>] [--owner <login>]... [<owner/repo>]...
 
   --label    the opt-in label (default `auto-work`)
 
-Needs `gh` with the `repo` scope. For each argument, in the given order, it lists the open issues
-that carry the label and stops at the first hit. For `owner/repo` that is one `gh issue list` (at most
-1000); for a bare `owner` (an account or an organisation, as for run-context.py) one issue search
-(`user:<owner>`, archived repositories left out, oldest first, at most 1000 results). The search index
+Needs `gh` with the `repo` scope. For each argument, in the given order (the `owner/repo` arguments first, then the
+`--owner` ones), it lists the open issues that carry the label and stops at the first hit. For
+`owner/repo` that is one `gh issue list` (at most 1000); for `--owner` (an account or an organisation,
+as for run-context.py; a bare word is an error) one issue search (`user:<login>`, archived repositories
+left out, oldest first) of which only the first page of 100 is read. The search index
 can lag behind a label set just before the call, so such an issue is found by the next tick; a search
-that reports itself incomplete or holds more than 1000 results is a failed check (255). The rule per issue:
+that reports itself incomplete or holds more than 1000 results is a failed check (255), and so is one
+with more results than the first page when no issue on that page is a hit. The rule per issue:
   - an issue without `needs-decision`: a hit
   - an issue with `needs-decision`: a hit unless `issue-context.py` (work-issue skill) reports its
     newest `QUESTIONS` line as `open`, i.e. it waits for the owner. The planner removes the label only
@@ -31,7 +33,8 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
   0    a hit: the unit goes on
   1    no hit: the unit is skipped and is not marked failed
   255  the check itself failed (bad argument, an owner that does not exist, `gh` missing or failing,
-       time-out, an incomplete search, an unexpected error,
+       time-out, an incomplete search, more search results than the first page and no hit on it,
+       an unexpected error,
        or `issue-context.py` reporting `# SKIPPED account`, `plan`, `comments` or `permission`, which
        leaves the questions unreadable): the unit is marked failed and no session starts. The reason
        is on stderr, nothing on stdout. Every `gh` and `issue-context.py` call is given 60 seconds.
@@ -74,7 +77,7 @@ def run(command, cwd=None):
 
 
 def parse(argv):
-    label, targets, index = DEFAULT_LABEL, [], 0
+    label, targets, owners, index = DEFAULT_LABEL, [], [], 0
     while index < len(argv):
         arg = argv[index]
         if arg == "--label":
@@ -83,13 +86,19 @@ def parse(argv):
             label = argv[index + 1]
             index += 2
             continue
-        if not re.fullmatch(r"[\w.-]+(/[\w.-]+)?", arg):
-            fail(f"not owner or owner/repo: {arg!r}")
+        if arg == "--owner":
+            if index + 1 >= len(argv) or not re.fullmatch(r"[\w.-]+", argv[index + 1]):
+                fail("--owner needs an account or organisation name")
+            owners.append(argv[index + 1])
+            index += 2
+            continue
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", arg):
+            fail(f"not owner/repo: {arg!r}")
         targets.append(arg)
         index += 1
-    if not targets:
-        fail("usage: has-work.py [--label <name>] <owner | owner/repo>...")
-    return label, targets
+    if not targets and not owners:
+        fail("usage: has-work.py [--label <name>] [--owner <login>]... [<owner/repo>]...")
+    return label, targets, owners
 
 
 def waiting(repo, number):
@@ -108,11 +117,11 @@ def waiting(repo, number):
     return questions == "open"
 
 
-def listing(target, label):
+def listing(target, label, is_owner):
     """([(owner/repo, number, label names)], more) for the open issues of the target that carry the label, oldest
     first; `more` is True when the search holds more than the first page of 100, which the caller reads as a failed
     check unless one of the page is a hit."""
-    if "/" in target:
+    if not is_owner:
         out = run([
             "gh", "issue", "list", "-R", target, "--label", label, "--state", "open",
             "--limit", "1000", "--json", "number,labels",
@@ -156,9 +165,9 @@ def listing(target, label):
 
 
 def main():
-    label, targets = parse(sys.argv[1:])
-    for target in targets:
-        found, more = listing(target, label)
+    label, targets, owners = parse(sys.argv[1:])
+    for target, is_owner in [(t, False) for t in targets] + [(o, True) for o in owners]:
+        found, more = listing(target, label, is_owner)
         for repo, number, names in found:
             if WAITING_LABEL not in names:
                 print(f"WORK\t{repo}#{number}\tlabel")
