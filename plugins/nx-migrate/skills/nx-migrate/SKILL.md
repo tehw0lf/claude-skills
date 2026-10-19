@@ -120,7 +120,7 @@ Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore
 Whether to bump depends only on whether there is a version for CI to read — never on whether the repo "looks like" it publishes anything:
 
 ```bash
-jq -r '.version // empty' package.json    # non-empty → npm version patch --no-git-tag-version && npm install
+jq -r '.version // empty' package.json    # non-empty → bump it as described below (the order there matters)
 cat VERSION 2>/dev/null                   # only if package.json has none: bump the patch number in the file
 ```
 
