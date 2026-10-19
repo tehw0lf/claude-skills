@@ -87,7 +87,6 @@ is_increase() {
     def key: sub("^[\\s=v]+"; "") | sub("\\s+$"; "")
       | capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
       | select([.m, .n, .p | tonumber] | max <= 9007199254740991)
-      | select(.pre == null or all(.pre | split(".")[] | select(test("^[0-9]+$")); tonumber <= 9007199254740991))
       | [(.m, .n, .p | tonumber),
          (if .pre == null then [1]
           else [0] + (.pre | split(".") | map(if test("^[0-9]+$") then [0, tonumber] else [1, .] end)) end)];
