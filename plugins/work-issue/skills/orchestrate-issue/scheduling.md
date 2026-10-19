@@ -1,6 +1,6 @@
 # Running orchestrate-issue on a schedule
 
-`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes two ways. Neither is part of the plugin; they are examples.
+`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, up to its limit (one unless `--max` is given), and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes two ways. Neither is part of the plugin; they are examples.
 
 ## What every trigger has to respect
 
