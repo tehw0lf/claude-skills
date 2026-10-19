@@ -34,7 +34,7 @@
 #   version, then the script is rerun. Only libs/* and apps/* are checked, and only when the root
 #   "workspaces" has exactly that entry (other entries, such as libs/a or libs/**, are not recognised:
 #   a note is printed and the check is skipped; without any such entry a note is printed too); only these two literal
-#   spellings are detected, not other ranges that the new version does not satisfy (^0.0.1, <=0.0.1).
+#   spellings are detected (also as "v1.0.0" or with spaces, as npm reads them), not other ranges that the new version does not satisfy (^0.0.1, <=0.0.1).
 #   A package without a "name" gets a note (its pins are not checked); so does a manifest that cannot be read.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
 #   writes nothing, so a failing check stops the script before the first bump. A committed version that
@@ -85,7 +85,9 @@ manifest_version() {
 is_increase() {
   jq -n -e --arg a "$1" --arg b "$2" '
     def key: sub("^[\\s=v]+"; "") | sub("\\s+$"; "")
-      | capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
+      | capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
+      | select([.m, .n, .p | tonumber] | max <= 9007199254740991)
+      | select(.pre == null or all(.pre | split(".")[] | select(test("^[0-9]+$")); tonumber <= 9007199254740991))
       | [(.m, .n, .p | tonumber),
          (if .pre == null then [1]
           else [0] + (.pre | split(".") | map(if test("^[0-9]+$") then [0, tonumber] else [1, .] end)) end)];
@@ -133,7 +135,11 @@ extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages e
 excluded=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
                   | map(select(startswith("!"))) | join(" ")' package.json) \
   || die "cannot read the workspaces of package.json"
-[ -z "$excluded" ] || note "workspace exclusions not applied (every package under libs/* and apps/* is scanned): $excluded"
+# Exact exclusions (!libs/b, ./ and trailing / ignored) are honoured by the pin check only.
+excluded_dirs=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
+                       | map(select(startswith("!")) | .[1:] | sub("^\\./"; "") | sub("/+$"; "")) | join(" ")' package.json) \
+  || die "cannot read the workspaces of package.json"
+[ -z "$excluded" ] || note "workspace exclusions not applied to the scan (every package under libs/* and apps/* is scanned; the pin check skips an exactly excluded manifest): $excluded"
 
 # Pass 1 checks every package and writes nothing: a failing manifest check stops the script before the
 # first bump. plan holds one record per package to report: "bump|already <TAB> dir <TAB> old <TAB> new".
@@ -197,15 +203,20 @@ elif [ "${#plan[@]}" -gt 0 ]; then
     case " $covered " in *" ${dir%%/*} "*) ;; *) note "$dir is not covered by the workspaces of package.json, so a pin on it is not checked"; continue;; esac
     name=$(jq -r '.name | strings' "$dir/package.json") || die "cannot read the name of $dir/package.json"
     if [ -z "$name" ]; then note "$dir/package.json has no name, so a pin on it is not checked"; continue; fi
-    versions=$(jq -c --arg n "$name" --arg v "$from" '.[$n] = $v' <<<"$versions") || die "cannot record the name of $dir"
+    versions=$(jq -c --arg n "$name" --arg v "$from" '.[$n] = ($v | sub("^[\\s=v]+"; "") | sub("\\s+$"; ""))' <<<"$versions") || die "cannot record the name of $dir"
   done
   pinned=""
-  for manifest in package.json $(for top in $covered; do echo "$top"/*/package.json; done); do
+  manifests=(package.json)
+  for top in $covered; do
+    for manifest in "$top"/*/package.json; do manifests+=("$manifest"); done
+  done
+  for manifest in "${manifests[@]}"; do
     { [ -f "$manifest" ] && [ ! -L "$manifest" ]; } || continue
+    case " $excluded_dirs " in *" ${manifest%/package.json} "*) continue;; esac   # npm does not read an excluded workspace
     hits=$(jq -r --argjson v "$versions" --arg m "$manifest" '
         . as $doc | ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"][] as $f
         | ($doc[$f] // {}) | if type == "object" then to_entries[] else empty end
-        | select($v[.key] != null and (.value == $v[.key] or .value == "=" + $v[.key]))
+        | select($v[.key] != null and (.value | strings | sub("^[\\s=v]+"; "") | sub("\\s+$"; "")) == $v[.key])
         | "  \($m): \($f) pins \(.key) to \(.value)"' "$manifest" 2>/dev/null) \
       || { note "cannot read the dependencies of $manifest, so its pins are not checked"; continue; }
     [ -z "$hits" ] || pinned="$pinned$hits"$'\n'
