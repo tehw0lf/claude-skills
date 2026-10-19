@@ -72,9 +72,9 @@ A `legacy-peer-deps` or `force` setting or an override that is already present i
 
 ### 5. Run migrations
 
-If `migrations.json` exists: `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run.
+If `migrations.json` exists: `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run. Note every file the migrations create (the migration output names them): step 11 stages them.
 
-**AI-prompt migrations** (Nx 23.1+, "N prompt migrations deferred", written to `tools/ai-migrations/`): apply each in the listed order, honouring its stated preconditions. A no-op is often the correct outcome — e.g. `migrate-ban-types-rule` changes nothing when `@typescript-eslint/ban-types` appears only inside `migrations.json`. Do not invent work. If a prompt names a target the workspace lacks (e.g. `typecheck`), say so and rely on step 8.
+**AI-prompt migrations** (Nx 23.1+, "N prompt migrations deferred", written to `tools/ai-migrations/`): apply each in the listed order, honouring its stated preconditions. A no-op is often the correct outcome — e.g. `migrate-ban-types-rule` changes nothing when `@typescript-eslint/ban-types` appears only inside `migrations.json`. Do not invent work. If a prompt names a target the workspace lacks (e.g. `typecheck`), say so and rely on step 8. Note the files an applied prompt creates as well; the prompt files in `tools/ai-migrations/` are not workspace content and are not noted.
 
 When cleaning up, `tools/ai-migrations/` may hold *tracked* files from earlier runs: check `git status --short` for unexpected `D` entries and `git checkout -- <path>` anything you did not create.
 
@@ -109,11 +109,11 @@ npx nx run-many -t test 2>&1
 npx nx run-many -t build 2>&1
 ```
 
-Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Done when all three exit 0.
+Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Note every file you create while fixing (step 11 stages them). Done when all three exit 0.
 
 ### 9. E2E (unless `--skip-e2e`)
 
-`npm run e2e`, fixing failures the same way.
+`npm run e2e`, fixing failures the same way, and noting every file you create.
 
 ### 10. Bump the version
 
@@ -159,10 +159,13 @@ It prints one line per bumped package (directory, old version, new version) on s
 ```bash
 git add package.json package-lock.json nx.json .nx/ tsconfig*.json
 git add -u
-git add -- ':(literal)<entry>' …   # each new untracked entry that step 10 recorded as version-script output, one argument per entry; `git add -u` adds tracked files only
+git -c core.quotePath=false status --porcelain --untracked-files=all   # every ?? entry, file by file
+git add -- ':(literal)<entry>' …   # the ?? entries noted in steps 5, 8, 9 and 10 (migration output, your own fixes, version-script output), one argument per entry; `git add -u` adds tracked files only
 ```
 
-Each entry is a `:(literal)` argument because git reads the arguments as pathspecs: without it a `*`, `?` or `[` in a name would also stage other untracked files that are not version-script output. An entry that contains `'` or starts with `"` has already stopped the run in step 10, so every entry filled in here is safe inside single quotes.
+Step 1 required a clean tree, so every `??` entry comes from this run, but not every one is workspace content: lint, test, build, e2e or install output that the repository does not ignore shows up too. Stage only the entries noted in steps 5, 8, 9 and 10. Do not use `git add -A`, and do not edit `.gitignore`. List every other `??` entry in the PR body under "Untracked files not committed" (step 12) instead of dropping it silently. Each entry is a `:(literal)` argument because git reads the arguments as pathspecs: without it a `*`, `?` or `[` in a name would also stage other untracked files. An entry from the status listing that contains `'` or starts with `"` (C-quoted) is reported as git printed it and stops the run before the commit; it is not unquoted or escaped by hand. Entries of step 10 have passed that check already.
+
+Done when `git status --porcelain --untracked-files=all` shows no `??` entry except those listed in the PR body.
 
 ```
 chore(deps): migrate nx to vX.Y.Z
@@ -186,6 +189,7 @@ gh pr create --base <default> --title "chore(deps): migrate nx to latest" --body
 - Applied all generated migrations
 - Bumped patch versions of changed sub-packages: <list, or none>
 - Root version scripts run by the bump: <names and the files and entries they changed, or none set>
+- Untracked files not committed: <paths, or none>
 - All lint, test, and build checks pass
 
 ## Test plan
