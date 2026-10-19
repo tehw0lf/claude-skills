@@ -51,7 +51,7 @@ Take the remaining issues in order, explicit references in the given order first
 
 ### 4. Plan
 
-For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported.
+For each taken issue without `PLAN … current` (an issue with an own PR to continue has one), spawn `work-issue:issue-planner` with the issue reference and the checkout path. Planners of different issues may run in parallel. Then run `issue-context.py` again: an `ISSUE … closed` line means the planner closed the issue on the owner's answer; it is reported as "closed on the owner's answer" with the link of the close comment, and nothing further is spawned for it. `QUESTIONS … open` is reported with the link; `PLAN … current` goes to step 5; anything else is reported.
 
 ### 5. Work
 
@@ -68,4 +68,4 @@ A round is one plan (existing or new) and one worker run; an issue gets at most 
 
 ### 7. Report
 
-Per issue: the outcome (merged PR; open PR awaiting a person, with the reason; questions with the comment link; waiting for a person on a PR, with the marker's reason; stopped, with the reason; not taken because of the limit or the labeler) and what was not verified. Relay the agents' reports; do not re-judge them. Done when every selected issue has one outcome line.
+Per issue: the outcome (merged PR; open PR awaiting a person, with the reason; closed on the owner's answer, with the link of the close comment; questions with the comment link; waiting for a person on a PR, with the marker's reason; stopped, with the reason; not taken because of the limit or the labeler) and what was not verified. Relay the agents' reports; do not re-judge them. Done when every selected issue has one outcome line.
