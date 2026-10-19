@@ -31,14 +31,16 @@
 #   and exits 1 before this run bumps anything. After the bump the dependent no longer resolves to the
 #   workspace package: npm looks the pinned version up in the registry (a 404 if it was never published,
 #   otherwise it installs the registry copy). The owner decides whether the pin becomes a range or the new
-#   version, then the script is rerun. Only libs/* and apps/* that the root "workspaces" covers are checked
-#   (without a covering entry the root install never reads those manifests); only these two literal
+#   version, then the script is rerun. Only libs/* and apps/* are checked, and only when the root
+#   "workspaces" has exactly that entry (other entries, such as libs/a or libs/**, are not recognised:
+#   a note is printed and the check is skipped; without any such entry a note is printed too); only these two literal
 #   spellings are detected, not other ranges that the new version does not satisfy (^0.0.1, <=0.0.1).
 #   A package without a "name" gets a note (its pins are not checked); so does a manifest that cannot be read.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
-#   writes nothing, so a failing check stops the script before the first bump. The second bumps. If
-#   `npm version` fails there, the message names the packages bumped so far, says that the lockfile is
-#   not synced, and that a rerun after fixing the cause is safe.
+#   writes nothing, so a failing check stops the script before the first bump. A committed version that
+#   is not valid semver also stops here: this run cannot fix HEAD. The second pass bumps. If
+#   `npm version` fails there (for another reason, e.g. an unwritable manifest), the message names the
+#   packages bumped so far, says that the lockfile is not synced, and that a rerun after fixing the cause is safe.
 # Formatting: `npm version` rewrites the whole package.json, not only "version". Observed with npm 12.2.0
 #   on an indented manifest: arrays expanded to one element per line, \uXXXX escapes written as the
 #   literal characters, a final newline added; a compact one-line manifest stayed compact. The diff of
@@ -79,10 +81,11 @@ manifest_version() {
 }
 
 # Semantic-version precedence (semver.org 11; build metadata is ignored). `is_increase <old> <new>` exits
-# 0 when <new> ranks above <old>, 1 when it ranks equal or lower, 2 when either is not a valid version.
+# 0 when <new> ranks above <old>; a leading "v" or "=" and surrounding whitespace are ignored, as `npm version` does, 1 when it ranks equal or lower, 2 when either is not a valid version.
 is_increase() {
   jq -n -e --arg a "$1" --arg b "$2" '
-    def key: capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
+    def key: sub("^[\\s=v]+"; "") | sub("\\s+$"; "")
+      | capture("^(?<m>0|[1-9][0-9]*)\\.(?<n>0|[1-9][0-9]*)\\.(?<p>0|[1-9][0-9]*)(?:-(?<pre>[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
       | [(.m, .n, .p | tonumber),
          (if .pre == null then [1]
           else [0] + (.pre | split(".") | map(if test("^[0-9]+$") then [0, tonumber] else [1, .] end)) end)];
@@ -175,7 +178,7 @@ for dir in libs/*/ apps/*/; do
   fi
 
   [ -n "$tracked$untracked" ] || continue
-  is_increase "$old" "$old"; [ $? -ne 2 ] || die "$pkg: the version $old is not a valid semantic version, so npm version cannot bump it; fix it first"
+  is_increase "$old" "$old"; [ $? -ne 2 ] || die "$pkg: the committed version $old is not a valid semantic version, so npm version cannot bump it; this run bumped nothing. Report it: a version in HEAD cannot be fixed by this run (nothing is committed before step 11), so the owner has to correct it first"
   plan+=("bump"$'\t'"$dir"$'\t'"$old"$'\t')
 done
 
