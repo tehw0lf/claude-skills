@@ -11,8 +11,8 @@ Never delete a branch that still holds unmerged content. `git branch -d` checks 
 
 ## Arguments
 
-- no argument — the repository containing the current working directory
-- `all` — every git repository under `$CODING_ROOT` (default `~/Nextcloud/Coding`)
+- no argument — the repository containing the current working directory; only when the working directory is not inside any repository, every git repository under `$CODING_ROOT` (default `~/Nextcloud/Coding`), and the run says so
+- `all` — every git repository under `$CODING_ROOT`, also from inside a repository
 - `--yes` — skip the confirmation prompt only; eligibility is unchanged
 
 ## Steps
@@ -20,10 +20,10 @@ Never delete a branch that still holds unmerged content. `git branch -d` checks 
 ### 1. Classify
 
 ```bash
-scripts/classify.sh "$(git rev-parse --show-toplevel)"   # or: scripts/classify.sh --all
+scripts/classify.sh            # no argument; or: scripts/classify.sh --all
 ```
 
-The script is read-only. Per repository it runs `git fetch --prune origin`, takes the default branch from `origin/HEAD`, and emits `repo  branch  ahead  verdict  sha` for every `[gone]` branch plus every branch with no upstream. It skips a repository — never guessing — when the fetch fails or `origin`/`origin/HEAD` is missing; report those. Verdicts:
+The script decides the scope and names it in its first line, `# scope=current  <toplevel>` or `# scope=all  <root>  reason=explicit|not-in-repository`. Do not widen the scope yourself: a `SKIPPED: inside a repository git cannot read` line is reported, not answered with `--all`; an explicit path that is not a repository prints `SKIPPED: not a git repository`. The script is read-only. Per repository it runs `git fetch --prune origin`, takes the default branch from `origin/HEAD`, and emits `repo  branch  ahead  verdict  sha` for every `[gone]` branch plus every branch with no upstream. It skips a repository — never guessing — when the fetch fails or `origin`/`origin/HEAD` is missing; report those. Verdicts:
 
 - `SAFE (no own commits | identical | squash-merged)` — eligible. `squash-merged` rests on `git cherry`, a heuristic.
 - `NEEDS REVIEW` — never eligible without step 2.
@@ -45,7 +45,7 @@ Then diff each touched file against `refs/remotes/origin/$base` and read it. Dec
 
 ### 3. Preview
 
-One table for the whole run, grouped by repository:
+Start with the scope (the current repository, or all repositories under `<root>` and why: `--all` given, or the working directory is not inside a repository) and name every repository the script reported, including those without candidates and the skipped ones. Then one table for the whole run, grouped by repository:
 
 ```
 repo                 branch                          ahead  verdict

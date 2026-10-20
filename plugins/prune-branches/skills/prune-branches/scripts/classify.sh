@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Classify the local branches of one or more git repositories. Read-only: deletes nothing.
-# usage: classify.sh <repo>...        one repository per argument
+# usage: classify.sh                  the repository containing the working directory; only when the working
+#                                     directory is not inside any repository (no .git in it or an ancestor),
+#                                     every repo under $CODING_ROOT (default ~/Nextcloud/Coding)
+#        classify.sh <repo>...        one repository per argument (never widened to all repositories)
 #        classify.sh --all [<root>]   every repo under <root> (default $CODING_ROOT or ~/Nextcloud/Coding)
+#
+# The first output line names the scope: "# scope=current<TAB><toplevel>", "# scope=paths",
+# "# scope=all<TAB><root><TAB>reason=explicit" or
+# "# scope=all<TAB><root><TAB>reason=not-in-repository<TAB>cwd=<cwd>".
+# A working directory inside a repository that git cannot read prints "SKIPPED: inside a repository git cannot
+# read" and does not fall back to all repositories.
 #
 # Fetches with --prune first; a failed fetch or missing origin/HEAD skips that repo (never classify stale refs).
 # Output, tab-separated, one line per branch that is not plainly tracked:
@@ -37,7 +46,9 @@ keep_rule() { # <branch> -> prints rule name if kept
 
 classify_repo() { # <repo-path>
   local repo="$1" base b up track ahead verdict kept mb tmp tree
+  [ -n "$repo" ] || { printf '# \tSKIPPED: empty path\n'; return; }
   cd "$repo" || { printf '# %s\tSKIPPED: cannot cd\n' "$repo"; return; }
+  git rev-parse --git-dir >/dev/null 2>&1 || { printf '# %s\tSKIPPED: not a git repository\n' "$repo"; return; }
   git remote get-url origin >/dev/null 2>&1 || { printf '# %s\tSKIPPED: no origin remote\n' "$repo"; return; }
   git fetch --prune --quiet origin 2>/dev/null || { printf '# %s\tSKIPPED: fetch failed\n' "$repo"; return; }
   base=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) \
@@ -74,14 +85,43 @@ classify_repo() { # <repo-path>
   done < <(git for-each-ref --format='%(refname:lstrip=2)|%(upstream:short)|%(upstream:track)' refs/heads/)
 }
 
-[ $# -ge 1 ] || { sed -n '2,4p' "$0" >&2; exit 2; }
-
-if [ "$1" = --all ]; then
-  root="${2:-${CODING_ROOT:-$HOME/Nextcloud/Coding}}"
+scan_all() { # <root>
   # paths contain spaces: NUL-delimited, never a plain for-loop over find
+  local gitdir
   while IFS= read -r -d '' gitdir; do
     (classify_repo "$(dirname "$gitdir")")
-  done < <(find "$root" -maxdepth 3 -type d -name .git -print0)
+  done < <(find "$1" -maxdepth 3 -type d -name .git -print0)
+}
+
+in_repository() { # 0 when .git (directory or file) exists in $PWD or any ancestor
+  local d="$PWD"
+  while :; do
+    [ -e "$d/.git" ] && return 0
+    [ "$d" = / ] && return 1
+    d=$(dirname "$d")
+  done
+}
+
+root_default="${CODING_ROOT:-$HOME/Nextcloud/Coding}"
+
+if [ $# -eq 0 ]; then
+  if in_repository; then
+    if top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ]; then
+      printf '# scope=current\t%s\n' "$top"
+      (classify_repo "$top")
+    else
+      printf '# scope=current\t%s\n' "$PWD"
+      printf '# %s\tSKIPPED: inside a repository git cannot read\n' "$PWD"
+    fi
+  else
+    printf '# scope=all\t%s\treason=not-in-repository\tcwd=%s\n' "$root_default" "$PWD"
+    scan_all "$root_default"
+  fi
+elif [ "$1" = --all ]; then
+  root="${2:-$root_default}"
+  printf '# scope=all\t%s\treason=explicit\n' "$root"
+  scan_all "$root"
 else
+  printf '# scope=paths\n'
   for r in "$@"; do (classify_repo "$r"); done
 fi
