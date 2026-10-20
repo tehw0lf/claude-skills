@@ -39,10 +39,10 @@ Record the current branch (`git branch --show-current`; empty output means a det
 ```bash
 git fetch origin
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name    # <default>
-git switch --no-overwrite-ignore -c chore/nx-migrate-latest origin/<default>
+git switch --no-overwrite-ignore -c chore/nx-migrate-latest refs/remotes/origin/<default>
 ```
 
-`--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
+`--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `refs/remotes/origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
 
 Step 1 checked the tree that was checked out before the switch, so run the check again on the tree the migration installs on (no install has happened yet):
 
