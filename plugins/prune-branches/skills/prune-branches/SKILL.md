@@ -35,11 +35,11 @@ The script is read-only. Per repository it runs `git fetch --prune origin`, take
 Do not hand the user a bare list. For each:
 
 ```bash
-git log --oneline "origin/$base..$b"
-git diff --stat "$(git merge-base "origin/$base" "$b")" "$b"
+git log --oneline "refs/remotes/origin/$base..$b"
+git diff --stat "$(git merge-base "refs/remotes/origin/$base" "$b")" "$b"
 ```
 
-Then diff each touched file against `origin/$base` and read it. Decide between: the change **is** in `$base` in a newer form (a follow-up refined it — safe in substance), or `$base` **lacks or contradicts** it (genuinely unmerged). Report which, with the evidence. Done when every NEEDS REVIEW branch has a reading backed by a diff, or is stated as unresolved.
+Then diff each touched file against `refs/remotes/origin/$base` and read it. Decide between: the change **is** in `$base` in a newer form (a follow-up refined it — safe in substance), or `$base` **lacks or contradicts** it (genuinely unmerged). Report which, with the evidence. Done when every NEEDS REVIEW branch has a reading backed by a diff, or is stated as unresolved.
 
 ### 3. Preview
 

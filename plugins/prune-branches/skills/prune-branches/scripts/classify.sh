@@ -48,7 +48,7 @@ classify_repo() { # <repo-path>
 
   while IFS='|' read -r b up track; do
     [ "$b" = "$base" ] && continue
-    ahead=$(git rev-list --count "origin/$base..$b" 2>/dev/null || echo "?")
+    ahead=$(git rev-list --count "refs/remotes/origin/$base..$b" 2>/dev/null || echo "?")
     if [ -z "$up" ]; then
       verdict="INELIGIBLE (no upstream)"
     elif [[ "$track" != *gone* ]]; then
@@ -57,12 +57,12 @@ classify_repo() { # <repo-path>
       verdict="KEPT ($kept)"
     elif [ "$ahead" = 0 ]; then
       verdict="SAFE (no own commits)"
-    elif git diff --quiet "origin/$base" "$b" 2>/dev/null; then
+    elif git diff --quiet "refs/remotes/origin/$base" "$b" 2>/dev/null; then
       verdict="SAFE (identical)"
     else
-      mb=$(git merge-base "origin/$base" "$b")
+      mb=$(git merge-base "refs/remotes/origin/$base" "$b")
       tmp=$(git commit-tree "$(git rev-parse "$b^{tree}")" -p "$mb" -m probe)
-      if git cherry "origin/$base" "$tmp" | grep -q '^-'; then
+      if git cherry "refs/remotes/origin/$base" "$tmp" | grep -q '^-'; then
         verdict="SAFE (squash-merged)"
       else
         verdict="NEEDS REVIEW"
