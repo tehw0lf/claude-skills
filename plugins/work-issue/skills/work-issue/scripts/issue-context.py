@@ -462,7 +462,7 @@ def print_branches(repo, number):
         for branch in out.split():
             if pattern.search(branch):
                 emit("BRANCH", "remote", branch)
-    out, reason = run(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"])
+    out, reason = run(["git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"])
     if reason is not None:
         skipped("local-branches", reason)
     else:

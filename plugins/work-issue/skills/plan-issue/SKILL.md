@@ -26,7 +26,7 @@ Stop and report, without writing anything, under the same conditions as step 1 o
 
 Then look at `PLAN` and `QUESTIONS`:
 
-- `PLAN … current`: the plan stands unless it no longer holds. The script does not see the code move, so check it here: `git fetch origin`, then `git diff --stat <base sha from PLAN>..origin/<default> -- ':(literal)<file>' …` (one argument per file under Changes of that plan; a file name that contains `'` is not put into the command and makes the plan stale) (read the plan comment with `gh api repos/<owner/repo>/issues/comments/<comment id> -q .body`). Output, or a prompt that names any stop of the worker (the code or the cause did not match the plan, or the issue waits for an open `REF`), means the plan is stale: continue and replace it. Otherwise there is nothing to plan: report the existing plan with its comment link.
+- `PLAN … current`: the plan stands unless it no longer holds. The script does not see the code move, so check it here: `git fetch origin`, then `git diff --stat <base sha from PLAN>..refs/remotes/origin/<default> -- ':(literal)<file>' …` (one argument per file under Changes of that plan; a file name that contains `'` is not put into the command and makes the plan stale) (read the plan comment with `gh api repos/<owner/repo>/issues/comments/<comment id> -q .body`). Output, or a prompt that names any stop of the worker (the code or the cause did not match the plan, or the issue waits for an open `REF`), means the plan is stale: continue and replace it. Otherwise there is nothing to plan: report the existing plan with its comment link.
 - `QUESTIONS … open`: the owner has not answered yet (an answer is a comment on the issue; an edit of the issue text is not one, because nothing shows who made it). Report the questions with the comment link and stop.
 - `PLAN … stale`, `QUESTIONS … answered` or neither line: continue. Under `QUESTIONS … answered`, step 3 decides whether the answer picked an option that closes the issue. A stale plan is replaced by a new comment, the old one stays as history.
 - `# SKIPPED plan`: plan and question comments could not be attributed to the account. Stop and report: a plan from an unknown author must not steer the worker.
@@ -73,7 +73,7 @@ Then:
 
 ```bash
 git fetch origin
-git worktree add --detach <temporary directory>/base origin/<default>   # DEFAULT line; remove it at the end: git worktree remove --force
+git worktree add --detach <temporary directory>/base refs/remotes/origin/<default>   # DEFAULT line; remove it at the end: git worktree remove --force
 ```
 
 Locate the cause with `file:line`, and reproduce a defect (a failing command, a failing test, a real run). Dependencies may be installed and tests run in that tree; nothing is installed in the checkout. When the issue's own diagnosis does not hold in the code, that is the finding: the plan says so, or the owner is asked what is actually wanted.
@@ -88,7 +88,7 @@ Open work by somebody else on the same files: for each open `mentions` `PR` with
 
 Post exactly one comment (a close, too, is one comment followed by the close command), with `gh issue comment <n> -R <owner/repo> --body-file <temporary directory>/comment.md` (the temporary directory is created as step 4 says). It contains only what is in the repository's code or the issue: no log excerpts, no run or session URLs, no local paths, no host names.
 
-**A plan** starts with the line `<!-- work-issue:plan base=<sha of origin/<default>> -->` (the full `git rev-parse origin/<default>`), then `## Implementation plan`, then a blank line, the origin line `*[work-issue] plan, written by the plan-issue skill*` and a blank line:
+**A plan** starts with the line `<!-- work-issue:plan base=<sha of origin/<default>> -->` (the full `git rev-parse refs/remotes/origin/<default>`), then `## Implementation plan`, then a blank line, the origin line `*[work-issue] plan, written by the plan-issue skill*` and a blank line:
 
 - **Goal:** two sentences: what changes and what "done" is checked by
 - **Decisions:** every decision taken, with what it fixes (the rule, the code, or the owner's answer with a link to that comment)
