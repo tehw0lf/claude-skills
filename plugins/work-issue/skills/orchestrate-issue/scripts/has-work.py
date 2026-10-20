@@ -35,9 +35,16 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
   255  the check itself failed (bad argument, an owner that does not exist, `gh` missing or failing,
        time-out, an incomplete search, more search results than the first page and no hit on it,
        an unexpected error,
-       or `issue-context.py` reporting `# SKIPPED account`, `plan`, `comments` or `permission`, which
-       leaves the questions unreadable): the unit is marked failed and no session starts. The reason
-       is on stderr, nothing on stdout. Every `gh` and `issue-context.py` call is given 60 seconds.
+       or `issue-context.py` reporting `# SKIPPED account` or `plan`, or `# SKIPPED comments` while it
+       printed no `QUESTIONS` line or for any reason but a thread of more than 100 comments, which leaves the
+       questions unreadable): the unit is marked failed
+       and no session starts. A `QUESTIONS` line is used as it stands under the `# SKIPPED comments` line
+       of a thread of more than 100 comments: the window cut itself loses nothing (the newest 100 hold
+       the newest questions and every answer after them), but a comment that GitHub returned as null
+       inside that window is not seen, so the check can then report a hit or a wait that the session
+       would decide the other way. `# SKIPPED permission` only ever leaves `open` where an answer
+       might exist, as the session reads it. Neither fails the check on its own. The reason is on stderr, nothing on stdout. Every `gh` call is given 60
+       seconds, the `issue-context.py` call 600 (it makes one role lookup per commenter).
        A script that systemd cannot start at all (path missing, `python3` not on the unit's PATH) is
        not 255: systemd skips the unit, see scheduling.md
 """
@@ -49,10 +56,11 @@ import sys
 import tempfile
 
 TIMEOUT = 60
+CONTEXT_TIMEOUT = 600  # issue-context.py makes one 60-second role lookup per distinct commenter
 SEARCH_LIMIT = 1000  # the search API returns at most this many results
 DEFAULT_LABEL = "auto-work"
 WAITING_LABEL = "needs-decision"
-UNREADABLE = {"account", "plan", "comments", "permission"}
+UNREADABLE = {"account", "plan"}  # always fail; "comments" fails only without a QUESTIONS line
 ISSUE_CONTEXT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "work-issue", "scripts", "issue-context.py"
 )
@@ -63,13 +71,13 @@ def fail(message):
     sys.exit(255)
 
 
-def run(command, cwd=None):
+def run(command, cwd=None, timeout=TIMEOUT):
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT, cwd=cwd)
+        done = subprocess.run(command, capture_output=True, text=True, timeout=timeout, cwd=cwd)
     except FileNotFoundError:
         fail(f"{command[0]} not found")
     except subprocess.TimeoutExpired:
-        fail(f"{' '.join(command[:3])} timed out after {TIMEOUT} seconds")
+        fail(f"{' '.join(command[:3])} timed out after {timeout} seconds")
     if done.returncode != 0:
         reason = (done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}").splitlines()[-1]
         fail(f"{' '.join(command[:3])} failed: {reason}")
@@ -104,16 +112,26 @@ def parse(argv):
 def waiting(repo, number):
     """True when the newest questions of the account are still open."""
     with tempfile.TemporaryDirectory() as scratch:
-        out = run([sys.executable, ISSUE_CONTEXT, f"{repo}#{number}"], cwd=scratch)
-    questions = None
+        out = run([sys.executable, ISSUE_CONTEXT, f"{repo}#{number}"], cwd=scratch,
+                  timeout=CONTEXT_TIMEOUT)
+    questions, skipped, incomplete = None, set(), False
     for line in out.splitlines():
         fields = line.split("\t")
         if fields[0] == "QUESTIONS":
             questions = fields[-1]
         elif line.startswith("# SKIPPED "):
             source = line[len("# SKIPPED "):].split(":")[0].strip()
-            if source in UNREADABLE:
-                fail(f"issue-context.py could not read {source} of {repo}#{number}")
+            skipped.add(source)
+            if source == "comments":
+                # only a thread of more than 100 comments is a plain window; "of N" with N <= 100 means that
+                # comments the query returned as null were dropped, which may be the newest questions or an answer
+                window = re.search(r"only the newest 100 of (\d+) comments", line)
+                if not window or int(window.group(1)) <= 100:
+                    incomplete = True
+    for source in sorted(skipped & UNREADABLE):
+        fail(f"issue-context.py could not read {source} of {repo}#{number}")
+    if incomplete or ("comments" in skipped and questions is None):
+        fail(f"issue-context.py could not read the comments of {repo}#{number}")
     return questions == "open"
 
 
