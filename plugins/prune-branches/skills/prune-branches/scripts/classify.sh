@@ -32,7 +32,7 @@ keep_rule() { # <branch> -> prints rule name if kept
   if matches_keepfile "$gitdir/prune-branches-keep" "$b"; then echo "repo keep-file"; return; fi
   case "$b" in *keep/*|*archive/*|*wip/*|*working-state*) echo "name pattern"; return;; esac
   if [ "$(git config --bool "branch.$b.pruneKeep" 2>/dev/null)" = true ]; then echo "pruneKeep config"; return; fi
-  if git notes show "$b" >/dev/null 2>&1; then echo "git note"; return; fi
+  if git notes show "refs/heads/$b" >/dev/null 2>&1; then echo "git note"; return; fi
 }
 
 classify_repo() { # <repo-path>
@@ -46,9 +46,11 @@ classify_repo() { # <repo-path>
   tree=clean; [ -z "$(git status --porcelain --untracked-files=normal)" ] || tree=dirty
   printf '# %s\tbase=%s\ttree=%s\n' "$repo" "$base" "$tree"
 
+  # lstrip=2 prints the plain branch name even when a tag has the same name (refname:short would print heads/<name>).
+  # A bare name resolves to the tag first, so every revision built from $b is written as refs/heads/$b.
   while IFS='|' read -r b up track; do
     [ "$b" = "$base" ] && continue
-    ahead=$(git rev-list --count "refs/remotes/origin/$base..$b" 2>/dev/null || echo "?")
+    ahead=$(git rev-list --count "refs/remotes/origin/$base..refs/heads/$b" 2>/dev/null || echo "?")
     if [ -z "$up" ]; then
       verdict="INELIGIBLE (no upstream)"
     elif [[ "$track" != *gone* ]]; then
@@ -57,19 +59,19 @@ classify_repo() { # <repo-path>
       verdict="KEPT ($kept)"
     elif [ "$ahead" = 0 ]; then
       verdict="SAFE (no own commits)"
-    elif git diff --quiet "refs/remotes/origin/$base" "$b" 2>/dev/null; then
+    elif git diff --quiet "refs/remotes/origin/$base" "refs/heads/$b" 2>/dev/null; then
       verdict="SAFE (identical)"
     else
-      mb=$(git merge-base "refs/remotes/origin/$base" "$b")
-      tmp=$(git commit-tree "$(git rev-parse "$b^{tree}")" -p "$mb" -m probe)
+      mb=$(git merge-base "refs/remotes/origin/$base" "refs/heads/$b")
+      tmp=$(git commit-tree "$(git rev-parse "refs/heads/$b^{tree}")" -p "$mb" -m probe)
       if git cherry "refs/remotes/origin/$base" "$tmp" | grep -q '^-'; then
         verdict="SAFE (squash-merged)"
       else
         verdict="NEEDS REVIEW"
       fi
     fi
-    printf '%s\t%s\t%s\t%s\t%s\n' "$repo" "$b" "$ahead" "$verdict" "$(git rev-parse --short "$b")"
-  done < <(git for-each-ref --format='%(refname:short)|%(upstream:short)|%(upstream:track)' refs/heads/)
+    printf '%s\t%s\t%s\t%s\t%s\n' "$repo" "$b" "$ahead" "$verdict" "$(git rev-parse --short "refs/heads/$b")"
+  done < <(git for-each-ref --format='%(refname:lstrip=2)|%(upstream:short)|%(upstream:track)' refs/heads/)
 }
 
 [ $# -ge 1 ] || { sed -n '2,4p' "$0" >&2; exit 2; }

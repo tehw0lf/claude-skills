@@ -35,9 +35,11 @@ The script is read-only. Per repository it runs `git fetch --prune origin`, take
 Do not hand the user a bare list. For each:
 
 ```bash
-git log --oneline "refs/remotes/origin/$base..$b"
-git diff --stat "$(git merge-base "refs/remotes/origin/$base" "$b")" "$b"
+git log --oneline "refs/remotes/origin/$base..refs/heads/$b"
+git diff --stat "$(git merge-base "refs/remotes/origin/$base" "refs/heads/$b")" "refs/heads/$b"
 ```
+
+Branches are written as `refs/heads/$b` because a bare name resolves to a same-named tag first, which would show the tag's history instead of the branch's.
 
 Then diff each touched file against `refs/remotes/origin/$base` and read it. Decide between: the change **is** in `$base` in a newer form (a follow-up refined it — safe in substance), or `$base` **lacks or contradicts** it (genuinely unmerged). Report which, with the evidence. Done when every NEEDS REVIEW branch has a reading backed by a diff, or is stated as unresolved.
 
