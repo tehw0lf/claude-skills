@@ -36,9 +36,9 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
        time-out, an incomplete search, more search results than the first page and no hit on it,
        an unexpected error,
        or `issue-context.py` reporting `# SKIPPED account` or `plan`, or `# SKIPPED comments` while it
-       printed no `QUESTIONS` line, which leaves the questions unreadable): the unit is marked failed
-       and no session starts. A `QUESTIONS` line is reliable under `# SKIPPED comments` (the newest 100
-       comments hold the newest questions and every answer after them) and `# SKIPPED permission` only
+       printed no `QUESTIONS` line or for comments GitHub returned only in part, which leaves the questions unreadable): the unit is marked failed
+       and no session starts. A `QUESTIONS` line is reliable under the `# SKIPPED comments` line of a thread of more than 100
+       comments (the newest 100 hold the newest questions and every answer after them) and `# SKIPPED permission` only
        ever leaves `open` where an answer might exist, as the session reads it, so neither fails the
        check on its own. The reason is on stderr, nothing on stdout. Every `gh` call is given 60
        seconds, the `issue-context.py` call 600 (it makes one role lookup per commenter).
@@ -111,7 +111,7 @@ def waiting(repo, number):
     with tempfile.TemporaryDirectory() as scratch:
         out = run([sys.executable, ISSUE_CONTEXT, f"{repo}#{number}"], cwd=scratch,
                   timeout=CONTEXT_TIMEOUT)
-    questions, skipped = None, set()
+    questions, skipped, incomplete = None, set(), False
     for line in out.splitlines():
         fields = line.split("\t")
         if fields[0] == "QUESTIONS":
@@ -119,9 +119,11 @@ def waiting(repo, number):
         elif line.startswith("# SKIPPED "):
             source = line[len("# SKIPPED "):].split(":")[0].strip()
             skipped.add(source)
+            if source == "comments" and not line.split(":", 1)[1].strip().startswith("only the newest"):
+                incomplete = True  # GitHub returned part of the comments, not just a window of the newest 100
     for source in sorted(skipped & UNREADABLE):
         fail(f"issue-context.py could not read {source} of {repo}#{number}")
-    if "comments" in skipped and questions is None:
+    if incomplete or ("comments" in skipped and questions is None):
         fail(f"issue-context.py could not read the comments of {repo}#{number}")
     return questions == "open"
 
