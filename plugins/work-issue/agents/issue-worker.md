@@ -129,10 +129,10 @@ At the end of every run after the PR exists (after the merge and the issue check
 
 1. `git status --porcelain`: any output means the tree is not clean, and nothing below runs.
 2. `git fetch origin` (after a merge the squash commit exists on `origin/<default>` only).
-3. `git switch --no-overwrite-ignore <branch>`, or `git switch --detach <commit kept in step 1>` for a detached start.
+3. `git switch <branch>` (without `--no-overwrite-ignore`, like the skill's own clean-ups: every path the target branch tracks was clean at step 1, so an ignored file there was written by the run, and the option would only make the switch refuse), or `git switch --detach <commit kept in step 1>` for a detached start.
 4. Only when that branch is the default branch and the switch exited 0: `git merge --ff-only --no-overwrite-ignore origin/<default>`.
 
-A dirty tree or a refused `switch` or `merge` is reported with git's message and the branch the checkout is on; nothing is discarded, reset, cleaned, stashed or forced, and no branch is deleted. The PR branch stays, with any local commits on it (a fix commit after a rejected push), so the next resume still reports it as ahead of the remote. Reason: `orchestrate-issue` uses a found checkout only when it is clean and on the default branch and otherwise clones, so a checkout left on the PR branch is skipped by every later run, and where the clone fails no scheduled run starts until a person switches back. The target is the step-1 branch, not always the default branch, because that is where the skill's own clean-ups leave the checkout, and a checkout handed over on another branch belongs to whoever uses that branch.
+A dirty tree or a refused `switch` or `merge` is reported with git's message and the branch the checkout is on; nothing is discarded, reset, cleaned, stashed or forced, and no branch is deleted. The PR branch stays, with any local commits on it (a fix commit after a rejected push), so the next resume still reports it as ahead of the remote. Reason: `orchestrate-issue` uses a found checkout only when it is clean and on the default branch and otherwise clones, so a checkout left on the PR branch is skipped by every later run, and where the clone fails that repository's issues end with a report until a person switches back. The target is the step-1 branch, not always the default branch, because that is where the skill's own clean-ups leave the checkout, and a checkout handed over on another branch belongs to whoever uses that branch.
 
 ## Report back
 
