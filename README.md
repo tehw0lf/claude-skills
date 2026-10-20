@@ -20,3 +20,15 @@ Add the marketplace from GitHub, not as a local directory: a directory marketpla
 - **A required approving review in a ruleset** of the repository. GitHub enforces it, but an account on the ruleset's bypass list is not held by it.
 
 None of these is promised to be impossible to bypass. For scheduled runs and the permission list, see [scheduling.md](plugins/work-issue/skills/orchestrate-issue/scheduling.md).
+
+### Merge rules and external reviewers are yours to define
+
+The merge conditions of the worker are listed in `issue-worker.md` and `nx-migrator.md` under "Merging". Among them: the independent review of the current head has no `blocking` and no `fix-in-PR` finding, the base branch requires at least one check and every required check is green, and the head is still the reviewed one. They are fixed; the plugins have no setting for further ones, and `issue-worker` (not `nx-migrator`) can be told not to merge by whoever starts it, and then stops with the marker reason `awaiting-merge`. Two things are deliberately not part of them:
+
+- **Waiting for an external reviewer** (a review bot such as CodeRabbit, a human reviewer, a scanner that is not a required check). The worker does not wait for such an account, and no merge condition depends on what it posts: a check that the base branch does not require is neither waited for nor a merge condition. The independent reviewer does read the comments and reviews that exist on the PR when it runs, so findings posted before then can enter its verdict; findings posted afterwards do not.
+- **Further merge rules**, for example no unattended merge for certain paths or labels, a minimum age of the PR, or merging only by a person.
+
+If you want either, you define it yourself; the plugins do not do it for you. Two ways, which can be combined:
+
+- **In GitHub, which enforces it:** make the external reviewer's check a required status check, or require an approving review, in a ruleset of the repository. GitHub then refuses the merge until the check is green or the approval exists (unless the worker's account is on the ruleset's bypass list, see above). The worker's own wait for required checks cannot see a check that has not reported yet, so under `orchestrate-issue`, which names the required checks in the worker's prompt, a missing one means no merge, and a worker started directly is held only by GitHub.
+- **In a `CLAUDE.md` that your runs load,** which Claude Code does not enforce. Such a rule was seen to take effect once, on one machine, even where it goes beyond the agent text ("checks that are not required are neither waited for"); that was an observation, not a test, and it is an instruction to the model, so use a ruleset for a rule that must hold. Which files a scheduled run loads, and what was verified about it, is described in [scheduling.md](plugins/work-issue/skills/orchestrate-issue/scheduling.md), under "What the run reads and leaves behind".
