@@ -38,11 +38,12 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
        or `issue-context.py` reporting `# SKIPPED account` or `plan`, or `# SKIPPED comments` while it
        printed no `QUESTIONS` line or for any reason but a thread of more than 100 comments, which leaves the
        questions unreadable): the unit is marked failed
-       and no session starts. A `QUESTIONS` line is reliable under the `# SKIPPED comments` line of a thread of more than 100
-       comments (the newest 100 hold the newest questions and every answer after them; a comment that
-       GitHub returned as null inside that window is not visible here) and `# SKIPPED permission` only
-       ever leaves `open` where an answer might exist, as the session reads it, so neither fails the
-       check on its own. The reason is on stderr, nothing on stdout. Every `gh` call is given 60
+       and no session starts. A `QUESTIONS` line is used as it stands under the `# SKIPPED comments` line
+       of a thread of more than 100 comments: the window cut itself loses nothing (the newest 100 hold
+       the newest questions and every answer after them), but a comment that GitHub returned as null
+       inside that window is not seen, so the check can then report a hit or a wait that the session
+       would decide the other way. `# SKIPPED permission` only ever leaves `open` where an answer
+       might exist, as the session reads it. Neither fails the check on its own. The reason is on stderr, nothing on stdout. Every `gh` call is given 60
        seconds, the `issue-context.py` call 600 (it makes one role lookup per commenter).
        A script that systemd cannot start at all (path missing, `python3` not on the unit's PATH) is
        not 255: systemd skips the unit, see scheduling.md
