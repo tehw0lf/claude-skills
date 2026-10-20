@@ -325,12 +325,19 @@ def check_package_json(directory):
     pnpm = data.get("pnpm")
     if isinstance(pnpm, dict):
         fields.extend(("pnpm." + name, pnpm[name]) for name in PNPM_FIELDS if name in pnpm)
-    for name, value in fields:
-        if isinstance(value, dict):
-            for selector, wanted in value.items():
-                emit("OVERRIDE", name, selector, json.dumps(wanted, separators=(",", ":"), ensure_ascii=False))
-        else:
-            emit("OVERRIDE", name, "-", json.dumps(value, separators=(",", ":"), ensure_ascii=False))
+    lines = []
+    try:
+        for name, value in fields:
+            if isinstance(value, dict):
+                for selector, wanted in value.items():
+                    lines.append(("OVERRIDE", name, selector, json.dumps(wanted, separators=(",", ":"), ensure_ascii=False)))
+            else:
+                lines.append(("OVERRIDE", name, "-", json.dumps(value, separators=(",", ":"), ensure_ascii=False)))
+    except RecursionError:
+        emit("SKIPPED", "package.json", "nested too deeply for the script to parse")
+        return False
+    for line in lines:
+        emit(*line)
     return True
 
 
