@@ -13,7 +13,7 @@ Never delete a branch that still holds unmerged content. `git branch -d` checks 
 
 - no argument — the repository containing the current working directory; only when the working directory is not inside any repository, every git repository under `$CODING_ROOT` (default `~/Nextcloud/Coding`), and the run says so
 - `all` — every git repository under `$CODING_ROOT`, also from inside a repository
-- `--yes` — skip the confirmation prompt only; eligibility is unchanged
+- `--yes` — skip the confirmation prompt only; eligibility is unchanged. It does not skip the confirmation when the scope is `all` with `reason=not-in-repository` (the fallback): there the user did not ask for all repositories, so the preview is always confirmed
 
 ## Steps
 
@@ -55,7 +55,7 @@ workflows            chore/remove-nx-cloud           0      SAFE (no own commits
 JavaScript/color     feature/wip-thing               2      NEEDS REVIEW
 ```
 
-State totals, list NEEDS REVIEW, KEPT and INELIGIBLE branches separately as skipped with the reason, flag dirty working trees, and stop for confirmation unless `--yes`.
+State totals, list NEEDS REVIEW, KEPT and INELIGIBLE branches separately as skipped with the reason, flag dirty working trees, and stop for confirmation unless `--yes` (which never applies to a `reason=not-in-repository` scope).
 
 ### 4. Delete SAFE branches
 

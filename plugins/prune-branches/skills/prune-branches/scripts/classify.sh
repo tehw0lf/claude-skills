@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Classify the local branches of one or more git repositories. Read-only: deletes nothing.
 # usage: classify.sh                  the repository containing the working directory; only when the working
-#                                     directory is not inside any repository (no .git in it or an ancestor),
+#                                     directory is not inside any repository (git sees none and no .git in it or an ancestor),
 #                                     every repo under $CODING_ROOT (default ~/Nextcloud/Coding)
 #        classify.sh <repo>...        one repository per argument (never widened to all repositories)
 #        classify.sh --all [<root>]   every repo under <root> (default $CODING_ROOT or ~/Nextcloud/Coding)
@@ -93,7 +93,8 @@ scan_all() { # <root>
   done < <(find "$1" -maxdepth 3 -type d -name .git -print0)
 }
 
-in_repository() { # 0 when .git (directory or file) exists in $PWD or any ancestor
+in_repository() { # 0 when git sees a repository here (also a bare one) or .git exists in $PWD or any ancestor
+  git rev-parse --git-dir >/dev/null 2>&1 && return 0
   local d="$PWD"
   while :; do
     [ -e "$d/.git" ] && return 0
