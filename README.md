@@ -20,3 +20,12 @@ Add the marketplace from GitHub, not as a local directory: a directory marketpla
 - **A required approving review in a ruleset** of the repository. GitHub enforces it, but an account on the ruleset's bypass list is not held by it.
 
 None of these is promised to be impossible to bypass. For scheduled runs and the permission list, see [scheduling.md](plugins/work-issue/skills/orchestrate-issue/scheduling.md).
+
+### Merge rules and external reviewers are yours to define
+
+The worker's own merge conditions are fixed: the independent review of the current head has no `blocking` and no `fix-in-PR` finding, every check the base branch requires is green, and the head is still the reviewed one. Everything beyond that is not in the scope of the plugins, and they have no setting for it. That includes:
+
+- **Waiting for an external reviewer** (a review bot such as CodeRabbit, a human reviewer, a security scanner that is not a required check): whether a run waits for it, how long, and what it does with its findings. The worker does not wait for such an account, and no merge condition depends on what it posts after the verdict; a check that the base branch does not require is not a merge condition either.
+- **Further merge rules**: for example no unattended merge for certain paths or labels, a minimum age of the PR, a required approval, or merging only by a person.
+
+Define these in the `CLAUDE.md` files that your runs load, and you have to: without a rule there, the plugins merge as soon as their own conditions hold, and a bot that has not posted yet does not hold them. A rule that has to hold is better enforced by GitHub (a required check or a required approving review in a ruleset, see the gates above), because the worker follows an instruction file but nothing enforces it. Which files a scheduled run loads is described in [scheduling.md](plugins/work-issue/skills/orchestrate-issue/scheduling.md), under "What the run reads and leaves behind".
