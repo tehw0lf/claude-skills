@@ -23,7 +23,8 @@ Never infer prune mode from context — not from a messy repository, not from ma
 1. **The script skipped your repository** (fetch failed, no remote, no `origin/HEAD`) → stop and report. Never classify or delete against stale refs by hand.
 2. **Promoting NEEDS REVIEW to SAFE** requires a diff showing the content present upstream, quoted in your report. If you cannot settle it honestly, report it unresolved — in prune mode a guess deletes work.
 3. **Record every SHA before deleting** (the script's `sha` column) and include it in your report: `git checkout -b <name> <sha>` is the only recovery path while the objects are in the reflog.
-4. **Stay in your repository.** Report problems in sibling repos or global config; do not touch them.
+4. **Your target is not inside a git repository, or the script prints `# scope=all`** → stop and report. The skill's fallback to all repositories never applies to you: in prune mode it would delete across every repository.
+5. **Stay in your repository.** Report problems in sibling repos or global config; do not touch them.
 
 ## Report back
 
