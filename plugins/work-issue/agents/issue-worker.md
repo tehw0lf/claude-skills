@@ -36,7 +36,7 @@ Every stop **after the PR exists** (a stop before it leaves nothing on GitHub, s
 gh pr comment <PR> -R <owner>/<repo> --body-file <file>
 ```
 
-The file starts with the line `<!-- work-issue:stopped head=<full sha of the PR head> reason=<kind> -->`, then a blank line, the origin line `*[work-issue] stop marker, written by the issue-worker agent*`, a blank line, and one sentence in terms of the code or the diff (the rule on PR texts: nothing from logs, runs, paths or sessions). `<kind>` is one of `blocking`, `no-convergence`, `red-check`, `not-runnable`, `merge-refused`, `no-reviewer`, `conflict` (only a PR that is really `conflicting`; an `unknown` mergeable state is no stop and gets no marker; neither does a resume stop where git refuses to switch to the PR branch or fast-forward it because an ignored local file would be overwritten: nothing is wrong with the PR, and the report names the paths), `awaiting-merge` (the run was told not to merge, or the review is clean and a person has to merge), `other` (also the resume stop before the switch because the local PR branch holds commits that are not on the remote: one sentence naming the branch and the number of local commits, written for the head the PR has now, read with `gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid`; nothing is deleted or reset, the commits stay for a person). Reason: without it the next orchestrator run cannot tell a PR that waits on a person from one a crashed run left behind, and would validate and review it again every time. The marker names the head it was written for: a push makes it obsolete, and so does an owner comment on the PR (`issue-context.py` reports it as `answered`). The origin line is never line 1: `issue-context.py` reads only the first line of the comment as the marker. A run that merges writes none.
+The file starts with the line `<!-- work-issue:stopped head=<full sha of the PR head> reason=<kind> -->`, then a blank line, the origin line `*[work-issue] stop marker, written by the issue-worker agent*`, a blank line, and one sentence in terms of the code or the diff (the rule on PR texts: nothing from logs, runs, paths or sessions). `<kind>` is one of `blocking`, `no-convergence`, `red-check`, `not-runnable`, `merge-refused`, `no-reviewer`, `conflict` (only a PR that is really `conflicting`; an `unknown` mergeable state is no stop and gets no marker; neither does a resume stop where git refuses to switch to the PR branch or fast-forward it because an ignored local file would be overwritten: nothing is wrong with the PR, and the report names the paths), `awaiting-merge` (the run was told not to merge, or the review is clean and a person has to merge), `other` (also the resume stop before the switch because the local PR branch holds commits that are not on the remote: one sentence naming the branch and the number of local commits, written for the head the PR has now, read with `gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid`; nothing is deleted or reset, the commits stay for a person). Reason: without it the next orchestrator run cannot tell a PR that waits on a person from one a crashed run left behind, and would validate and review it again every time. The marker names the head it was written for: a push makes it obsolete, and so does an owner comment on the PR (`issue-context.py` reports it as `answered`). The origin line is never line 1: `issue-context.py` reads only the first line of the comment as the marker. A run that merges writes none. After the marker the checkout goes back as under "Back to the starting branch"; the marker stays the last write to GitHub.
 
 ## Scope discipline
 
@@ -121,7 +121,18 @@ gh pr merge <PR> -R <owner>/<repo> --squash --delete-branch --match-head-commit 
 
 `--match-head-commit` makes the merge fail if the head moved after the review, so nothing unreviewed can ride along. A merge that is refused (a missing token scope for workflow files, branch protection) is reported with its message, not worked around.
 
-After the merge, check that the issue is closed and, where the default branch runs a pipeline on push, report that run's state without waiting longer than it normally takes.
+After the merge, check that the issue is closed and, where the default branch runs a pipeline on push, report that run's state without waiting longer than it normally takes. Then the checkout goes back as under "Back to the starting branch".
+
+## Back to the starting branch
+
+At the end of every run after the PR exists (after the merge and the issue check, or after the stop marker; the last local action before the report), the checkout goes back to the branch the skill's step 1 found (the `WORKTREE` line; for `(detached)` the commit kept in step 1), unless it is already there. A stop before the PR exists has done this in the skill's clean-up, and a resume stop before the switch never left that branch. Run each command on its own:
+
+1. `git status --porcelain`: any output means the tree is not clean, and nothing below runs.
+2. `git fetch origin` (after a merge the squash commit exists on `origin/<default>` only).
+3. `git switch --no-overwrite-ignore <branch>`, or `git switch --detach <commit kept in step 1>` for a detached start.
+4. Only when that branch is the default branch and the switch exited 0: `git merge --ff-only --no-overwrite-ignore origin/<default>`.
+
+A dirty tree or a refused `switch` or `merge` is reported with git's message and the branch the checkout is on; nothing is discarded, reset, cleaned, stashed or forced, and no branch is deleted. The PR branch stays, with any local commits on it (a fix commit after a rejected push), so the next resume still reports it as ahead of the remote. Reason: `orchestrate-issue` uses a found checkout only when it is clean and on the default branch and otherwise clones, so a checkout left on the PR branch is skipped by every later run, and where the clone fails no scheduled run starts until a person switches back. The target is the step-1 branch, not always the default branch, because that is where the skill's own clean-ups leave the checkout, and a checkout handed over on another branch belongs to whoever uses that branch.
 
 ## Report back
 
@@ -135,4 +146,5 @@ Your final message is the only thing the user sees. Include:
 - what blocked a merge, if anything (a finding, a required check, no required check, no reviewer, a refused merge)
 - the checks that were not required and red or still pending at the merge, by name
 - for a resumed PR: the `RESUME` line you started from, the commits you pushed to it, and the marker you posted when you stopped
+- the branch the checkout was left on, and, when it was not switched back to the starting branch, why (dirty tree, git's message)
 - what was not verified, and anything out of scope you noticed and left alone
