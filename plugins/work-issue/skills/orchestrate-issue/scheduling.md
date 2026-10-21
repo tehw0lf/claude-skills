@@ -41,6 +41,8 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 Environment=CODING_ROOT=%h/<directory with your checkouts>
 # the skills' temporary directories (`mktemp -d`) are created under TMPDIR; --add-dir makes that directory a working directory, which the redirects, the file tools, `cp` and `cd` into it need (see Permissions)
 Environment=TMPDIR=%h/.cache/work-issue/tmp
+# Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
+Environment=NX_DAEMON=false
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp
 # the skills never remove their temporary directories; drop entries older than seven days (the leading `-` keeps a failure from stopping the run; a oneshot unit does not overlap itself, so no running session loses files)
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp -mindepth 1 -mtime +7 -delete
@@ -158,6 +160,8 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 Environment=CODING_ROOT=%h/<directory with your checkouts>
 # one temporary directory per repository: the clean-up below must not remove files of another instance that is running
 Environment=TMPDIR=%h/.cache/work-issue/tmp/%I
+# Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
+Environment=NX_DAEMON=false
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
 WorkingDirectory=%h
@@ -201,7 +205,8 @@ Not run; a sketch of the same rules for a machine without systemd. Use one lock 
 S=~/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts
 LOCKS=~/.cache/work-issue/locks; PARALLEL=1; mkdir -p "$LOCKS"
 # cron starts with a minimal PATH: gh, git, python3 and claude must be on it, as for the template
-export PATH=~/.local/bin:/usr/local/bin:/usr/bin CODING_ROOT=<directory>
+# no unit ends the processes of a session under cron, and an Nx daemon started by it runs on for hours after it, so turn the daemon off (as in the template)
+export PATH=~/.local/bin:/usr/local/bin:/usr/bin CODING_ROOT=<directory> NX_DAEMON=false
 running() { local n=0 f; for f in "$LOCKS"/*.lock; do [ -e "$f" ] && ! flock -n "$f" true && n=$((n+1)); done; echo "$n"; }
 "$S/has-work.py" --all --owner <login> | while IFS=$'\t' read -r kind ref rest; do
   [ "$kind" = WORK ] || { echo "$kind $ref $rest"; continue; }
