@@ -11,7 +11,7 @@ Drives the sequence a person otherwise runs by hand: for each issue the context 
 
 **Run it in the main session, never inside a subagent.** The worker needs its spawn depth for `pr-review:pr-reviewer`; an orchestrator that is itself a subagent takes a level of it, and at the limit the `Agent` tool is withheld.
 
-Nothing is scheduled: an issue that waits for an owner answer ends this run at its questions, and calling the skill again picks it up (`QUESTIONS … answered`); start that call in a new session where you can, because a second call in the same session shares its context with the first. An issue that is already started is continued where it stands, until its PR is merged: the current plan is used as it is, and an own open PR goes back to the worker (step 3). To start it from a timer or a routine, read `scheduling.md` first.
+Nothing is scheduled: an issue that waits for an owner answer ends this run at its questions, and calling the skill again picks it up (`QUESTIONS … answered`); start that call in a new session where you can, because a second call in the same session shares its context with the first. An issue that is already started is continued where it stands, until its PR is merged: the current plan is used as it is, and an own open PR goes back to the worker (step 3). To start it from a timer or a routine, read `scheduling.md` first; it also describes a dispatcher that starts one session per repository with work, several in parallel (`--parallel`), each with this skill scoped to its repository.
 
 ## Steps
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Say whether a scheduled orchestrate-issue run has anything to do, without starting a session. Read-only: writes nothing on GitHub, clones nothing, changes no checkout. Meant for `ExecCondition=` of a systemd unit.
 
-usage: has-work.py [--label <name>] [--owner <login>]... [<owner/repo>]...
+usage: has-work.py [--all] [--label <name>] [--owner <login>]... [<owner/repo>]...
 
   --label    the opt-in label (default `auto-work`)
+  --all      list mode, for dispatch.py: one line per repository instead of stopping at the first hit
+             (see "List mode" below)
 
 Needs `gh` with the `repo` scope. For each argument, in the given order (the `owner/repo` arguments first, then the
 `--owner` ones), it lists the open issues that carry the label and stops at the first hit. For
@@ -62,6 +64,22 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
        seconds, the `issue-context.py` call 600 (it makes one role lookup per commenter).
        A script that systemd cannot start at all (path missing, `python3` not on the unit's PATH) is
        not 255: systemd skips the unit, see scheduling.md
+
+List mode (`--all`): the same rules per issue, but every repository is read to its first hit or to its
+end, so that each repository with work gets one line; a repository is done once it has a line, and its
+further issues are not read. For `--owner` every page of the search is read (at most 1000 results), not
+only the first. A failure that belongs to one repository (its `gh issue list`, `issue-context.py` for one
+of its issues, its required checks or `gh pr checks` on one of its PRs, or an unexpected error while it
+is read) ends that repository with an `ERROR` line and the next one is read; a failure
+that belongs to no repository (bad argument, an owner that cannot be resolved, a search that fails, is
+incomplete, holds more than 1000 results or whose pages end before its total) is still 255 with nothing on
+stdout. Lines, in the order in
+which the repositories are decided (`owner/repo` arguments first, then the search, oldest issue first):
+  WORK   <owner/repo#n>  <label|answered-or-unasked|checks-green>    the repository's first hit
+  ERROR  <owner/repo>    <reason>                                    its check failed; no session for it
+  NONE                                                               neither a WORK nor an ERROR line
+Exit codes: 0 at least one WORK line, 1 NONE, 2 ERROR lines and no WORK line, 255 as above. Not meant for
+`ExecCondition=`: there 2 would skip the unit silently.
 """
 import json
 import os
@@ -81,9 +99,12 @@ ISSUE_CONTEXT = os.path.join(
 )
 
 
+class Failure(Exception):
+    """The check failed; exit 255, or in list mode an ERROR line when it belongs to one repository."""
+
+
 def fail(message):
-    print(f"has-work.py: {message}", file=sys.stderr)
-    sys.exit(255)
+    raise Failure(message)
 
 
 def run(command, cwd=None, timeout=TIMEOUT):
@@ -100,9 +121,13 @@ def run(command, cwd=None, timeout=TIMEOUT):
 
 
 def parse(argv):
-    label, targets, owners, index = DEFAULT_LABEL, [], [], 0
+    label, targets, owners, index, every = DEFAULT_LABEL, [], [], 0, False
     while index < len(argv):
         arg = argv[index]
+        if arg == "--all":
+            every = True
+            index += 1
+            continue
         if arg == "--label":
             if index + 1 >= len(argv) or not argv[index + 1] or '"' in argv[index + 1]:
                 fail("--label needs a name without a double quote")
@@ -120,8 +145,8 @@ def parse(argv):
         targets.append(arg)
         index += 1
     if not targets and not owners:
-        fail("usage: has-work.py [--label <name>] [--owner <login>]... [<owner/repo>]...")
-    return label, targets, owners
+        fail("usage: has-work.py [--all] [--label <name>] [--owner <login>]... [<owner/repo>]...")
+    return label, targets, owners, every
 
 
 def context(repo, number):
@@ -237,10 +262,10 @@ def resume_state(repo, lines):
     return state
 
 
-def listing(target, label, is_owner):
+def listing(target, label, is_owner, every=False):
     """([(owner/repo, number, label names)], more) for the open issues of the target that carry the label, oldest
     first; `more` is True when the search holds more than the first page of 100, which the caller reads as a failed
-    check unless one of the page is a hit."""
+    check unless one of the page is a hit. With `every` all pages of the search are read and `more` is False."""
     if not is_owner:
         out = run([
             "gh", "issue", "list", "-R", target, "--label", label, "--state", "open",
@@ -259,53 +284,114 @@ def listing(target, label, is_owner):
     login = run(["gh", "api", f"users/{target}", "-q", ".login"]).strip()
     if not login:
         fail(f"cannot resolve {target}")
-    out = run([
-        "gh", "api", "-X", "GET", "search/issues", "-f",
-        f'q=label:"{label}" is:issue is:open user:{login} archived:false',
-        "-f", "sort=created", "-f", "order=asc", "-f", "per_page=100",
-    ])
-    try:
-        page = json.loads(out)
-    except json.JSONDecodeError:
-        fail(f"the search for {target} did not return JSON")
-    if not isinstance(page, dict) or not isinstance(page.get("items"), list):
-        fail(f"the search for {target} did not return a page")
-    if page.get("incomplete_results") is not False:
-        fail(f"the search for {target} reported an incomplete result")
-    total = page.get("total_count")
-    if not isinstance(total, int) or total > SEARCH_LIMIT:
-        fail(f"the search for {target} holds {total} results, at most {SEARCH_LIMIT} are returned")
-    found = []
-    for item in page["items"]:
-        match = re.search(r"/repos/([\w.-]+/[\w.-]+)$", item.get("repository_url") or "")
-        if not match or not isinstance(item.get("number"), int):
-            fail(f"the search for {target} returned an entry without repository or number")
-        found.append((match.group(1), item["number"], {entry["name"] for entry in item["labels"]}))
-    return found, total > len(found)
+    found, number = [], 1
+    while True:
+        out = run([
+            "gh", "api", "-X", "GET", "search/issues", "-f",
+            f'q=label:"{label}" is:issue is:open user:{login} archived:false',
+            "-f", "sort=created", "-f", "order=asc", "-f", "per_page=100", *(["-f", f"page={number}"] if every else []),
+        ])
+        try:
+            page = json.loads(out)
+        except json.JSONDecodeError:
+            fail(f"the search for {target} did not return JSON")
+        if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+            fail(f"the search for {target} did not return a page")
+        if page.get("incomplete_results") is not False:
+            fail(f"the search for {target} reported an incomplete result")
+        total = page.get("total_count")
+        if not isinstance(total, int) or total > SEARCH_LIMIT:
+            fail(f"the search for {target} holds {total} results, at most {SEARCH_LIMIT} are returned")
+        for item in page["items"]:
+            match = re.search(r"/repos/([\w.-]+/[\w.-]+)$", item.get("repository_url") or "")
+            if not match or not isinstance(item.get("number"), int):
+                fail(f"the search for {target} returned an entry without repository or number")
+            found.append((match.group(1), item["number"], {entry["name"] for entry in item["labels"]}))
+        if not every or len(found) >= total:
+            break
+        if not page["items"]:
+            fail(f"the search for {target} returned {len(found)} of {total} results")
+        number += 1
+    return found, not every and total > len(found)
 
 
-def main():
-    label, targets, owners = parse(sys.argv[1:])
+def hit(repo, number, names):
+    """The kind of hit for the issue, or None when it waits."""
+    lines = context(repo, number)
+    if WAITING_LABEL in names and waiting(repo, number, lines):
+        return None
+    state = resume_state(repo, lines)
+    if state == "waiting":
+        return None
+    return state or ("answered-or-unasked" if WAITING_LABEL in names else "label")
+
+
+def first_hit(label, targets, owners):
     for target, is_owner in [(t, False) for t in targets] + [(o, True) for o in owners]:
         found, more = listing(target, label, is_owner)
         for repo, number, names in found:
-            lines = context(repo, number)
-            if WAITING_LABEL in names and waiting(repo, number, lines):
-                continue
-            state = resume_state(repo, lines)
-            if state == "waiting":
-                continue
-            kind = state or ("answered-or-unasked" if WAITING_LABEL in names else "label")
-            print(f"WORK\t{repo}#{number}\t{kind}")
-            sys.exit(0)
+            kind = hit(repo, number, names)
+            if kind:
+                print(f"WORK\t{repo}#{number}\t{kind}")
+                sys.exit(0)
         if more:
             fail(f"the search for {target} holds more than {len(found)} results and the first {len(found)} are no hit")
     print("NONE")
     sys.exit(1)
 
 
+def every_hit(label, targets, owners):
+    decided, lines = set(), []  # printed only at the end: a 255 later on leaves stdout empty
+
+    def error(repo, reason):
+        lines.append(f"ERROR\t{repo}\t{' '.join(str(reason).split())}")
+        decided.add(repo.lower())
+
+    for target, is_owner in [(t, False) for t in targets] + [(o, True) for o in owners]:
+        if not is_owner:
+            if target.lower() in decided:
+                continue
+            try:
+                found, _ = listing(target, label, False)
+            except Failure as failure:
+                error(target, failure)
+                continue
+            except Exception as unexpected:
+                error(target, f"unexpected {type(unexpected).__name__}: {unexpected}")
+                continue
+        else:
+            found, _ = listing(target, label, True, every=True)  # a failed search belongs to no repository: 255
+        for repo, number, names in found:
+            if repo.lower() in decided:
+                continue
+            try:
+                kind = hit(repo, number, names)
+            except Failure as failure:
+                error(repo, failure)
+                continue
+            except Exception as unexpected:
+                error(repo, f"unexpected {type(unexpected).__name__}: {unexpected}")
+                continue
+            if kind:
+                lines.append(f"WORK\t{repo}#{number}\t{kind}")
+                decided.add(repo.lower())
+    print("\n".join(lines or ["NONE"]))
+    if any(line.startswith("WORK") for line in lines):
+        sys.exit(0)
+    sys.exit(2 if lines else 1)
+
+
+def main():
+    label, targets, owners, every = parse(sys.argv[1:])
+    (every_hit if every else first_hit)(label, targets, owners)
+
+
 if __name__ == "__main__":
     try:
         main()
+    except Failure as failure:
+        print(f"has-work.py: {failure}", file=sys.stderr)
+        sys.exit(255)
     except Exception as error:  # an uncaught exception would exit 1, which systemd reads as "skip"
-        fail(f"unexpected {type(error).__name__}: {error}")
+        print(f"has-work.py: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+        sys.exit(255)
