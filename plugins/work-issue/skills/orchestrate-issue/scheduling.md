@@ -41,6 +41,8 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 Environment=CODING_ROOT=%h/<directory with your checkouts>
 # the skills' temporary directories (`mktemp -d`) are created under TMPDIR; --add-dir makes that directory a working directory, which the redirects, the file tools, `cp` and `cd` into it need (see Permissions)
 Environment=TMPDIR=%h/.cache/work-issue/tmp
+# Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
+Environment=NX_DAEMON=false
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp
 # the skills never remove their temporary directories; drop entries older than seven days (the leading `-` keeps a failure from stopping the run; a oneshot unit does not overlap itself, so no running session loses files)
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp -mindepth 1 -mtime +7 -delete
@@ -158,6 +160,8 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
 Environment=CODING_ROOT=%h/<directory with your checkouts>
 # one temporary directory per repository: the clean-up below must not remove files of another instance that is running
 Environment=TMPDIR=%h/.cache/work-issue/tmp/%I
+# Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
+Environment=NX_DAEMON=false
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
 WorkingDirectory=%h
