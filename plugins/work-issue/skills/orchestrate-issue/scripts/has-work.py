@@ -22,18 +22,21 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
   - an issue with a `RESUME` line whose stop marker names the PR's current head (compared by prefix)
     and is not `answered`: no hit, the PR waits. Reason `pending-check` is the exception: the worker
     stopped because a required check had not concluded, not for a person, so the issue is a hit once
-    every required check of the default branch (active rulesets and classic branch protection, as in
-    run-context.py) has the bucket `pass` on that PR in `gh pr checks --json name,bucket`. A required
-    check that is missing there, pending or red keeps it waiting: a red one for a person, who re-runs
-    it or pushes, a missing or pending one for the next tick. No other reason is released here: a
-    push or an owner comment on the PR does that, as in the session
+    every required check of the default branch (active rulesets and classic branch protection, every
+    page, as in run-context.py) is listed with the bucket `pass` in `gh pr checks --required --json
+    name,bucket` on that PR: the same listing the worker stops on, so a PR is not released into a
+    session that would stop again at the same check. A required check that is missing there, pending,
+    skipped or red keeps it waiting: a red or skipped one for a person, who re-runs it or pushes, a
+    missing or pending one for the next tick. No other reason is released here: a push or an owner
+    comment on the PR does that, as in the session
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
 permission, the edit history, an assignee other than the account, a pull request of somebody else that
-already closes the issue, an own PR that does not link the current plan, or a conflicting PR; such an
-issue is a hit here and the session then reports it and spawns nothing. A `# SKIPPED resume` line
-leaves the PR unread, and the issue is a hit as before.
+already closes the issue, or a conflicting PR; such an issue is a hit here and the session then
+reports it and spawns nothing. An own PR that does not link the current plan is a hit too, unless it
+carries an unanswered stop marker on its head (the rule above does not compare the plan). A
+`# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before.
 
 Output, one line:
   WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit
@@ -48,7 +51,8 @@ Exit codes, as systemd.service(5) reads them for ExecCondition=:
        or `issue-context.py` reporting `# SKIPPED account` or `plan`, or `# SKIPPED comments` while it
        printed no `QUESTIONS` line or for any reason but a thread of more than 100 comments, which leaves the
        questions unreadable, the required checks of a repository with a `pending-check` marker that
-       cannot be read in full, or `gh pr checks` failing for any reason but "no checks reported"):
+       cannot be read in full, or `gh pr checks` failing for any reason but "no checks reported" or
+       "no required checks reported"):
        the unit is marked failed and no session starts. A `QUESTIONS` line is used as it stands under the `# SKIPPED comments` line
        of a thread of more than 100 comments: the window cut itself loses nothing (the newest 100 hold
        the newest questions and every answer after them), but a comment that GitHub returned as null
@@ -163,13 +167,13 @@ def required_checks(repo):
             fail(f"cannot read the default branch of {repo}")
         names = set()
         try:
-            rules = json.loads(run(["gh", "api", f"repos/{repo}/rules/branches/{default}"]))
+            pages = json.loads(run(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rules/branches/{default}"]))
             branch = json.loads(run(["gh", "api", f"repos/{repo}/branches/{default}"]))
         except json.JSONDecodeError:
             fail(f"the rules or the protection of {repo} did not return JSON")
-        if not isinstance(rules, list) or not isinstance(branch, dict):
+        if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages) or not isinstance(branch, dict):
             fail(f"the rules or the protection of {repo} did not return the expected shape")
-        for rule in rules:
+        for rule in (rule for page in pages for rule in page):
             if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
                 for check in (rule.get("parameters") or {}).get("required_status_checks") or []:
                     if check.get("context"):
@@ -182,14 +186,14 @@ def required_checks(repo):
 
 
 def checks_green(repo, pull):
-    """True when the default branch requires at least one check and every required check has the bucket
-    `pass` on the pull request."""
+    """True when the default branch requires at least one check and every required check is listed with
+    the bucket `pass` by `gh pr checks --required` on the pull request, the listing the worker reads."""
     names = required_checks(repo)
     if not names:
         return False
     try:
         done = subprocess.run(
-            ["gh", "pr", "checks", pull.lstrip("#"), "-R", repo, "--json", "name,bucket"],
+            ["gh", "pr", "checks", pull.lstrip("#"), "-R", repo, "--required", "--json", "name,bucket"],
             capture_output=True, text=True, timeout=TIMEOUT,
         )
     except FileNotFoundError:
@@ -197,7 +201,7 @@ def checks_green(repo, pull):
     except subprocess.TimeoutExpired:
         fail(f"gh pr checks {pull} timed out after {TIMEOUT} seconds")
     if done.returncode != 0:
-        if "no checks reported" in done.stderr + done.stdout:
+        if "checks reported" in done.stderr + done.stdout:  # "no checks reported", "no required checks reported"
             return False
         if done.returncode != 8:  # 8: checks pending, the JSON is still printed
             reason = (done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}").splitlines()[-1]

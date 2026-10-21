@@ -81,7 +81,7 @@ Merge only when all hold:
 ```bash
 gh pr checks <PR> -R <owner>/<repo> --required    # a named check missing here has not reported: stop with pending-check now, a watch cannot see it
 timeout 300 gh pr checks <PR> -R <owner>/<repo> --required --watch    # only while a listed check is pending; at most five minutes (exit 124: the time ran out)
-gh pr checks <PR> -R <owner>/<repo> --required    # confirm: every check pass goes on, a red one stops with red-check, anything else with pending-check
+gh pr checks <PR> -R <owner>/<repo> --required    # confirm: every check pass goes on; fail or cancel stops with red-check, skipping with awaiting-merge (a person decides whether a skipped required check is enough), missing or pending with pending-check
 gh pr checks <PR> -R <owner>/<repo>    # once, for the report only: name each check that is not required and red or still pending
 gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
