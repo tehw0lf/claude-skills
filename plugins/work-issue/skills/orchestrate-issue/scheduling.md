@@ -142,9 +142,9 @@ Narrow them to what the target repository needs; no narrowed list was run, so a 
 The unit above runs one session at a time for its whole scope: while it works one repository, an `auto-work` issue in another waits for the next tick that finds the unit idle. To work several repositories at once, replace it by a template unit with one instance per repository and a dispatcher that a timer starts. Two limits, both 1 by default: `--max` of the session (issues per session, as above) and `--parallel` of the dispatcher (sessions at the same time).
 
 - **At most one session per repository.** The session works in the repository's checkout (found under `$CODING_ROOT`, else a fresh clone, as in step 2 of the skill) and the worker switches its branches; a second session there would disrupt the first. The instance name is the repository, so systemd itself never runs two of the same.
-- **`--parallel` defaults to 1.** Each session can cost Opus planner runs, Sonnet worker runs and an Opus review round, and parallel sessions draw on the same usage limit; with 1 the dispatcher behaves like the single unit, except that a repository whose session is still running no longer holds back the others' next tick. Raise it as a decision about usage and about unattended merges per hour, together with `--max` and the timer.
+- **`--parallel` defaults to 1.** Each session can cost Opus planner runs, Sonnet worker runs and an Opus review round, and parallel sessions draw on the same usage limit; with 1 the dispatcher runs one session at a time, like the single unit: while an instance runs it holds the only slot and every other repository with work waits for a tick with a free slot (`SKIP … limit`). What 1 adds over the single unit is a unit, a state and a journal per repository; more than one session at a time needs a higher value. Raise it as a decision about usage and about unattended merges per hour, together with `--max` and the timer.
 
-`scripts/dispatch.py [--parallel <n>] [--template work-issue@.service] [--dry-run] [--owner <login>]... [<owner>/<repo>]...` (call it by its full path; its docstring has the output) runs `has-work.py --all` with the same scope, which prints one `WORK` line per repository with work (the same rules as the single check, read to the first hit of each repository) and an `ERROR` line for a repository whose check failed. It counts the running instances of the template (`systemctl --user list-units 'work-issue@*.service'`, states `activating`, `active`, `deactivating`, `reloading`; a oneshot unit is `activating` from its `ExecCondition=` to the end of its session), skips a repository whose instance runs (it keeps its slot), and starts the others with `systemctl --user start --no-block` while slots are free, in the order of the oldest issue. The rest waits for the next tick. An `ERROR` line does not stop the others: they are started, and the dispatcher then exits 1, so its unit shows as failed and the journal names the repository and the reason. A failure that belongs to no repository (the search, a bad argument, `gh` missing) starts nothing and exits 255.
+`scripts/dispatch.py [--parallel <n>] [--template work-issue@.service] [--dry-run] [--owner <login>]... [<owner>/<repo>]...` (call it by its full path; its docstring has the output) runs `has-work.py --all` with the same scope, which prints one `WORK` line per repository with work (the same rules as the single check, read to the first hit of each repository) and an `ERROR` line for a repository whose check failed. It counts the running instances of the template (`systemctl --user list-units 'work-issue@*.service'`, states `activating`, `active`, `deactivating`, `reloading`; a oneshot unit is `activating` from its `ExecCondition=` to the end of its session), skips a repository whose instance runs (it keeps its slot), and starts the others with `systemctl --user start --no-block` while slots are free, in the order of `has-work.py --all`: `<owner>/<repo>` arguments first, in the given order, then the repositories of the `--owner` search by their oldest issue. The rest waits for the next tick. An `ERROR` line does not stop the others: they are started, and the dispatcher then exits 1, so its unit shows as failed and the journal names the repository and the reason. With `<owner>/<repo>` arguments every failure is one of a repository, `gh` missing included (one `ERROR` line each, exit 1). With `--owner` a failure that belongs to no repository (`gh` missing, an owner that cannot be resolved, a failing or incomplete search) starts nothing and exits 255, and so does a bad argument with either scope.
 
 `~/.config/systemd/user/work-issue@.service` (the instance name is the repository escaped by `systemd-escape`; `%I` gives `<owner>/<repo>` back):
 
@@ -162,6 +162,7 @@ ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
 WorkingDirectory=%h
 # checks again: the dispatcher's answer can be minutes old, and an instance started by hand gets the same check
+# the label is the consent to an unattended merge: when the dispatcher gets `--label <name>`, add the same `--label <name>` here and to the session's call below, otherwise the instance checks and works `auto-work`
 ExecCondition=%h/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts/has-work.py %I
 ExecStart=%h/.local/bin/claude -p "/work-issue:orchestrate-issue --max 1 %I" --permission-prompts none --permission-mode acceptEdits --add-dir %h/.cache/work-issue/tmp/%I --settings %h/.config/work-issue/settings.json
 ```
@@ -199,14 +200,17 @@ Not run; a sketch of the same rules for a machine without systemd. Use one lock 
 # crontab: */10 * * * * <this script> >> ~/.cache/work-issue/cron.log 2>&1
 S=~/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts
 LOCKS=~/.cache/work-issue/locks; PARALLEL=1; mkdir -p "$LOCKS"
+# cron starts with a minimal PATH: gh, git, python3 and claude must be on it, as for the template
+export PATH=~/.local/bin:/usr/local/bin:/usr/bin CODING_ROOT=<directory>
 running() { local n=0 f; for f in "$LOCKS"/*.lock; do [ -e "$f" ] && ! flock -n "$f" true && n=$((n+1)); done; echo "$n"; }
-"$S/has-work.py" --all --owner <login> | while IFS=$'\t' read -r kind ref _; do
-  [ "$kind" = WORK ] || { echo "$kind $ref"; continue; }
+"$S/has-work.py" --all --owner <login> | while IFS=$'\t' read -r kind ref rest; do
+  [ "$kind" = WORK ] || { echo "$kind $ref $rest"; continue; }
   repo=${ref%%#*}; lock="$LOCKS/${repo//\//__}.lock"
   [ "$(running)" -lt "$PARALLEL" ] || { echo "SKIP $repo limit"; continue; }
-  # same environment and arguments as ExecStart= of the template; nohup so that it outlives this script
-  TMPDIR=~/.cache/work-issue/tmp/$repo CODING_ROOT=<directory> nohup flock -n "$lock" \
-    sh -c "mkdir -p \"\$TMPDIR\" && \"$S/has-work.py\" '$repo' && claude -p '/work-issue:orchestrate-issue --max 1 $repo' --permission-prompts none --permission-mode acceptEdits --add-dir \"\$TMPDIR\" --settings ~/.config/work-issue/settings.json" >/dev/null 2>&1 &
+  # the steps of the template (temporary directory, its seven-day clean-up, the check, the session); nohup so that it outlives this script
+  TMPDIR=~/.cache/work-issue/tmp/$repo nohup flock -n "$lock" \
+    sh -c "mkdir -p \"\$TMPDIR\" && { find \"\$TMPDIR\" -mindepth 1 -mtime +7 -delete; \"$S/has-work.py\" '$repo'; } && claude -p '/work-issue:orchestrate-issue --max 1 $repo' --permission-prompts none --permission-mode acceptEdits --add-dir \"\$TMPDIR\" --settings ~/.config/work-issue/settings.json" \
+    >> ~/.cache/work-issue/session-${repo//\//__}.log 2>&1 &
   sleep 1  # let flock take the lock before the next count
 done
 ```

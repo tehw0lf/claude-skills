@@ -16,7 +16,8 @@ One instance per repository: the session of an instance works in the repository'
 switches its branches, so a second session on the same repository would disrupt the first. An instance
 that is running (`activating`, `active`, `deactivating` or `reloading`, from `systemctl --user list-units`)
 takes a slot; its repository is skipped even when it has work, and the rest of the slots go to the other
-repositories in the order of has-work.py (oldest issue first). What does not fit waits for the next tick.
+repositories in the order of has-work.py --all (`owner/repo` arguments first, in the given order, then the
+repositories of the `--owner` search by their oldest issue). What does not fit waits for the next tick.
 This unit and the template should not run next to a single `work-issue.service` on the same scope: nothing
 here sees that unit.
 
@@ -31,8 +32,9 @@ Output, one tab-separated line each:
   NONE                                                 no repository has work and none failed
 
 Exit codes: 0 done; 1 at least one ERROR line (every other repository was still dispatched); 255 nothing was
-started: a bad argument, has-work.py failing as a whole (its reason follows on stderr), or the running
-instances that cannot be listed. Every `systemctl` and `systemd-escape` call is given 60 seconds; has-work.py
+started: a bad argument, has-work.py failing as a whole (its reason follows on stderr; with `owner/repo`
+arguments a missing `gh` is an ERROR line per repository instead), or the running instances that cannot be
+listed. Every `systemctl` and `systemd-escape` call is given 60 seconds; has-work.py
 bounds its own calls.
 """
 import os
