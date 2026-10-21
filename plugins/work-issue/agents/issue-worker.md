@@ -86,6 +86,8 @@ gh pr checks <PR> -R <owner>/<repo>    # once, for the report only: name each ch
 gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
 
+Run the `timeout 300` watch with the Bash tool's own `timeout` parameter set to `330000` (milliseconds): the tool ends a call after 120 seconds by default, which would cut the wait short. A watch that ends without its own exit code (the tool stopped it) counts like exit 124: the confirming listing after it decides. Keep the number `300` as written: the permission rule in `scheduling.md` matches that exact command.
+
 Then the base, each as its own command:
 
 ```bash
