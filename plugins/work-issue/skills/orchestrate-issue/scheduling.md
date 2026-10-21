@@ -1,6 +1,6 @@
 # Running orchestrate-issue on a schedule
 
-`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, up to its limit (one unless `--max` is given), and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes two ways. Neither is part of the plugin; they are examples.
+`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, up to its limit (one unless `--max` is given), and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes two ways, a local systemd timer (one session at a time, or one per repository with several in parallel) and a cloud routine. Neither is part of the plugin; they are examples.
 
 ## What every trigger has to respect
 
@@ -10,7 +10,7 @@
 - An issue that is already started is continued by the next run: its own open PR goes back to the worker for validation, review and merge. When the worker stops there, it leaves a comment starting with `<!-- work-issue:stopped … -->` on the PR, and later runs report the PR as waiting for a person and spawn nothing until somebody pushes to it or comments on it with admin, maintain or write permission. The marker reason `pending-check` needs nobody: the worker waits at most five minutes for the required checks, and when one has not reported or concluded by then, the next run that finds all of them passed resumes the PR and merges it. The answer goes on the PR: a comment on the issue makes the plan stale (`owner-comment`), and the PR is then reported as an own PR on a plan that is no longer current instead of being continued.
 - One issue per run unless `--max` is given. A trigger that runs often with a high `--max` raises the number of unattended merges per day; choose both together. Each reviewed PR can also leave follow-up issues without `auto-work`, which wait for a person, so the same two settings set how fast that backlog grows.
 - Where the default branch has no required status check, or the checks could not be read, the worker stops at an open, reviewed PR and does not merge. That is by design.
-- One trigger per repository, and none next to an account-wide one: a trigger whose scope is an account or organisation covers every repository in it. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other, also not when their scopes overlap: the assignee check only stops on an assignee other than the account itself.
+- One trigger per repository, and none next to an account-wide one: a trigger whose scope is an account or organisation covers every repository in it. The dispatcher under "Several repositories in parallel" is one trigger in this sense: it replaces the single unit, it does not run next to it. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other, also not when their scopes overlap: the assignee check only stops on an assignee other than the account itself.
 - An account as scope widens what one label can start: every repository the token reaches becomes a target of unattended merges once a labeler with write access sets `auto-work` there. The gate is the same per repository (a required status check; without one the worker does not merge), the list under "Permissions" was built for one npm repository, and a repository of another ecosystem needs its own tool rules, otherwise the denial stops the worker there.
 
 ## Gates against an unattended merge are yours
@@ -136,6 +136,80 @@ Narrow them to what the target repository needs; no narrowed list was run, so a 
 - The checkout's own `CLAUDE.md`: the repository of that run has none, so its transcripts cannot show it, and the worker's commands there came from `repo-commands.py`, not from an instruction file. A separate probe, a headless `claude -p` started in `%h` that used the `Read` tool on a file inside a repository that has a root `CLAUDE.md`, received that file as a `nested_memory` attachment next to the parent directories' files. So a repository's `CLAUDE.md` is loaded once a session reads a file there. The probe used `Read`; whether a session that only runs shell commands in the checkout gets it was not tested.
 - Where the transcripts are: `~/.claude/projects/<working directory with / as ->/<session id>.jsonl`, with the agents under `<session id>/subagents/` (`*.meta.json` names the agent type and spawn depth, and the model when the spawn set one). A headless run writes them like an interactive one; this is where a denied tool call or a loaded instruction file shows up when the journal only has the final report.
 - Checkout: the orchestrator uses a clean checkout on the default branch, else it clones. After a merge and after a stop the worker switches the checkout back to the branch it started on when the tree is clean and git allows the switch; otherwise (a dirty tree, a refused switch; a run that was cut off cannot switch at all) the checkout stays on the PR branch, which the next run does not use and clones instead, so switch it back by hand if you want it reused. The clone path (`gh repo clone` into a scratch directory, the worker editing and installing there under `acceptEdits`) was not exercised by the verified run, so make the first test a second run, or leave the hourly timer off until one has gone through it.
+
+### Several repositories in parallel
+
+The unit above runs one session at a time for its whole scope: while it works one repository, an `auto-work` issue in another waits for the next tick that finds the unit idle. To work several repositories at once, replace it by a template unit with one instance per repository and a dispatcher that a timer starts. Two limits, both 1 by default: `--max` of the session (issues per session, as above) and `--parallel` of the dispatcher (sessions at the same time).
+
+- **At most one session per repository.** The session works in the repository's checkout (found under `$CODING_ROOT`, else a fresh clone, as in step 2 of the skill) and the worker switches its branches; a second session there would disrupt the first. The instance name is the repository, so systemd itself never runs two of the same.
+- **`--parallel` defaults to 1.** Each session can cost Opus planner runs, Sonnet worker runs and an Opus review round, and parallel sessions draw on the same usage limit; with 1 the dispatcher behaves like the single unit, except that a repository whose session is still running no longer holds back the others' next tick. Raise it as a decision about usage and about unattended merges per hour, together with `--max` and the timer.
+
+`scripts/dispatch.py [--parallel <n>] [--template work-issue@.service] [--dry-run] [--owner <login>]... [<owner>/<repo>]...` (call it by its full path; its docstring has the output) runs `has-work.py --all` with the same scope, which prints one `WORK` line per repository with work (the same rules as the single check, read to the first hit of each repository) and an `ERROR` line for a repository whose check failed. It counts the running instances of the template (`systemctl --user list-units 'work-issue@*.service'`, states `activating`, `active`, `deactivating`, `reloading`; a oneshot unit is `activating` from its `ExecCondition=` to the end of its session), skips a repository whose instance runs (it keeps its slot), and starts the others with `systemctl --user start --no-block` while slots are free, in the order of the oldest issue. The rest waits for the next tick. An `ERROR` line does not stop the others: they are started, and the dispatcher then exits 1, so its unit shows as failed and the journal names the repository and the reason. A failure that belongs to no repository (the search, a bad argument, `gh` missing) starts nothing and exits 255.
+
+`~/.config/systemd/user/work-issue@.service` (the instance name is the repository escaped by `systemd-escape`; `%I` gives `<owner>/<repo>` back):
+
+```ini
+[Unit]
+Description=Work auto-work issues of %I
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Environment=CODING_ROOT=%h/<directory with your checkouts>
+# one temporary directory per repository: the clean-up below must not remove files of another instance that is running
+Environment=TMPDIR=%h/.cache/work-issue/tmp/%I
+ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
+ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
+WorkingDirectory=%h
+# checks again: the dispatcher's answer can be minutes old, and an instance started by hand gets the same check
+ExecCondition=%h/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts/has-work.py %I
+ExecStart=%h/.local/bin/claude -p "/work-issue:orchestrate-issue --max 1 %I" --permission-prompts none --permission-mode acceptEdits --add-dir %h/.cache/work-issue/tmp/%I --settings %h/.config/work-issue/settings.json
+```
+
+`~/.config/systemd/user/work-issue-dispatch.service` (`systemctl` and `systemd-escape` are in `/usr/bin`; `gh` and `python3` must be on the `PATH` as for the check):
+
+```ini
+[Unit]
+Description=Start a work-issue@ instance per repository with auto-work issues
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=%h/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts/dispatch.py --parallel 1 --owner <login>
+```
+
+`~/.config/systemd/user/work-issue-dispatch.timer`: the timer of the single unit with `Description=Run work-issue-dispatch.service hourly`. Switch over in this order, so that the old unit and an instance never work the same repository: `systemctl --user disable --now work-issue.timer`, wait until `systemctl --user is-active work-issue.service` no longer says `activating`, then `systemctl --user daemon-reload` and `systemctl --user enable --now work-issue-dispatch.timer`. The dispatcher does not see the old unit.
+
+What runs and what it did:
+
+```bash
+systemctl --user list-units 'work-issue@*'                 # the running and failed instances, one per repository
+journalctl --user -u work-issue-dispatch.service           # START, SKIP and ERROR lines of each tick
+journalctl --user -u 'work-issue@*'                        # the sessions' reports
+```
+
+The dispatcher is itself a oneshot unit, so two ticks do not overlap. An instance's `ExecCondition=` (`has-work.py <owner>/<repo>`, the single check, without `--all`) keeps its meaning: exit 1 skips the instance, 255 marks that instance failed. Run `dispatch.py --dry-run` with the unit's arguments once by hand: it prints what a tick would start and starts nothing. Tried with stubs for `gh`, `issue-context.py` and `systemctl` (two repositories with work, one failing, a running instance, a full limit, a failed start, a search over two pages) and with `--dry-run` against GitHub and the real `systemctl`; `systemctl --user` and `systemd-escape` were run inside a transient user service (systemd 262) and answered there. Not checked: a tick that starts two sessions at once and what they cost, and `has-work.py --all` against an account with more than one repository with work.
+
+#### cron
+
+Not run; a sketch of the same rules for a machine without systemd. Use one lock file per repository and `flock -n`, which gives up when the lock is held, so a repository never gets a second session; count the held locks for the limit. The repositories with work come from `has-work.py --all` (only `WORK` lines; an `ERROR` line is for a person to read):
+
+```bash
+#!/bin/bash
+# crontab: */10 * * * * <this script> >> ~/.cache/work-issue/cron.log 2>&1
+S=~/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts
+LOCKS=~/.cache/work-issue/locks; PARALLEL=1; mkdir -p "$LOCKS"
+running() { local n=0 f; for f in "$LOCKS"/*.lock; do [ -e "$f" ] && ! flock -n "$f" true && n=$((n+1)); done; echo "$n"; }
+"$S/has-work.py" --all --owner <login> | while IFS=$'\t' read -r kind ref _; do
+  [ "$kind" = WORK ] || { echo "$kind $ref"; continue; }
+  repo=${ref%%#*}; lock="$LOCKS/${repo//\//__}.lock"
+  [ "$(running)" -lt "$PARALLEL" ] || { echo "SKIP $repo limit"; continue; }
+  # same environment and arguments as ExecStart= of the template; nohup so that it outlives this script
+  TMPDIR=~/.cache/work-issue/tmp/$repo CODING_ROOT=<directory> nohup flock -n "$lock" \
+    sh -c "mkdir -p \"\$TMPDIR\" && \"$S/has-work.py\" '$repo' && claude -p '/work-issue:orchestrate-issue --max 1 $repo' --permission-prompts none --permission-mode acceptEdits --add-dir \"\$TMPDIR\" --settings ~/.config/work-issue/settings.json" >/dev/null 2>&1 &
+  sleep 1  # let flock take the lock before the next count
+done
+```
 
 ## Cloud: routine
 
