@@ -81,12 +81,12 @@ Merge only when all hold:
 ```bash
 gh pr checks <PR> -R <owner>/<repo> --required    # a named check missing here has not reported: stop with pending-check now, a watch cannot see it
 timeout 300 gh pr checks <PR> -R <owner>/<repo> --required --watch    # only while a listed check is pending; at most five minutes (exit 124: the time ran out)
-gh pr checks <PR> -R <owner>/<repo> --required    # confirm: every check pass goes on; fail or cancel stops with red-check, skipping with awaiting-merge (a person decides whether a skipped required check is enough), missing or pending with pending-check
+gh pr checks <PR> -R <owner>/<repo> --required    # confirm: every check pass goes on; fail or cancel stops with red-check, skipping with awaiting-merge (a person decides whether a skipped required check is enough), missing or pending with pending-check when the prompt names the required checks, else with awaiting-merge
 gh pr checks <PR> -R <owner>/<repo>    # once, for the report only: name each check that is not required and red or still pending
 gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
 
-Run the `timeout 300` watch with the Bash tool's own `timeout` parameter set to `330000` (milliseconds): the tool ends a call after 120 seconds by default, which would cut the wait short. A watch that ends without its own exit code (the tool stopped it) counts like exit 124: the confirming listing after it decides. Keep the number `300` as written: the permission rule in `scheduling.md` matches that exact command.
+Run the `timeout 300` watch with the Bash tool's own `timeout` parameter set to `330000` (milliseconds): the tool ends a call after 120 seconds by default, which would cut the wait short. A watch that ends without its own exit code (the tool stopped it) counts like exit 124: the confirming listing after it decides.
 
 Then the base, each as its own command:
 
