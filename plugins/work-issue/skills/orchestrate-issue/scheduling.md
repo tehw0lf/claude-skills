@@ -205,7 +205,8 @@ Not run; a sketch of the same rules for a machine without systemd. Use one lock 
 S=~/.claude/plugins/marketplaces/tehw0lf-claude-skills/plugins/work-issue/skills/orchestrate-issue/scripts
 LOCKS=~/.cache/work-issue/locks; PARALLEL=1; mkdir -p "$LOCKS"
 # cron starts with a minimal PATH: gh, git, python3 and claude must be on it, as for the template
-export PATH=~/.local/bin:/usr/local/bin:/usr/bin CODING_ROOT=<directory>
+# no unit ends the processes of a session under cron, and an Nx daemon started by it runs on for hours after it, so turn the daemon off (as in the template)
+export PATH=~/.local/bin:/usr/local/bin:/usr/bin CODING_ROOT=<directory> NX_DAEMON=false
 running() { local n=0 f; for f in "$LOCKS"/*.lock; do [ -e "$f" ] && ! flock -n "$f" true && n=$((n+1)); done; echo "$n"; }
 "$S/has-work.py" --all --owner <login> | while IFS=$'\t' read -r kind ref rest; do
   [ "$kind" = WORK ] || { echo "$kind $ref $rest"; continue; }
