@@ -1,6 +1,6 @@
 # Cross-repository coupling
 
-Which files rely on each other. `CLAUDE.md` lists the files; this file says what each side depends on. A change to one of them is made together with the other side, in the same PR.
+Which files rely on each other. `CLAUDE.md` lists the files; this file says what each side depends on. A change to one of them is made together with the other side: in the same PR where both are in this repository, otherwise after checking the other repository.
 
 - `setup-workflows` is bound to `tehw0lf/workflows` (checked out at `../../workflows`): the orchestrator path `.github/workflows/build-test-publish.yml`, its `workflow_call.inputs` block, and the fact that it only calls other workflows by `./` reference. `fetch-permissions.py` exits on any other kind of reference on purpose — extend the script when that changes, do not skip the reference. `validate-caller.py` expects the caller at `.github/workflows/build.yml` and finds the job by its `uses:`, not by name.
 - `prune-branches all` (`classify.sh --all`, also `classify.sh` with no argument outside any repository) scans `$CODING_ROOT` (default `~/Nextcloud/Coding`) for repositories up to two directory levels below it and reads keep rules from `$XDG_CONFIG_HOME/prune-branches-keep` and `.git/prune-branches-keep`.
