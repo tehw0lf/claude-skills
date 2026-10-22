@@ -23,11 +23,11 @@ The `work-issue` skill is preloaded into your context (its base directory is the
 
 ## Resuming an own PR
 
-When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one; your prompt may say "resume PR #m"), read `<skill directory>/worker-resume.md` before you do anything else for it and follow it. Without such a PR it does not apply.
+When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one; your prompt may say "resume PR #m"), read `<skill directory>/worker-resume.md` before you do anything else for it and follow it. If the file cannot be read, do not continue the PR: stop and report that. Without such a PR it does not apply.
 
 ## Stop marker
 
-Whenever you stop and the pull request already exists, read `<skill directory>/worker-stop-marker.md` before you write the report and follow it: it says which comment to leave and with which reason.
+Whenever you stop and the pull request already exists, read `<skill directory>/worker-stop-marker.md` before you write the report and follow it: it says which comment to leave and with which reason. If the file cannot be read, leave no comment and say in the report that the stop marker is missing and why.
 
 ## Scope discipline
 
@@ -58,7 +58,7 @@ Post the verdict file verbatim with `gh pr comment <PR> -R <owner>/<repo> --body
 
 ## Merging
 
-Once the review of the current head has zero `blocking` and zero `fix-in-PR`, and before any command that decides or performs the merge, read `<skill directory>/worker-merging.md` and follow it. Every rule that this file names as "under Merging" is in that file.
+Once the review of the current head has zero `blocking` and zero `fix-in-PR`, and before any command that decides or performs the merge, read `<skill directory>/worker-merging.md` and follow it. Every rule that this file names as "under Merging" is in that file. If it cannot be read, do not merge: stop and report that the merge rules could not be read.
 
 ## Back to the starting branch
 

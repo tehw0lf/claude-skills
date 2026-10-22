@@ -50,7 +50,7 @@ The labels and the author kind in `ISSUE` say how to read the issue text: a `bot
 
 A `PLAN … stale` line is no plan: the issue text was edited, the owner commented after it, or somebody whose permission could not be read did (`unknown-commenter`).
 
-**Resume an own PR.** A PR that has a `RESUME` line whose plan is the current one is continued by the rules in `resume.md` in the directory of this skill. Before you do anything else for it, read that file and follow it; it replaces steps 2, 3, 5, 6 and 8 for that PR. Without such a PR this paragraph does not apply.
+**Resume an own PR.** When the script printed a `RESUME` line for an open PR of this issue, whatever its plan field says, read `resume.md` in the directory of this skill before you do anything else with that PR and follow it: it says which PRs are continued (and then replaces steps 2, 3, 5, 6 and 8) and how the others are reported. If the file cannot be read, stop and report that; do not decide the PR's status without it. Without a `RESUME` line this paragraph does not apply.
 
 
 ### 2. Bring the checkout up to date
@@ -238,7 +238,7 @@ Done when the PR is open on a head for which step 7 is done. Report the PR, the 
 
 ## Stopping after the branch exists
 
-Before the first command of any stop after the branch exists (steps 3 to 7, and a stop in resume mode that leaves the checkout on the PR branch), read `stopping.md` in the directory of this skill and follow it: it holds the clean-up and the reason for each stop.
+Before the first command of any stop after the branch exists (a stop in steps 3 to 7), read `stopping.md` in the directory of this skill and follow it: it holds the clean-up and the reason for each stop. If the file cannot be read, run no clean-up command from memory: report the stop, the state of the checkout and that the file could not be read.
 
 
 ## Not part of this skill
