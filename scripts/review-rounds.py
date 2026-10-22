@@ -9,7 +9,7 @@ Read-only on GitHub (needs gh auth). Nothing is cached: every run reads the PRs 
 A verdict is an issue comment on the PR whose first line is exactly `## Independent local review`,
 written by an owner, member or collaborator of the repository (anyone can comment on a PR, so any
 other comment is ignored). The rounds of a PR are its verdicts in creation order. Both layouts of
-plugins/pr-review/agents/pr-reviewer.md are read: the folded one (count line
+plugins/pr-review/agents/pr-reviewer.md and plugins/pr-review/verdict-layout.md are read: the folded one (count line
 `**Blocking: <n> · Fix in PR: <n> · Follow-up: <n>**`) and the flat one before it (unindented numbered or bulleted
 items under `### Blocking`, `### Fix in PR`, `### Follow-up`; `none` counts 0). A verdict that matches
 neither is reported as UNPARSED and counted as `?/?/?`, never guessed.
