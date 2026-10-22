@@ -33,9 +33,9 @@ docs/                                      # coupling.md and commands.md, read a
 scripts/                                   # repository checks and tools, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it (work-issue: resume.md, stopping.md and the worker-*.md files, see below)
-plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent is the whole plugin)
-plugins/pr-review/verdict-layout.md        # the verdict layout, read by pr-reviewer before it writes the verdict (beside agents/ because agents/**/*.md is checked as agents)
+plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent and its layout file are the whole plugin)
                                            # a plugin may hold several skills and agents (work-issue: plan-issue + issue-planner, work-issue + issue-worker, orchestrate-issue)
+plugins/pr-review/verdict-layout.md        # the verdict layout, read by pr-reviewer before it writes the verdict (beside agents/ because agents/**/*.md is checked as agents)
 plugins/<name>/hooks/hooks.json            # optional: hooks the plugin adds while it is enabled (inbox: the SessionStart summary)
 ```
 
