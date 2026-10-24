@@ -4,11 +4,12 @@
 // validated as strict semver before it is used anywhere else, so a value from a prompt never reaches a
 // registry query, a branch name or verify-nx-provenance.js unchecked. Uses npm's bundled semver,
 // loaded from the npm that is on PATH (as check-pins.js does); starts npm without a shell.
-// usage: check-target.js <installed version> <target version>   run in the Nx workspace root (reads the registry)
+// usage: check-target.js <installed version | -> <target version>   run in the Nx workspace root (reads the registry)
 //   stdout: five lines, tab-separated:
 //     TARGET <target>
 //     INSTALLED <installed>
-//     ORDER newer|equal|older        (target against installed, semver precedence)
+//     ORDER newer|equal|older|unknown (target against installed, semver precedence; unknown when the
+//                                    installed version is given as "-", i.e. could not be read)
 //     PRERELEASE yes|no              (of the target)
 //     LATEST <newest stable>         (npm view nx version)
 //   stderr: the reason of a failure
@@ -25,7 +26,7 @@ function fail(message) {
 }
 
 const [installed, target, ...rest] = process.argv.slice(2);
-if (!installed || !target || rest.length) fail('usage: check-target.js <installed version> <target version>');
+if (!installed || !target || rest.length) fail('usage: check-target.js <installed version | -> <target version>');
 
 function findNpm() {
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
@@ -67,7 +68,7 @@ try {
   fail(`cannot load semver from the npm package directory (${e.message}); the target is not checked`);
 }
 
-if (semver.valid(installed) !== installed) fail(`the installed version "${installed}" is not strict semver`);
+if (installed !== '-' && semver.valid(installed) !== installed) fail(`the installed version "${installed}" is not strict semver`);
 if (semver.valid(target) !== target) {
   fail(`the target "${target}" is not an exact version (no range, dist-tag, "v" prefix or partial version)`);
 }
@@ -86,12 +87,12 @@ if (published !== target) fail(`nx ${target} is not a published version (npm vie
 const latest = npmView(['nx', 'version']);
 if (typeof latest !== 'string' || semver.valid(latest) !== latest) fail(`npm view nx version printed ${JSON.stringify(latest)}`);
 
-const cmp = semver.compare(target, installed);
+const cmp = installed === '-' ? null : semver.compare(target, installed);
 process.stdout.write(
   [
     `TARGET\t${target}`,
     `INSTALLED\t${installed}`,
-    `ORDER\t${cmp > 0 ? 'newer' : cmp === 0 ? 'equal' : 'older'}`,
+    `ORDER\t${cmp === null ? 'unknown' : cmp > 0 ? 'newer' : cmp === 0 ? 'equal' : 'older'}`,
     `PRERELEASE\t${semver.prerelease(target) ? 'yes' : 'no'}`,
     `LATEST\t${latest}`,
   ].join('\n') + '\n'
