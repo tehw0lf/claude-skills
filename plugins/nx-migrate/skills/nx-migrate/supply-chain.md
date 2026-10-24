@@ -6,6 +6,8 @@ Never disable the check as a reflex — not with an env var, not with a flag. Ve
 node scripts/verify-nx-provenance.js [<version>]   # exits 0 only if all four checks hold
 ```
 
+With a target version, pass it as `<version>` (the one `check-target.js` accepted).
+
 `npm audit signatures` is a useful cross-check.
 
 - **Not verified** → stop and report. Do not migrate.

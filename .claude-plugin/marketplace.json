@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "nx-migrate",
-      "description": "Migrate an Nx monorepo to the latest Nx version with automatic conflict resolution and PR creation.",
+      "description": "Migrate an Nx monorepo to the latest Nx version, or to a given one, with automatic conflict resolution and PR creation.",
       "author": {
         "name": "tehw0lf"
       },
