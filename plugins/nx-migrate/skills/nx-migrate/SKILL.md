@@ -52,6 +52,8 @@ git switch --no-overwrite-ignore -c chore/nx-migrate-<target> refs/remotes/origi
 
 (`chore/nx-migrate-latest` without a target version, `chore/nx-migrate-<version>` with one.)
 
+Then record the commit the branch starts from (`git rev-parse HEAD`, called the start commit below): steps 10, 11 and 12 measure against it, because Nx may commit during step 5.
+
 `--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `refs/remotes/origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
 
 Step 1 checked the tree that was checked out before the switch, so run the check again on the tree the migration installs on (no install has happened yet):
@@ -84,7 +86,11 @@ A `legacy-peer-deps` or `force` setting or an override that is already present i
 
 ### 5. Run migrations
 
-If `migrations.json` exists: `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run. Note every file the migrations create (the migration output names them): step 11 stages them.
+If `migrations.json` exists, first list the untracked entries: `git -c core.quotePath=false status --porcelain --untracked-files=all`. Stop and report, before the migrations run, if a `??` entry is anything other than `migrations.json` or an entry under `tools/ai-migrations/` (relative to the workspace prefix, as in step 11). The reason: when Nx starts an orchestrated run (below) it commits with `git add -A`, which would commit such an entry, while step 11 deliberately leaves such entries out. This check does not decide which `.nx/` entries belong in a commit.
+
+Then `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run. Note every file the migrations create (the migration output names them): step 11 stages them.
+
+**Orchestrated run.** Nx 24 starts an orchestrated run by itself when the command runs inside an agent, outside CI, without `--no-agentic`; Nx 23.x does so only with `NX_MIGRATE_ORCHESTRATOR=true`. The sign is an `<nx_migrate_runbook run-id="…">` block in the output. Then read `orchestrated-run.md` in the directory of this skill and follow it instead of the classic text of this step and of the AI-prompt paragraph below: Nx drives the run and makes its own commits. Do not pass `--no-agentic` or `--no-create-commits` and do not set `CI`. If `orchestrated-run.md` cannot be read, stop and report that. Without the block (Nx 23.x by default, a run under `CI`) the text below applies unchanged.
 
 **AI-prompt migrations** (Nx 23.1+, "N prompt migrations deferred", written to `tools/ai-migrations/`): apply each in the listed order, honouring its stated preconditions. A no-op is often the correct outcome — e.g. `migrate-ban-types-rule` changes nothing when `@typescript-eslint/ban-types` appears only inside `migrations.json`. Do not invent work. If a prompt names a target the workspace lacks (e.g. `typecheck`), say so and rely on step 8. Note the files an applied prompt creates as well; the prompt files in `tools/ai-migrations/` are not workspace content and are not noted.
 
@@ -112,6 +118,8 @@ rm -f migrations.json
 If it was **tracked** (leftover from an unfinished run), call the deletion out explicitly in the commit message and PR body.
 
 ### 8. Validate: lint → test → build
+
+This step runs once the migrations are done (after an orchestrated run: reported `complete`); Nx's own final validation pass does not replace it.
 
 Use the repo's CLAUDE.md commands, but first confirm they exist — `npx nx show projects` and the `scripts` in `package.json`. A command failing on a missing target is neither a failure nor a pass: run the existing equivalent and note the discrepancy in the PR body. Default:
 
@@ -153,12 +161,14 @@ CI derives the image tag, the git tag and the release from that value and does n
 Sub-packages are bumped the same way. Every package under `libs/*` and `apps/*` that already exists on the base commit, has a `version` and anything changed in its directory (so changes from steps 5, 6 and 8 all count) gets a patch bump. A package the run created is left alone, since it has no earlier version to move on from:
 
 ```bash
-<skill directory>/scripts/bump-subpackages.sh    # run in the workspace root, before the commit in step 11
+<skill directory>/scripts/bump-subpackages.sh --base <start commit>    # run in the workspace root, before the commit in step 11
 ```
+
+`--base` is the start commit of step 2: "changed" is measured against it, so that what Nx committed in an orchestrated run (step 5) counts as well. The script reads `HEAD` as the base when `--base` is left out, which is right only while nothing is committed before step 11.
 
 It prints one line per bumped package (directory, old version, new version) on stdout, runs one `npm install --ignore-scripts` after all bumps, and reports everything else on stderr or by its exit status:
 
-- **Bumped:** a package that is in `HEAD` with a non-empty string `version` and has changes in its directory: a tracked difference from `HEAD` (staged or not) or an untracked file that is not git-ignored. Build or test output that is not ignored therefore also counts, which at worst gives a harmless bump. Versions follow `npm version patch` (`2.0.0-rc.1` becomes `2.0.0`, `1.0.0+build` becomes `1.0.1`), as for the root bump. No package scripts run (`--ignore-scripts`), so a library's `preversion`/`postversion` cannot act during the migration.
+- **Bumped:** a package that is in the base (the start commit; `HEAD` without `--base`) with a non-empty string `version` and has changes in its directory: a tracked difference from `HEAD` (staged or not) or an untracked file that is not git-ignored. Build or test output that is not ignored therefore also counts, which at worst gives a harmless bump. Versions follow `npm version patch` (`2.0.0-rc.1` becomes `2.0.0`, `1.0.0+build` becomes `1.0.1`), as for the root bump. No package scripts run (`--ignore-scripts`), so a library's `preversion`/`postversion` cannot act during the migration.
 - **Already bumped** (the version differs from `HEAD`): not bumped again, but printed again and the lockfile is synced again, so running it twice, or rerunning after a failed `npm install`, is safe. It counts as a bump only if the version ranks above `HEAD`'s by semantic-version precedence; a lower or equal one, or one that is not valid semver, stops the script (a hand-edited downgrade is not reported as a bump). The script checks every package before it bumps the first one, so an invalid manifest stops it with nothing bumped; if `npm version` itself fails in the middle (not for an invalid version, which pass 1 stops on), the message names the packages bumped so far and says the lockfile is not synced. Fix the cause and rerun the script: it picks up where it stopped.
 - **Skipped with a `# note:` line:** a symlinked package directory; a directory name with a tab or newline; a package that is not in `HEAD` (new or renamed in this run; a git-ignored package directory has its own note); a package without a `version` in `HEAD` whose directory has changes (none is added); a directory with changes but no regular `package.json` (deleted, a directory, a symlink); workspace globs other than exactly `libs/*` and `apps/*` (nested packages are not bumped, their pins are still checked; an entry with a leading `!` is listed as an exclusion that is not applied); no `libs/` and no `apps/` at all.
 - **Skipped silently**, because nothing is hidden: an unchanged package, with or without a `version`; an unchanged directory without a `package.json`; a plain file or dot-directory under `libs/` or `apps/`; a package directory that was deleted.
@@ -166,9 +176,11 @@ It prints one line per bumped package (directory, old version, new version) on s
 
 `npm version` rewrites the whole `package.json`, for the root bump as for the sub-packages. Observed with npm 12.2.0 on an indented manifest: arrays expanded to one element per line, `\uXXXX` escapes written as the literal characters, a final newline added. The diff of a bumped manifest can therefore show more than the version line; say so in the PR body, so a reviewer does not take it for an unrelated change.
 
-"Changed" is measured against `HEAD` because step 1 requires a clean tree and nothing is committed before step 11. The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing, so the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Put the printed lines and the notes in the PR body. After a bump, re-run validation.
+"Changed" is measured against the start commit because step 1 requires a clean tree and only the commits Nx made in step 5 (none in a classic run) lie between it and the working tree. The reason is the one above, applied to each library: a publish keyed on the library's own version skips an unchanged version without failing, so the rule is "has a version and changed", never "looks published". A sub-package without a `version` gets none added. Put the printed lines and the notes in the PR body. After a bump, re-run validation.
 
 ### 11. Commit
+
+After an orchestrated run Nx's commits are already on the branch; this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
 
 ```bash
 git add -u
@@ -184,7 +196,7 @@ Done when `git status --porcelain --untracked-files=all` shows no `??` entry exc
 chore(deps): migrate nx to vX.Y.Z
 
 - Run nx migrate <target>
-- Apply generated migrations
+- Apply generated migrations (classic run only; Nx committed them itself in an orchestrated one)
 - Resolve peer dependency conflicts (if any)
 - Sync sub-package dependency versions (if any)
 - Bump patch versions of changed sub-packages (if any)
@@ -200,6 +212,7 @@ gh pr create --base <default> --title "chore(deps): migrate nx to <target>" --bo
 
 - Migrated Nx workspace to vX.Y.Z (the target version, when one was given; then also the newest stable release from the `LATEST` line of `check-target.js`, when it is newer)
 - Applied all generated migrations
+- Nx's own commits (orchestrated run; `git log --format='%h %s' <start commit>..HEAD`, read before the step 11 commit): <list, or none> and the outcome of each step (applied, adopted, skipped, unresolved). When no prompt that left work after its generator had run was part of the run, say that none was observed
 - Bumped patch versions of changed sub-packages: <list, or none>
 - Root version scripts run by the bump: <names and the files and entries they changed, or none set>
 - Untracked files not committed: <paths, or none>

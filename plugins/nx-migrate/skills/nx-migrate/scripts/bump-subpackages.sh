@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Patch-bump every libs/*/ and apps/*/ package that has a "version" and anything changed in its directory.
-# usage: bump-subpackages.sh   run in the Nx workspace root (nx.json and package.json there; the root may
-#                              be a subdirectory of the git root), before the migration commit (step 10)
+# usage: bump-subpackages.sh [--base <rev>]
+#        run in the Nx workspace root (nx.json and package.json there; the root may be a subdirectory of
+#        the git root), before the migration commit (step 10)
 #
-# Base: HEAD. Step 1 required a clean tree and nothing is committed before step 11, so what differs
-# from HEAD is exactly what the run changed.
+# Base: <rev> when --base is given, otherwise HEAD. Step 1 required a clean tree, so what differs from
+# the commit the branch started from is exactly what the run changed. Without --base that is HEAD,
+# which holds as long as nothing was committed before step 11. When something was (the per-migration
+# commits of an orchestrated `nx migrate --run-migrations` run), HEAD no longer shows what those commits
+# changed: pass the commit the branch started from (step 2 records it). <rev> must name a commit
+# (checked with `git rev-parse --verify`; exit 1 otherwise). Below, "HEAD" means this base. Untracked
+# files are always read from the working tree.
 # "Changed" = a tracked difference from HEAD (staged or not) or an untracked, non-ignored file in the
 # package directory. Untracked build or test output that is not git-ignored therefore counts as a
 # change: ignore such output in .gitignore, or the package gets a (harmless) bump.
@@ -56,7 +62,7 @@
 # Versions follow `npm version patch`: 1.2.3 -> 1.2.4, 2.0.0-rc.1 -> 2.0.0, 1.0.0+build -> 1.0.1 (as for the root bump).
 #
 # Output on stdout, tab-separated, one line per bumped package:  <dir>  <old version>  <new version>
-# Preconditions (exit 1, each with its own message): git, jq, npm and node on PATH; HEAD resolvable; nx.json
+# Preconditions (exit 1, each with its own message): git, jq, npm and node on PATH; HEAD (or the --base revision) resolvable; nx.json
 #   present and not empty or whitespace-only; package.json one valid JSON object (its own "version" is not checked) whose "workspaces"
 #   field, if present, is an array of strings or an object with a "packages" array of strings (null, a
 #   string, a boolean or an object without "packages" is rejected; an absent field or [] is accepted on
@@ -70,10 +76,22 @@ set -uo pipefail
 die() { echo "bump-subpackages: $*" >&2; exit 1; }
 note() { echo "# note: $*" >&2; }
 
+base=HEAD
+case $# in
+  0) ;;
+  2) [ "$1" = --base ] || die "usage: bump-subpackages.sh [--base <rev>]"
+     [ -n "$2" ] || die "--base needs a revision"
+     base=$2 ;;
+  *) die "usage: bump-subpackages.sh [--base <rev>]" ;;
+esac
 for tool in git jq npm node; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool not found"
 done
-git rev-parse --verify -q HEAD >/dev/null || die "cannot resolve HEAD (not a git repository, or no commit yet)"
+if [ "$base" = HEAD ]; then
+  git rev-parse --verify -q HEAD >/dev/null || die "cannot resolve HEAD (not a git repository, or no commit yet)"
+else
+  base=$(git rev-parse --verify -q "$base^{commit}") || die "--base $2 does not name a commit"
+fi
 # Version of a manifest read from stdin: empty output = no version. Fails (message on stdout) on an
 # empty or whitespace-only file, several documents, a non-object, or a version that is not a string.
 manifest_version() {
@@ -150,7 +168,7 @@ for dir in libs/*/ apps/*/; do
   pkg=$dir/package.json
   if [ -L "$dir" ]; then note "$dir is a symlink, skipped"; continue; fi
   case "$dir" in *$'\t'* | *$'\n'*) note "$dir contains a tab or newline, skipped"; continue;; esac
-  tracked=$(git --literal-pathspecs diff --no-ext-diff --name-only HEAD -- "$dir") || die "git diff failed for $dir"
+  tracked=$(git --literal-pathspecs diff --no-ext-diff --name-only "$base" -- "$dir") || die "git diff failed for $dir"
   untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$dir") || die "git ls-files failed for $dir"
   if [ -L "$pkg" ] || [ ! -f "$pkg" ]; then
     # No usable manifest: deleted, a directory, a dangling symlink, or never there.
@@ -159,14 +177,14 @@ for dir in libs/*/ apps/*/; do
   fi
   old=$(manifest_version < "$pkg") || die "$pkg ${old:-is invalid}"
 
-  # The committed manifest. "HEAD:./path" is relative to the current directory, not to the git root.
-  if ! git cat-file -e "HEAD:./$pkg" 2>/dev/null; then
+  # The manifest at the base. "<base>:./path" is relative to the current directory, not to the git root.
+  if ! git cat-file -e "$base:./$pkg" 2>/dev/null; then
     ignored=$(git --literal-pathspecs ls-files --others --ignored --exclude-standard -- "$pkg") || die "git ls-files failed for $pkg"
     if [ -n "$ignored" ]; then note "$pkg is git-ignored, skipped"
     else note "$pkg is not in HEAD (new or renamed in this run), skipped"; fi
     continue
   fi
-  head_json=$(git show "HEAD:./$pkg") || die "cannot read HEAD:$pkg"
+  head_json=$(git show "$base:./$pkg") || die "cannot read $pkg at the base ($base)"
   head_ver=$(printf '%s' "$head_json" | manifest_version) || die "the committed $pkg ${head_ver:-is invalid}"
 
   if [ -z "$head_ver" ]; then   # unversioned in HEAD: nothing to bump, and none is added
