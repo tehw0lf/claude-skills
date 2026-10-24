@@ -69,10 +69,12 @@ Then install what the new tree declares, with a plain `npm ci` (no flags; a fail
 ### 3. Migrate
 
 ```bash
-npx nx@<target> migrate <target> 2>&1
+npx nx@<target> migrate <target> --interactive=false 2>&1
 ```
 
-That is `npx nx@latest migrate latest 2>&1` without a target version and `npx nx@<version> migrate <version> 2>&1` with one.
+That is `npx nx@latest migrate latest --interactive=false 2>&1` without a target version and `npx nx@<version> migrate <version> --interactive=false 2>&1` with one.
+
+The flag is there because, on a major migration outside CI, Nx offers to connect the workspace to Nx Cloud: the prompt defaults to "Yes" and waits for an answer when a TTY is attached, and Nx Cloud is not used with these repositories. The flag also leaves the `--include` and multi-major choices at the defaults a run without a TTY gets (`all`, direct).
 
 If it fails a **provenance or supply-chain check**, read `supply-chain.md` and follow it before anything else. If it fails mid-run otherwise, `git diff package.json` shows what was partially updated.
 
