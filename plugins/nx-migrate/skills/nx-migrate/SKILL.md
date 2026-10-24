@@ -82,9 +82,11 @@ If it fails a **provenance or supply-chain check**, read `supply-chain.md` and f
 
 `npm install`. On peer conflicts, fix the incompatible ranges in `package.json` (pin to a version compatible with both sides) and reinstall.
 
+**Lockfile-induced conflict.** When `npm install` still reports ERESOLVE although the ranges in the root and workspace `package.json` files admit a common version (the report's "Found" side is a version recorded in `package-lock.json` that no range requires), the lockfile is the cause. The observed case: the root bump moved a family of packages that pin each other exactly (`angular-eslint` and the `@angular-eslint/*` packages, 22.5.0 to 22.6.0), and the locked 22.5.0 of one member conflicted with the migrated 22.6.0 of another. Installing the family at exact versions, `npm update`, `npm install --package-lock-only`, uninstalling and reinstalling, and deleting `node_modules` alone did not help; do not spend time on them. Regenerate the lockfile, once: `rm -rf node_modules package-lock.json` in the working directory (the one holding `nx.json`), then a plain `npm install` without any flag. If there is no `package-lock.json` in the working directory, regenerate nothing: stop and report, because the lockfile lies elsewhere and another directory's lockfile is not deleted. The fresh install also refreshes every other dependency within its range, which the validation of steps 8 and 9 covers. Record the conflicting package with its locked and its required version, and the churn as `git diff --shortstat <start commit> -- package-lock.json`, for steps 11 and 12 and the report.
+
 A `legacy-peer-deps` or `force` setting or an override that is already present is caught by step 1; this rule covers what the migration itself would add.
 
-**Never `--force`, `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`** — npm's own error message suggests the first two. None of them resolves the conflict: the flags and the `.npmrc` setting make npm install past the peer ranges instead of honouring them, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release.
+**Never `--force`, `--legacy-peer-deps`, `legacy-peer-deps=true`, or `overrides`/`resolutions`** — npm's own error message suggests the first two. None of them resolves the conflict: the flags and the `.npmrc` setting make npm install past the peer ranges instead of honouring them, and an override forces a version the dependent package never declared support for. Either way the install goes green on a combination no package declared compatible, and the lockfile records it. If no released version satisfies both sides, stop and report the conflicting packages and ranges; the migration waits for the upstream release. The same holds for a conflict that the fresh install of the lockfile regeneration above still reports: it is a real one; stop and report it, and say that the lockfile was regenerated.
 
 ### 5. Run migrations
 
@@ -108,7 +110,7 @@ For every `libs/*/package.json` and `apps/*/package.json` (excluding `node_modul
 | `devDependencies` | `devDependencies` |
 | `dependencies` | `dependencies` |
 
-Then `npm install` again.
+Then `npm install` again. An ERESOLVE there is handled as in step 4; a lockfile that was already regenerated in this run is not regenerated again.
 
 ### 7. Remove migrations.json
 
@@ -200,6 +202,7 @@ chore(deps): migrate nx to vX.Y.Z
 - Run nx migrate <target> (classic run only; in an orchestrated one Nx's checkpoint commit holds it)
 - Apply generated migrations (classic run only; Nx committed them itself in an orchestrated one)
 - Resolve peer dependency conflicts (if any; classic run only, for the same reason)
+- Regenerate package-lock.json (lockfile-induced peer conflict, if any)
 - Sync sub-package dependency versions (if any)
 - Bump patch versions of changed sub-packages (if any)
 - Fix lint/test/build issues (list specific fixes if any)
@@ -215,6 +218,7 @@ gh pr create --base <default> --title "chore(deps): migrate nx to <target>" --bo
 - Migrated Nx workspace to vX.Y.Z (the target version, when one was given; then also the newest stable release from the `LATEST` line of `check-target.js`, when it is newer)
 - Applied all generated migrations
 - Nx's own commits (orchestrated run; `git log --format='%h %s' <start commit>..HEAD`, read before the step 11 commit): <list, or none> and the outcome of each step (applied, adopted, skipped, unresolved). When no prompt that left work after its generator had run was part of the run, say that none was observed
+- Lockfile regenerated: <no, or the conflicting package with its locked and required version, and the `git diff --shortstat <start commit> -- package-lock.json` output>
 - Bumped patch versions of changed sub-packages: <list, or none>
 - Root version scripts run by the bump: <names and the files and entries they changed, or none set>
 - Untracked files not committed: <paths, or none>
