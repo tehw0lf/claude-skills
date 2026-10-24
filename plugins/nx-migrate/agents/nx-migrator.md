@@ -111,7 +111,7 @@ Your final message is the only thing the user sees. Include:
 - repo name and version transition (`from` → `to`); with a target version also the `LATEST` line of `check-target.js`, so that a target older than the newest stable release is visible
 - for an orchestrated run: the run id, the outcome of each step and Nx's commits on the branch (`git log --format='%h %s'` from the start commit)
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
-- whether the lockfile was regenerated for a lockfile-induced peer conflict (step 4): the conflicting package with its locked and required version and the `git diff --shortstat` of `package-lock.json`, or that it was not
+- whether the lockfile was regenerated for a lockfile-induced peer conflict (step 4): the conflicting package with its locked and required version and the `git diff --shortstat` of `package-lock.json`, or that it was not; when the fresh install failed and the run stopped, that `package-lock.json` is deleted and `node_modules` is gone in the working tree
 - the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
 - the untracked files step 11 did not commit, as git printed them: those listed in the PR body under "Untracked files not committed", and separately those that could not be attributed to a command of this run and so stay out of the PR body, or that there are none
 - validation results with real numbers (tests passed/total, lint errors)
