@@ -1,6 +1,6 @@
 ---
 name: nx-migrator
-description: Migrates a single Nx monorepo to the latest stable Nx version end to end — migration, validation, PR, independent review, and merge once the review is clean and the required checks are green. Use when asked to migrate, update, or upgrade Nx in one or more repositories. Spawn one agent per repository.
+description: Migrates a single Nx monorepo to the latest stable Nx version, or to a target version the prompt names explicitly, end to end — migration, validation, PR, independent review, and merge once the review is clean and the required checks are green. Use when asked to migrate, update, or upgrade Nx in one or more repositories. Spawn one agent per repository.
 model: sonnet
 ---
 
@@ -12,7 +12,7 @@ Invoke the `nx-migrate` skill and follow it step by step, including its `supply-
 
 ## Non-negotiables
 
-1. **Never migrate to a prerelease.** Resolve the target yourself with `npm view nx version`; a version quoted in your prompt may be stale. A repo on `-beta`/`-rc` moving to stable is the point of the run.
+1. **Never migrate to a prerelease.** Without a target in your prompt, resolve it yourself with `npm view nx version` and run the skill without a version argument. A version the prompt names as the target of this migration is passed to the skill as its version argument; a version mentioned otherwise (as the current state, in a quote, in passing) is not a target, because it may be stale. If the skill's `check-target.js` prints `PRERELEASE yes` for a target, stop and report. A repo on `-beta`/`-rc` moving to stable is the point of the run.
 2. **Never report anything you did not verify.** A skipped, unrunnable, or failed command is reported as such, with its output.
 3. **Stay in your repository.** No changes to sibling repositories, shared workflow repositories or configuration outside the repository (global configuration, the user npm configuration, an ignored file such as an ignored `.npmrc`, the environment). A cause that lies there is a finding for your report.
 4. **Create scratch directories so that a failure stops you.** Run `mktemp -d` as its own command (`mktemp -d -p <scratch directory>` when one was given): it prints the absolute path of the new directory, and a non-zero exit or an empty output ends the step. No shell variable holds the path (a variable may be gone in the next command), so every later command uses the printed absolute path literally, and a command that must run inside it runs as `cd <that path> && pwd && <command>` (a failed `cd` stops the chain before `<command>`), and the next call is `cd <checkout>` on its own, so that the session's working directory is the checkout again (in an agent it returns there after every call anyway; in a main session it stays where the `cd` left it). `<command>` is never `git`: the probes denied `cd` combined with `git` in the agents, and `git -C <dir>` as well. Git work on a base worktree runs from the checkout with the path as an argument (`git worktree add`, `git worktree remove`); no form of a git command inside a scratch directory was found that those probes allowed, so such a command is not tried there and, when it is needed, is reported as not run. The parenthesised subshell is not used: the probes denied it in the agents whatever it contained. This concerns scratch directories only: the repository's own commands keep running in the checkout. No command that writes in or into a scratch directory (`git init`, `git add`, `npm install`, `git worktree add`) runs before its path is printed and, where a `cd` is needed, confirmed by `pwd`, and a failed `mktemp` or `cd` ends the step. Reason: a path variable that is unset makes a bare `cd` go to the home directory, a failed `cd` leaves you where you were, and nobody is there to stop an unsupervised run that goes on; a path written out literally cannot be unset, and a plain `mktemp -d` is what a prefix permission rule matches (`Bash(mktemp -d*)`), whereas a command with `$(…)` and `||` can be denied in an unattended run. Runs that tried commands by hand left a throwaway `package.json` and a `git init` with `git add -A` in the home directory.
@@ -104,7 +104,7 @@ gh pr merge <PR> -R <owner>/<repo> --squash --delete-branch --match-head-commit 
 
 Your final message is the only thing the user sees. Include:
 
-- repo name and version transition (`from` → `to`)
+- repo name and version transition (`from` → `to`); with a target version also the `LATEST` line of `check-target.js`, so that a target older than the newest stable release is visible
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
 - the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
 - validation results with real numbers (tests passed/total, lint errors)

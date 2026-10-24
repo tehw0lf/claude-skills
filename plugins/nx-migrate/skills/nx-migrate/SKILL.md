@@ -1,11 +1,11 @@
 ---
 name: nx-migrate
-description: Migrate an Nx monorepo to the latest Nx version — applies migrations, resolves dependency conflicts, fixes lint/test/build errors, opens a PR. Use when the user says "nx migrate", "update nx", or "upgrade nx".
-argument-hint: [--skip-e2e]
+description: Migrate an Nx monorepo to the latest Nx version, or to a given target version — applies migrations, resolves dependency conflicts, fixes lint/test/build errors, opens a PR. Use when the user says "nx migrate", "update nx", or "upgrade nx".
+argument-hint: "[<version>] [--skip-e2e]"
 allowed-tools: Bash, Read, Edit, Write, TodoWrite
 ---
 
-# Nx Migrate to Latest
+# Nx Migrate
 
 ## Steps
 
@@ -32,6 +32,14 @@ What follows from a line:
 
 Then record the installed version: `node -p "require('./node_modules/nx/package.json').version"`.
 
+**Target version.** The skill takes an optional exact version as its argument (`nx-migrate 23.3.1`); `<target>` below is that version when it is given and `latest` otherwise. Without the argument nothing in this paragraph runs and the skill migrates to the latest release as before. With it, check it before step 2:
+
+```bash
+<skill directory>/scripts/check-target.js <installed version> <version>
+```
+
+Call it by its full path, the base directory of this skill plus `scripts/check-target.js`. The script accepts only an exact, published version (no range, dist-tag, `v` prefix or partial version) and prints `TARGET`, `INSTALLED`, `ORDER`, `PRERELEASE` and `LATEST` lines; the docstring of the script is the full description. If the installed version could not be read (no `node_modules` yet, a fresh clone), pass `-` instead: the script then checks the version and its publication only and prints `ORDER unknown`, and the order is decided by the check after `npm ci` in step 2. **Stop before step 2 (no branch, no install)** and report the output if it exits non-zero or prints `ORDER equal` or `ORDER older`: an equal version leaves nothing to migrate and a lower one would be a downgrade. The reason for the script: the version ends up in a branch name, a PR title and the provenance check (`verify-nx-provenance.js` runs it inside a shell command), so it is validated as strict semver before any of them sees it. The skill does not decide whether a prerelease target is acceptable: `PRERELEASE yes` is reported, and the caller (for `nx-migrator` a stop) decides.
+
 ### 2. Branch
 
 Record the current branch (`git branch --show-current`; empty output means a detached HEAD, record `git rev-parse HEAD` instead), then create the branch from the fetched default branch:
@@ -39,8 +47,10 @@ Record the current branch (`git branch --show-current`; empty output means a det
 ```bash
 git fetch origin
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name    # <default>
-git switch --no-overwrite-ignore -c chore/nx-migrate-latest refs/remotes/origin/<default>
+git switch --no-overwrite-ignore -c chore/nx-migrate-<target> refs/remotes/origin/<default>
 ```
+
+(`chore/nx-migrate-latest` without a target version, `chore/nx-migrate-<version>` with one.)
 
 `--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `refs/remotes/origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
 
@@ -50,15 +60,17 @@ Step 1 checked the tree that was checked out before the switch, so run the check
 <skill directory>/scripts/check-install-config.py "$PWD"
 ```
 
-If it prints any line or exits non-zero, switch back (`git switch <recorded branch>`, or `git switch --detach <recorded commit>`), delete the empty branch with `git branch -D chore/nx-migrate-latest` (it holds no commits of this run), and handle the lines as step 1 says.
+If it prints any line or exits non-zero, switch back (`git switch <recorded branch>`, or `git switch --detach <recorded commit>`), delete the empty branch with `git branch -D chore/nx-migrate-<target>` (it holds no commits of this run), and handle the lines as step 1 says.
 
-Then install what the new tree declares, with a plain `npm ci` (no flags; a failing install is the repository's own state: stop and report the output). Step 3's `npx nx@latest migrate latest` chooses its migrations by comparing against the Nx and plugin versions in `node_modules`, which still hold the tree checked out before the switch. Record the installed version again with the command from step 1: this is the "from" version, and it replaces the one step 1 recorded.
+Then install what the new tree declares, with a plain `npm ci` (no flags; a failing install is the repository's own state: stop and report the output). Step 3's `npx nx@<target> migrate <target>` chooses its migrations by comparing against the Nx and plugin versions in `node_modules`, which still hold the tree checked out before the switch. Record the installed version again with the command from step 1: this is the "from" version, and it replaces the one step 1 recorded. With a target version, run `check-target.js` again with this "from" version: the one from step 1 was read on the tree checked out before the switch. On a non-zero exit or any `ORDER` other than `newer`, switch back and delete the empty branch as for the check above (`npm ci` changed only `node_modules`), then report the output and state that `node_modules` now holds the install of the default branch, so the recorded branch needs its own `npm ci` before it is used again.
 
 ### 3. Migrate
 
 ```bash
-npx nx@latest migrate latest 2>&1
+npx nx@<target> migrate <target> 2>&1
 ```
+
+That is `npx nx@latest migrate latest 2>&1` without a target version and `npx nx@<version> migrate <version> 2>&1` with one.
 
 If it fails a **provenance or supply-chain check**, read `supply-chain.md` and follow it before anything else. If it fails mid-run otherwise, `git diff package.json` shows what was partially updated.
 
@@ -172,7 +184,7 @@ Done when `git status --porcelain --untracked-files=all` shows no `??` entry exc
 ```
 chore(deps): migrate nx to vX.Y.Z
 
-- Run nx migrate latest
+- Run nx migrate <target>
 - Apply generated migrations
 - Resolve peer dependency conflicts (if any)
 - Sync sub-package dependency versions (if any)
@@ -183,11 +195,11 @@ chore(deps): migrate nx to vX.Y.Z
 ### 12. Push and open PR
 
 ```bash
-git push -u origin chore/nx-migrate-latest
-gh pr create --base <default> --title "chore(deps): migrate nx to latest" --body "$(cat <<'EOF'
+git push -u origin chore/nx-migrate-<target>
+gh pr create --base <default> --title "chore(deps): migrate nx to <target>" --body "$(cat <<'EOF'
 ## Summary
 
-- Migrated Nx workspace to vX.Y.Z
+- Migrated Nx workspace to vX.Y.Z (the target version, when one was given; then also the newest stable release from the `LATEST` line of `check-target.js`, when it is newer)
 - Applied all generated migrations
 - Bumped patch versions of changed sub-packages: <list, or none>
 - Root version scripts run by the bump: <names and the files and entries they changed, or none set>
