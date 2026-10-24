@@ -107,6 +107,7 @@ Your final message is the only thing the user sees. Include:
 - repo name and version transition (`from` → `to`); with a target version also the `LATEST` line of `check-target.js`, so that a target older than the newest stable release is visible
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
 - the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
+- the untracked files step 11 did not commit, as git printed them: those listed in the PR body under "Untracked files not committed", and separately those that could not be attributed to a command of this run and so stay out of the PR body, or that there are none
 - validation results with real numbers (tests passed/total, lint errors)
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - whether the PR was merged, or what blocked it (a finding, a required check, no required check, no reviewer, a non-default base or dependent PRs)
