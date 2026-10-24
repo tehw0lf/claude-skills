@@ -1,0 +1,17 @@
+# Orchestrated run
+
+Read from step 5 of `SKILL.md` when the output of `npx nx migrate --run-migrations` holds an `<nx_migrate_runbook run-id="…">` block: Nx started an orchestrated run and drives it. This file applies only then. The reason it defers to Nx for the loop: Nx calls its `RUNBOOK.md` the contract of the run and says it wins over what the session remembers, and a copy here would go stale with the next Nx release.
+
+## The run
+
+- Follow the runbook that Nx printed (and the step blocks it prints) until the run is reported `complete`: the loop through the reconcile command (`nx migrate --run-id=<id>`), a handoff file for each piece of agent work (written with the file-write tool), and commands started in the background with a Monitor in Claude Code, as the runbook says.
+- Nx makes the commits itself (a checkpoint before the first migration, then one per migration). While the run is active do not run `git commit`, `git reset` or anything that rewrites history, and no unscoped `nx run-many` (the runbook forbids all three in agent work). The skill's own commit (step 11), the `git reset` of its clean-up and the `nx run-many` of step 8 wait until the run is `complete`.
+- Prompt work is held to step 5's rules: honour the stated preconditions, a no-op is often correct, do not invent work, and if a prompt names a target the workspace lacks, say so and rely on step 8.
+- An `existing-run` report, a refusal at init (`.nx/migrate-runs` tracked or not ignored, the default-branch refusal) and a step that needs the user's direction go to the user. Where nobody is there (the `nx-migrator` agent), stop and report Nx's message, the run id and the step. Do not fall back to the classic loop with `--no-agentic`: that would undo the choice that Nx drives the run.
+- If the runbook's Commits section says the run creates no commits (`migrate.createCommits: false` in `nx.json`), nothing is committed before step 11: note the files the steps create and stage them there as in a classic run.
+
+## When the run is `complete`
+
+1. Run `git diff --name-status <start commit>..HEAD`. If Nx's commits hold an entry under `.nx/`, or one that is lint, test or build output rather than migration content, stop and report it. History is not rewritten: Nx's commits stay on the branch, and only a person decides to drop any of them.
+2. Record for the PR body (step 12) the outcome of each step as the run reported it (applied, adopted, skipped, unresolved) and the commits (`git log --format='%h %s' <start commit>..HEAD`).
+3. Continue with step 6. The files the steps created are already in Nx's commits and are not noted for step 11. Step 8 still runs in full: Nx's final validation pass is limited to `nx affected` with a base ref and does not replace it.
