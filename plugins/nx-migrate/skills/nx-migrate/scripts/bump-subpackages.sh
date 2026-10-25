@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Patch-bump every libs/*/ and apps/*/ package that has a "version" and anything changed in its directory.
+# Patch-bump every package of the Nx project graph that has a "version" and anything changed in its directory.
 # usage: bump-subpackages.sh [--base <rev>]
 #        run in the Nx workspace root (nx.json and package.json there; the root may be a subdirectory of
 #        the git root), before the migration commit (step 10)
@@ -12,27 +12,31 @@
 # (checked with `git rev-parse --verify`; exit 1 otherwise). Below, "HEAD" means this base. Untracked
 # files are always read from the working tree.
 # "Changed" = a tracked difference from HEAD (staged or not) or an untracked, non-ignored file in the
-# package directory. Untracked build or test output that is not git-ignored therefore counts as a
+# package directory, leaving out files below a nested project root (as in Nx, a file belongs to the deepest
+# project root that contains it: a change in libs/a/inner does not change libs/a). Untracked build or test output that is not git-ignored therefore counts as a
 # change: ignore such output in .gitignore, or the package gets a (harmless) bump.
 #
+# Package set: the project roots printed by project-packages.sh (next to this script): every Nx project
+#   other than the workspace root whose directory holds a regular package.json, nested and outside
+#   libs/ and apps/ (libs/group/name, packages/name ...). Nx computes the graph, so it must be installed.
 # Bumped:  a package that is in HEAD with a non-empty string "version", and is changed.
 # Skipped, each with a "# note:" line on stderr: a symlinked package directory; a directory name with a
 #   tab or newline (it would break the output format); a package that is not in HEAD (new or renamed in
 #   this run: no earlier version; a git-ignored package directory gets its own note); a package whose HEAD manifest has no "version" and whose directory
 #   has changes (none is added); a directory with changes but no regular package.json (deleted, a
-#   directory, a symlink); workspace globs other than exactly libs/* and apps/* (libs/**, libs/group/*,
-#   packages/* ...; workspace entries with a leading ! are listed as exclusions that are not applied); neither libs/ nor apps/ existing.
+#   directory, a symlink); a directory directly under libs/ or apps/ with a regular package.json that is not a
+#   project root and has changes (not bumped); an Nx graph without any project that holds a package.json.
 # Skipped silently (the only silent skips, none of them hides a change): an unchanged package (with or
-#   without "version"); an unchanged directory under libs/ or apps/ without a regular package.json (not
-#   a package); a plain file or a dot-directory under libs/ or apps/ (the glob does not match them, as
-#   for npm); a package directory that was deleted (it no longer exists, so it is not scanned).
+#   without "version"); a project whose directory has no regular package.json (not a package; listed by
+#   project-packages.sh only when it has one); a package directory that was deleted (it no longer exists,
+#   so it is not scanned); an unchanged directory under libs/ or apps/ that is not a project.
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
 #   npm install) is safe. That is accepted only when the working-tree version ranks above the base's by
 #   semantic-version precedence (build metadata ignored); a lower or equal version, or a version that
 #   is not valid semver, is an error, and so is a version with a control character in any manifest.
 # Internal pins: if a manifest of the workspace (the root and every workspace npm maps from the root
-#   "workspaces": explicit entries, libs/**, other globs, ! exclusions) has a dependency spec in
+#   "workspaces": explicit entries, globs, ! exclusions) has a dependency spec in
 #   dependencies, devDependencies, peerDependencies or optionalDependencies on a package that is going to
 #   be bumped (or was bumped by an earlier run) that the HEAD version satisfies and the new version does
 #   not ("1.0.0", "=1.0.0", ^0.0.1, <=0.0.1, "1.0.0" against 1.0.0+build ...), the script lists each one
@@ -46,7 +50,7 @@
 #   does not match by version (other aliases, file:, git, tags) and * are not checked; a spec that neither HEAD's nor the new
 #   version satisfies gets a note. A package
 #   outside the mapped workspaces, or without a "name", gets a note (its pins are not checked); so does a
-#   manifest that cannot be read. The bump scan itself still covers exactly libs/*/ and apps/*/.
+#   manifest that cannot be read. The bump scan covers the Nx project packages, which need not be workspaces.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
 #   writes nothing, so a failing check stops the script before the first bump. A committed version that
 #   is not valid semver also stops here: this run cannot fix HEAD. The second pass bumps. If
@@ -66,10 +70,11 @@
 #   present and not empty or whitespace-only; package.json one valid JSON object (its own "version" is not checked) whose "workspaces"
 #   field, if present, is an array of strings or an object with a "packages" array of strings (null, a
 #   string, a boolean or an object without "packages" is rejected; an absent field or [] is accepted on
-#   purpose, because publishable libraries need not be npm workspaces and the scan uses libs/* and apps/*); libs and apps, where they exist, real
-#   directories (not symlinks, not files). If neither libs/ nor apps/ exists there is nothing to scan (note, exit 0).
+#   purpose, because publishable libraries need not be npm workspaces and the scan uses the Nx project graph); project-packages.sh
+#   succeeds (npx, Nx and the dependencies it needs installed, a graph Nx can compute). If no project has a package.json there is
+#   nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (a wrong argument, a --base that names no commit, git, jq, npm or
-#   node missing or failing, HEAD unresolvable, no package.json, an unreadable or invalid manifest, an
+#   node missing or failing, HEAD unresolvable, no package.json, Nx unable to compute the project graph (project-packages.sh failing: nothing is bumped), an unreadable or invalid manifest, an
 #   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string) or one with a control character, an earlier bump that is not a semver increase, a dependency spec on a package that would be bumped that its new version does not satisfy, npm's modules for the pin check not loadable or the workspaces not mappable, npm not changing the version). Nothing is skipped silently on an error.
 set -uo pipefail
 
@@ -138,39 +143,53 @@ ok=$(jq -r 'if has("workspaces") | not then true
               then all(.workspaces.packages[]; type == "string")
             else false end' package.json) || die "cannot read the workspaces of package.json"
 [ "$ok" = true ] || die "package.json: workspaces must be an array of strings or an object with a packages array of strings (null, a string, a boolean or an object without packages is not accepted)"
-# (c) libs and apps, where they exist, are real directories (a symlinked parent would hide every package).
-scanned=0
-for top in libs apps; do
-  if [ -L "$top" ]; then die "$top is a symlink: the scan needs a real directory"; fi
-  if [ -e "$top" ] && [ ! -d "$top" ]; then die "$top exists but is not a directory"; fi
-  [ -d "$top" ] && scanned=1
-done
-[ "$scanned" -eq 1 ] || note "neither libs/ nor apps/ exists in $(pwd): nothing to scan"
+# (c) the packages to scan: the project roots of the Nx project graph that hold a package.json
+#     (project-packages.sh, next to this script). If Nx cannot compute the graph, nothing is bumped.
+roots_out=$("$(dirname "${BASH_SOURCE[0]}")/project-packages.sh") \
+  || die "project-packages.sh failed (see above); this run bumped nothing"
+roots=()
+while IFS= read -r r; do
+  [ -z "$r" ] || roots+=("$r")
+done <<<"$roots_out"
+[ "${#roots[@]}" -gt 0 ] || note "the Nx project graph of $(pwd) has no project with a package.json: nothing to scan"
 
-# Workspace globs the scan does not cover: everything except exactly libs/* and apps/*
-# (a leading ./ and a trailing / are ignored). A leading ! is an exclusion, not a glob: it is listed
-# apart, because the scan does not honour it.
-extra=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
-               | map(sub("^\\./"; "") | sub("/+$"; ""))
-               | map(select((startswith("!") or . == "libs/*" or . == "apps/*") | not)) | join(" ")' package.json) \
-  || die "cannot read the workspaces of package.json"
-[ -z "$extra" ] || note "workspace globs not scanned for packages to bump (only libs/* and apps/*; their pins are checked): $extra"
-excluded=$(jq -r '(.workspaces // []) | (if type == "array" then . else .packages end)
-                  | map(select(startswith("!"))) | join(" ")' package.json) \
-  || die "cannot read the workspaces of package.json"
-[ -z "$excluded" ] || note "workspace exclusions not applied to the scan (every package under libs/* and apps/* is scanned; the pin check applies them as npm does): $excluded"
+# changes_in <dir>: sets $tracked and $untracked to the changed paths in <dir>, leaving out every path
+# below another project root nested inside <dir> (as in Nx, a file belongs to the deepest project root
+# that contains it, so a change in a nested package is not a change of the package around it).
+# git --literal-pathspecs disables pathspec magic, so the nested roots are filtered here.
+changes_in() {
+  local d=$1 n p keep
+  local nested=()
+  for n in ${roots[@]+"${roots[@]}"}; do
+    case "$n" in "$d"/*) nested+=("$n");; esac
+  done
+  tracked=$(git --literal-pathspecs diff --no-ext-diff --relative --name-only "$base" -- "$d") || die "git diff failed for $d"
+  untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$d") || die "git ls-files failed for $d"
+  [ "${#nested[@]}" -gt 0 ] || return 0
+  local var out
+  for var in tracked untracked; do
+    out=""
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      keep=1
+      for n in "${nested[@]}"; do
+        case "$p" in "$n"/*) keep=0; break;; esac
+      done
+      [ "$keep" -eq 0 ] || out="$out$p"$'\n'
+    done <<<"${!var}"
+    printf -v "$var" '%s' "$out"
+  done
+}
 
 # Pass 1 checks every package and writes nothing: a failing manifest check stops the script before the
 # first bump. plan holds one record per package to report: "bump|already <TAB> dir <TAB> old <TAB> new".
 plan=()
-for dir in libs/*/ apps/*/; do
-  dir=${dir%/}
-  [ -d "$dir" ] || continue   # the unmatched glob itself: not a package directory (the only silent skip)
+for dir in ${roots[@]+"${roots[@]}"}; do
+  [ -d "$dir" ] || continue   # a project root that does not exist in the working tree (deleted): not scanned
   pkg=$dir/package.json
   if [ -L "$dir" ]; then note "$dir is a symlink, skipped"; continue; fi
   case "$dir" in *$'\t'* | *$'\n'*) note "$dir contains a tab or newline, skipped"; continue;; esac
-  tracked=$(git --literal-pathspecs diff --no-ext-diff --name-only "$base" -- "$dir") || die "git diff failed for $dir"
-  untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$dir") || die "git ls-files failed for $dir"
+  changes_in "$dir"
   if [ -L "$pkg" ] || [ ! -f "$pkg" ]; then
     # No usable manifest: deleted, a directory, a dangling symlink, or never there.
     [ -z "$tracked$untracked" ] || note "$pkg is missing or not a regular file but $dir has changes, skipped"
@@ -205,6 +224,20 @@ for dir in libs/*/ apps/*/; do
   [ -n "$tracked$untracked" ] || continue
   is_increase "$old" "$old"; [ $? -ne 2 ] || die "$pkg: the version $old at the base is not a valid semantic version, so npm version cannot bump it; this run bumped nothing. Report it: a version in the base ($base_label) cannot be fixed by this run, so the owner has to correct it first"
   plan+=("bump"$'\t'"$dir"$'\t'"$old"$'\t')
+done
+
+# A directory directly under libs/ or apps/ with a regular package.json that is not a project root is
+# not scanned (the package set is the Nx project graph): say so when it has changes.
+for dir in libs/*/ apps/*/; do
+  dir=${dir%/}
+  [ -d "$dir" ] && [ ! -L "$dir" ] || continue
+  case "$dir" in *$'\t'* | *$'\n'*) continue;; esac
+  [ -f "$dir/package.json" ] && [ ! -L "$dir/package.json" ] || continue
+  is_root=0
+  for r in ${roots[@]+"${roots[@]}"}; do [ "$r" = "$dir" ] && is_root=1; done
+  [ "$is_root" -eq 0 ] || continue
+  changes_in "$dir"
+  [ -z "$tracked$untracked" ] || note "$dir/package.json is not the manifest of an Nx project and $dir has changes, skipped (not bumped)"
 done
 
 # A dependency spec that the HEAD version of a package satisfies and its new version does not leaves the
