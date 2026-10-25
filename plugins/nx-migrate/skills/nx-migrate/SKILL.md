@@ -90,6 +90,8 @@ A `legacy-peer-deps` or `force` setting or an override that is already present i
 
 ### 5. Run migrations
 
+Before the check of untracked entries below, and for the same reason, confirm that the repository ignores what Nx writes on every run: `git check-ignore .nx/cache/probe .nx/workspace-data/probe`, run in the directory that holds `nx.json`, prints the probe paths that an ignore rule matches. Stop and report, before the migrations run, if one of the two is missing from the output, naming the missing entries (`.nx/cache`, `.nx/workspace-data`). The reason: Nx's orchestrated run commits with `git add -A` and unstages nothing but `.nx/migrate-runs` (and `migrations.json` and `tools/ai-migrations` while they are uncommitted), so an unignored `.nx/workspace-data` or `.nx/cache` (database files, `daemon.log` with absolute paths of this machine) would be committed, pushed and merged. `.nx/migrate-runs` is not checked here: Nx adds that entry itself or refuses to start an orchestrated run (`orchestrated-run.md`), while it checks neither of the other two. The entries are the ones the Nx documentation names, and a person adds them to the repository's `.gitignore`: do not edit it here (step 11). A blanket `.nx` entry satisfies the check, but the Nx documentation recommends the specific ones, because `.nx/version-plans/` has to be tracked for `nx release`. The probe paths need not exist; a trailing-slash entry such as `.nx/cache/` matches them too. The check runs before it is known whether Nx will orchestrate, so it also stops a classic run (Nx 23.x, or under `CI`), which commits with `git add -A` too when commits are enabled (`migrate.createCommits: true` in `nx.json` or `--create-commits`) and otherwise would have listed the untracked directory in step 11: that is accepted because the check is made once, before anything can be committed, and the missing entries are a one-line fix in the repository.
+
 If `migrations.json` exists, first list the untracked entries: `git -c core.quotePath=false status --porcelain --untracked-files=all`. Stop and report, before the migrations run, if a `??` entry is anything other than `migrations.json` or an entry under `tools/ai-migrations/` (relative to the workspace prefix, as in step 11). The reason: when Nx starts an orchestrated run (below) it commits with `git add -A`, which would commit such an entry, while step 11 deliberately leaves such entries out. The check runs before it is known whether Nx will orchestrate, so it also stops a classic run (Nx 23.x, or under `CI`), which would otherwise have listed such an entry in step 11: that is accepted because the check is made once, before anything can be committed. Nothing else is exempt: an untracked entry under `.nx/` or at the root (`package-lock.json`, `nx.json`, `tsconfig*.json`) stops the run too, because Nx would commit it, and the check does not decide which `.nx/` entries belong in a commit. The check only guarantees that no such entry exists before the migrations run; entries created later (by the migrations, noted above, or in steps 6 to 10) are handled in step 11 (staged or listed there; untracked `.nx/` entries are never staged).
 
 Then `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run. Note every file the migrations create (the migration output names them): step 11 stages them, except untracked entries under `.nx/`.
@@ -184,7 +186,7 @@ It prints one line per bumped package (directory, old version, new version) on s
 
 ### 11. Commit
 
-After an orchestrated run Nx's commits are already on the branch; this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
+After an orchestrated run that created commits Nx's commits are already on the branch (with `migrate.createCommits: false` there are none); this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
 
 ```bash
 git add -u
@@ -200,10 +202,10 @@ Done when `git status --porcelain --untracked-files=all` shows no `??` entry exc
 ```
 chore(deps): migrate nx to vX.Y.Z
 
-- Run nx migrate <target> (classic run only; in an orchestrated one Nx's checkpoint commit holds it)
-- Apply generated migrations (classic run only; Nx committed them itself in an orchestrated one)
-- Resolve peer dependency conflicts (if any; classic run only, for the same reason)
-- Regenerate package-lock.json (lockfile-induced peer conflict, if any; in an orchestrated run only when it happened in step 6, since Nx's checkpoint commit holds a step 4 regeneration)
+- Run nx migrate <target> (classic run, or an orchestrated one without commits; otherwise Nx's checkpoint commit holds it)
+- Apply generated migrations (classic run, or an orchestrated one without commits; otherwise Nx committed them itself)
+- Resolve peer dependency conflicts (if any; classic run, or an orchestrated one without commits, for the same reason)
+- Regenerate package-lock.json (lockfile-induced peer conflict, if any; in an orchestrated run that creates commits only when it happened in step 6, since Nx's checkpoint commit holds a step 4 regeneration)
 - Sync sub-package dependency versions (if any)
 - Bump patch versions of changed sub-packages (if any)
 - Fix lint/test/build issues (list specific fixes if any)
