@@ -125,17 +125,19 @@ If it was **tracked** (leftover from an unfinished run), call the deletion out e
 
 ### 8. Validate: lint → test → build
 
-This step runs once the migrations are done (after an orchestrated run: reported `complete`); Nx's own final validation pass does not replace it.
+This step runs once the migrations are done (after an orchestrated run: reported `complete`); Nx's own final validation pass does not replace it, and it may have filled the cache for the same tasks.
 
 Use the repo's CLAUDE.md commands, but first confirm they exist — `npx nx show projects` and the `scripts` in `package.json`. A command failing on a missing target is neither a failure nor a pass: run the existing equivalent and note the discrepancy in the PR body. Default:
 
 ```bash
-npx nx run-many -t lint 2>&1
-npx nx run-many -t test 2>&1
-npx nx run-many -t build 2>&1
+npx nx run-many -t lint --skip-nx-cache 2>&1
+npx nx run-many -t test --skip-nx-cache 2>&1
+npx nx run-many -t build --skip-nx-cache 2>&1
 ```
 
-Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Note every file you create while fixing (step 11 stages them, except untracked entries under `.nx/`). Done when all three exit 0.
+The first run of each target (this block, the repository's `CLAUDE.md` command, or the equivalent run for a missing target) skips the Nx cache: `--skip-nx-cache` on an `nx` command, `NX_SKIP_NX_CACHE=true <command>` in front of a repository script such as `npm run lint` (Nx reads the variable as the same switch; a command that runs no Nx ignores it). Reason: a cache entry written before the migration, or by Nx's final pass of an orchestrated run, replays the result of a different state, so a full or partial cache hit validates nothing. Reruns after a fix may use the cache, because every entry they replay was written by an uncached run of this step.
+
+Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Note every file you create while fixing (step 11 stages them, except untracked entries under `.nx/`). Done when the last run of each of the three exits 0.
 
 ### 9. E2E (unless `--skip-e2e`)
 
