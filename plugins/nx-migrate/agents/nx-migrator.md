@@ -109,7 +109,7 @@ gh pr merge <PR> -R <owner>/<repo> --squash --delete-branch --match-head-commit 
 Your final message is the only thing the user sees. Include:
 
 - repo name and version transition (`from` → `to`); with a target version also the `LATEST` line of `check-target.js`, so that a target older than the newest stable release is visible
-- for an orchestrated run: the run id, the outcome of each step and Nx's commits on the branch (`git log --format='%h %s'` from the start commit)
+- for an orchestrated run: the run id and the outcome of each step; for an orchestrated run and for a classic run with commits enabled: Nx's commits on the branch (`git log --format='%h %s'` from the start commit)
 - migrations applied, and every AI-prompt migration — including ones you correctly left as no-ops, and why
 - whether the lockfile was regenerated for a lockfile-induced peer conflict (step 4): the conflicting package with its locked and required version and the `git diff --shortstat` of `package-lock.json`, or that it was not; when the fresh install failed and the run stopped, that `package-lock.json` is deleted and `node_modules` is gone in the working tree, and that the committed lockfile does not match the migrated `package.json`, so the tree is not installable until the upstream release or a changed range
 - the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
