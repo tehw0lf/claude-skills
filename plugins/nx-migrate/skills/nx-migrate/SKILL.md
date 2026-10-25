@@ -186,7 +186,7 @@ It prints one line per bumped package (directory, old version, new version) on s
 
 ### 11. Commit
 
-After an orchestrated run that created commits, or a classic run with commits enabled, Nx's commits are already on the branch (with `migrate.createCommits: false`, or a classic run without `createCommits`, there are none; `git log --format='%h %s' <start commit>..HEAD` lists them, and is empty otherwise); this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
+After an orchestrated run that created commits, or a classic run with commits enabled, Nx's commits are already on the branch (with `migrate.createCommits: false`, or a classic run without `createCommits`, there are none; `git log --format='%h %s' <start commit>..HEAD` lists them, and is empty otherwise); this commit holds only what came after the run (steps 6 to 10) and, in a classic run with commits enabled, also the AI-prompt migrations applied in step 5, which Nx does not commit there (an orchestrated run commits them itself). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
 
 ```bash
 git add -u
@@ -203,7 +203,7 @@ Done when `git status --porcelain --untracked-files=all` shows no `??` entry exc
 chore(deps): migrate nx to vX.Y.Z
 
 - Run nx migrate <target> (a run without Nx commits: classic without `createCommits`, or orchestrated with `migrate.createCommits: false`; otherwise Nx's checkpoint commit holds it)
-- Apply generated migrations (a run without Nx commits; otherwise Nx committed them itself)
+- Apply generated migrations (a run without Nx commits; otherwise Nx committed the generated ones itself; AI-prompt migrations applied in step 5 are named here in a classic run with commits)
 - Resolve peer dependency conflicts (if any; a run without Nx commits, for the same reason)
 - Regenerate package-lock.json (lockfile-induced peer conflict, if any; in a run with Nx commits only when it happened in step 6, since Nx's checkpoint commit holds a step 4 regeneration)
 - Sync sub-package dependency versions (if any)
