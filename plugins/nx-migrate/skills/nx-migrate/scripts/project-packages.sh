@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # List the package directories of an Nx workspace: every project root of the Nx project graph, other
 # than the workspace root ".", whose directory holds a regular package.json.
-# usage: project-packages.sh
+# usage: project-packages.sh [--all]
 #        run in the Nx workspace root (nx.json there; the root may be a subdirectory of the git root)
 #
 # Source: `npx nx show projects --json` (the names), then `npx nx show project <name> --json` for the
 # "root" of each. Nx computes the project graph for that, so the dependencies must be installed and the
 # project configuration must be valid.
+# --all: list every project root other than ".", whether or not its directory holds a package.json
+#   (bump-subpackages.sh needs them to tell which project a changed file belongs to).
 # Output on stdout: one root per line, relative to the workspace root, sorted (byte order) and unique.
 # Not listed, silently: the workspace root "."; a root without a regular package.json (a project that is
 #   not a package; a package.json that is a symlink or a directory counts as none).
@@ -21,7 +23,13 @@ set -uo pipefail
 die() { echo "project-packages: $*" >&2; exit 1; }
 note() { echo "# note: $*" >&2; }
 
-[ $# -eq 0 ] || die "usage: project-packages.sh"
+all=0
+case $# in
+  0) ;;
+  1) [ "$1" = --all ] || die "usage: project-packages.sh [--all]"
+     all=1 ;;
+  *) die "usage: project-packages.sh [--all]" ;;
+esac
 for tool in npx jq; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool not found"
 done
@@ -49,7 +57,7 @@ for name in ${names[@]+"${names[@]}"}; do
   case "$root" in /*) die "project $name has the absolute root $root";; esac
   case "/$root/" in */../*|*/./*) die "project $name has the root $root, which leaves or repeats the workspace path";; esac
   case "$root" in *$'\t'* | *$'\n'*) note "the root of project $name contains a tab or newline, skipped"; continue;; esac
-  if [ -f "$root/package.json" ] && [ ! -L "$root/package.json" ]; then
+  if [ "$all" -eq 1 ] || { [ -f "$root/package.json" ] && [ ! -L "$root/package.json" ]; }; then
     roots+=("$root")
   fi
 done

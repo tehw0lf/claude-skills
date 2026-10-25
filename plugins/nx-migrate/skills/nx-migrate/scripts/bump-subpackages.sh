@@ -13,7 +13,8 @@
 # files are always read from the working tree.
 # "Changed" = a tracked difference from HEAD (staged or not) or an untracked, non-ignored file in the
 # package directory, leaving out files below a nested project root (as in Nx, a file belongs to the deepest
-# project root that contains it: a change in libs/a/inner does not change libs/a). Untracked build or test output that is not git-ignored therefore counts as a
+# project root that contains it: a change in the project libs/a/inner does not change libs/a, whether or
+# not libs/a/inner has a package.json). Untracked build or test output that is not git-ignored therefore counts as a
 # change: ignore such output in .gitignore, or the package gets a (harmless) bump.
 #
 # Package set: the project roots printed by project-packages.sh (next to this script): every Nx project
@@ -26,10 +27,11 @@
 #   has changes (none is added); a directory with changes but no regular package.json (deleted, a
 #   directory, a symlink); a directory directly under libs/ or apps/ with a regular package.json that is not a
 #   project root and has changes (not bumped); an Nx graph without any project that holds a package.json.
-# Skipped silently (the only silent skips, none of them hides a change): an unchanged package (with or
-#   without "version"); a project whose directory has no regular package.json (not a package; listed by
-#   project-packages.sh only when it has one); a package directory that was deleted (it no longer exists,
-#   so it is not scanned); an unchanged directory under libs/ or apps/ that is not a project.
+# Skipped silently (the only silent skips; apart from the last one none of them hides a change): an unchanged package (with or
+#   without "version"); an unchanged project whose directory has no regular package.json (not a package); a package directory that was deleted (it no longer exists,
+#   so it is not scanned); an unchanged directory under libs/ or apps/ that is not a project; a package.json
+#   that is not the manifest of an Nx project and does not sit directly under libs/ or apps/ (packages/x,
+#   libs/group/x in a workspace where Nx does not infer a project from it), changed or not (it is outside the scan).
 # Already bumped by an earlier run (working-tree version differs from HEAD): not bumped again, but
 #   reported again, and the lockfile is synced again, so a second run (e.g. after a failed
 #   npm install) is safe. That is accepted only when the working-tree version ranks above the base's by
@@ -144,26 +146,32 @@ ok=$(jq -r 'if has("workspaces") | not then true
             else false end' package.json) || die "cannot read the workspaces of package.json"
 [ "$ok" = true ] || die "package.json: workspaces must be an array of strings or an object with a packages array of strings (null, a string, a boolean or an object without packages is not accepted)"
 # (c) the packages to scan: the project roots of the Nx project graph that hold a package.json
-#     (project-packages.sh, next to this script). If Nx cannot compute the graph, nothing is bumped.
-roots_out=$("$(dirname "${BASH_SOURCE[0]}")/project-packages.sh") \
+#     (project-packages.sh, next to this script; the roots of projects without one are read too, to assign files). If Nx cannot compute the graph, nothing is bumped.
+#     --all lists every project root, with or without a package.json: the roots of projects that are not
+#     packages are still needed to tell which project a changed file belongs to.
+roots_out=$("$(dirname "${BASH_SOURCE[0]}")/project-packages.sh" --all) \
   || die "project-packages.sh failed (see above); this run bumped nothing"
+allroots=()
 roots=()
 while IFS= read -r r; do
-  [ -z "$r" ] || roots+=("$r")
+  [ -z "$r" ] && continue
+  allroots+=("$r")
+  if [ -f "$r/package.json" ] && [ ! -L "$r/package.json" ]; then roots+=("$r"); fi
 done <<<"$roots_out"
 [ "${#roots[@]}" -gt 0 ] || note "the Nx project graph of $(pwd) has no project with a package.json: nothing to scan"
 
 # changes_in <dir>: sets $tracked and $untracked to the changed paths in <dir>, leaving out every path
 # below another project root nested inside <dir> (as in Nx, a file belongs to the deepest project root
 # that contains it, so a change in a nested package is not a change of the package around it).
-# git --literal-pathspecs disables pathspec magic, so the nested roots are filtered here.
+# git --literal-pathspecs disables pathspec magic, so the nested roots are filtered here. --no-renames
+# lists both sides of a move, so a file moved from <dir> into a nested project still counts for <dir>.
 changes_in() {
   local d=$1 n p keep
   local nested=()
-  for n in ${roots[@]+"${roots[@]}"}; do
+  for n in ${allroots[@]+"${allroots[@]}"}; do
     case "$n" in "$d"/*) nested+=("$n");; esac
   done
-  tracked=$(git --literal-pathspecs diff --no-ext-diff --relative --name-only "$base" -- "$d") || die "git diff failed for $d"
+  tracked=$(git --literal-pathspecs diff --no-ext-diff --no-renames --relative --name-only "$base" -- "$d") || die "git diff failed for $d"
   untracked=$(git --literal-pathspecs ls-files --others --exclude-standard -- "$d") || die "git ls-files failed for $d"
   [ "${#nested[@]}" -gt 0 ] || return 0
   local var out
@@ -184,7 +192,7 @@ changes_in() {
 # Pass 1 checks every package and writes nothing: a failing manifest check stops the script before the
 # first bump. plan holds one record per package to report: "bump|already <TAB> dir <TAB> old <TAB> new".
 plan=()
-for dir in ${roots[@]+"${roots[@]}"}; do
+for dir in ${allroots[@]+"${allroots[@]}"}; do
   [ -d "$dir" ] || continue   # a project root that does not exist in the working tree (deleted): not scanned
   pkg=$dir/package.json
   if [ -L "$dir" ]; then note "$dir is a symlink, skipped"; continue; fi
@@ -234,7 +242,7 @@ for dir in libs/*/ apps/*/; do
   case "$dir" in *$'\t'* | *$'\n'*) continue;; esac
   [ -f "$dir/package.json" ] && [ ! -L "$dir/package.json" ] || continue
   is_root=0
-  for r in ${roots[@]+"${roots[@]}"}; do [ "$r" = "$dir" ] && is_root=1; done
+  for r in ${allroots[@]+"${allroots[@]}"}; do [ "$r" = "$dir" ] && is_root=1; done
   [ "$is_root" -eq 0 ] || continue
   changes_in "$dir"
   [ -z "$tracked$untracked" ] || note "$dir/package.json is not the manifest of an Nx project and $dir has changes, skipped (not bumped)"
