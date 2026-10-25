@@ -127,6 +127,8 @@ If it was **tracked** (leftover from an unfinished run), call the deletion out e
 
 This step runs once the migrations are done (after an orchestrated run: reported `complete`); Nx's own final validation pass does not replace it.
 
+Before the first of the three runs, once, in the directory that holds `nx.json`: `npx nx reset --only-cache`. A non-zero exit stops the run and is reported; do not fall back to a plain `nx reset` (it also stops the daemon and clears workspace data) or to `--skip-nx-cache`. The reason: a cache entry written before this step (before the migration, by Nx's final validation pass of an orchestrated run, or by another checkout of the same workspace, because Nx can keep one cache directory per user for all of them) replays the result of a different run, so a full or partial cache hit validates nothing. After the reset, every entry a run replays was written by this step, so the runs, and the reruns after a fix, use the cache. `--skip-nx-cache` is not used because a run with it also writes no cache entries, so a later cached rerun could again replay only entries from before this step. The reset clears the local cache only; the remote cache is not touched.
+
 Use the repo's CLAUDE.md commands, but first confirm they exist — `npx nx show projects` and the `scripts` in `package.json`. A command failing on a missing target is neither a failure nor a pass: run the existing equivalent and note the discrepancy in the PR body. Default:
 
 ```bash
@@ -135,7 +137,7 @@ npx nx run-many -t test 2>&1
 npx nx run-many -t build 2>&1
 ```
 
-Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Note every file you create while fixing (step 11 stages them, except untracked entries under `.nx/`). Done when all three exit 0.
+Fix root causes (renamed APIs, config options, removed features); no `@ts-ignore` or similar unless unavoidable. Note every file you create while fixing (step 11 stages them, except untracked entries under `.nx/`). Done when the last run of each of the three exits 0.
 
 ### 9. E2E (unless `--skip-e2e`)
 
