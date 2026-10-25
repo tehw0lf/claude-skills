@@ -90,7 +90,7 @@ A `legacy-peer-deps` or `force` setting or an override that is already present i
 
 ### 5. Run migrations
 
-If `migrations.json` exists, first list the untracked entries: `git -c core.quotePath=false status --porcelain --untracked-files=all`. Stop and report, before the migrations run, if a `??` entry is anything other than `migrations.json` or an entry under `tools/ai-migrations/` (relative to the workspace prefix, as in step 11). The reason: when Nx starts an orchestrated run (below) it commits with `git add -A`, which would commit such an entry, while step 11 deliberately leaves such entries out. The check runs before it is known whether Nx will orchestrate, so it also stops a classic run (Nx 23.x, or under `CI`), which would otherwise have listed such an entry in step 11: that is accepted because the check is made once, before anything can be committed. Nothing else is exempt: an untracked entry under `.nx/` or at the root (`package-lock.json`, `nx.json`, `tsconfig*.json`) stops the run too, because Nx would commit it, and the check does not decide which `.nx/` entries belong in a commit. The check only guarantees that no such entry exists before the migrations run; entries created later (by the migrations, noted above, or in steps 6 to 10) are handled in step 11 (staged or listed there; untracked `.nx/` entries are never staged).
+If `migrations.json` exists, first list the untracked entries: `git -c core.quotePath=false status --porcelain --untracked-files=all`. Stop and report, before the migrations run, if a `??` entry is anything other than `migrations.json`, an entry under `tools/ai-migrations/` or an entry under `.nx/` (relative to the workspace prefix, as in step 11). The reason: when Nx starts an orchestrated run (below) it commits with `git add -A`, which would commit such an entry, while step 11 deliberately leaves such entries out. The check runs before it is known whether Nx will orchestrate, so it also stops a classic run (Nx 23.x, or under `CI`), which would otherwise have listed such an entry in step 11: that is accepted because the check is made once, before anything can be committed. Nothing else is exempt: an untracked entry at the root (`package-lock.json`, `nx.json`, `tsconfig*.json`) stops the run too, because Nx would commit it. An untracked entry under `.nx/` does not stop the run: it is Nx's own state, and what Nx commits of it is reported and left on the branch, not removed (`orchestrated-run.md`, "When the run is `complete`"); the repository's `.gitignore` is the repository's to fix. The check only guarantees that no such entry exists before the migrations run; entries created later (by the migrations, noted above, or in steps 6 to 10) are handled in step 11 (staged or listed there; untracked `.nx/` entries are never staged).
 
 Then `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underlying cause (usually a config format change) and re-run. Note every file the migrations create (the migration output names them): step 11 stages them, except untracked entries under `.nx/`.
 
@@ -184,7 +184,7 @@ It prints one line per bumped package (directory, old version, new version) on s
 
 ### 11. Commit
 
-After an orchestrated run Nx's commits are already on the branch; this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
+After an orchestrated run that created commits Nx's commits are already on the branch (with `migrate.createCommits: false` there are none); this commit holds only what came after the run (steps 6 to 10). Run the commands below, and if `git diff --cached --quiet` then exits 0 (nothing staged), make no commit.
 
 ```bash
 git add -u
@@ -200,9 +200,9 @@ Done when `git status --porcelain --untracked-files=all` shows no `??` entry exc
 ```
 chore(deps): migrate nx to vX.Y.Z
 
-- Run nx migrate <target> (classic run only; in an orchestrated one Nx's checkpoint commit holds it)
-- Apply generated migrations (classic run only; Nx committed them itself in an orchestrated one)
-- Resolve peer dependency conflicts (if any; classic run only, for the same reason)
+- Run nx migrate <target> (classic run, or an orchestrated one without commits; otherwise Nx's checkpoint commit holds it)
+- Apply generated migrations (classic run, or an orchestrated one without commits; otherwise Nx committed them itself)
+- Resolve peer dependency conflicts (if any; classic run, or an orchestrated one without commits, for the same reason)
 - Regenerate package-lock.json (lockfile-induced peer conflict, if any; in an orchestrated run only when it happened in step 6, since Nx's checkpoint commit holds a step 4 regeneration)
 - Sync sub-package dependency versions (if any)
 - Bump patch versions of changed sub-packages (if any)
@@ -220,7 +220,7 @@ gh pr create --base <default> --title "chore(deps): migrate nx to <target>" --bo
 
 - Migrated Nx workspace to vX.Y.Z (the target version, when one was given; then also the newest stable release from the `LATEST` line of `check-target.js`, when it is newer)
 - Applied all generated migrations
-- Nx's own commits (orchestrated run; `git log --format='%h %s' <start commit>..HEAD`, read before the step 11 commit): <list, or none> and the outcome of each step (applied, adopted, skipped, unresolved). When no prompt that left work after its generator had run was part of the run, say that none was observed
+- Nx's own commits (orchestrated run; `git log --format='%h %s' <start commit>..HEAD`, read before the step 11 commit): <list, or none> and the outcome of each step (applied, adopted, skipped, unresolved). When those commits hold files under `.nx/` or lint, test or build output: their count and the `git diff --shortstat` of those paths, with the note that the repository does not ignore them. When no prompt that left work after its generator had run was part of the run, say that none was observed
 - Lockfile regenerated: <no, or the conflicting package with its locked and required version, and the `git diff --shortstat <start commit> -- package-lock.json` output>
 - Bumped patch versions of changed sub-packages: <list, or none>
 - Root version scripts run by the bump: <names and the files and entries they changed, or none set>
