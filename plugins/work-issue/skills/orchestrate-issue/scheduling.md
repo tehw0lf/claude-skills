@@ -43,6 +43,9 @@ Environment=CODING_ROOT=%h/<directory with your checkouts>
 Environment=TMPDIR=%h/.cache/work-issue/tmp
 # Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
 Environment=NX_DAEMON=false
+# caps memory and tasks of the whole run, every process the session, planner, worker and reviewer start included; size them as described under "Limits on memory and tasks"
+MemoryMax=<limit>
+TasksMax=<limit>
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp
 # the skills never remove their temporary directories; drop entries older than seven days (the leading `-` keeps a failure from stopping the run; a oneshot unit does not overlap itself, so no running session loses files)
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp -mindepth 1 -mtime +7 -delete
@@ -89,6 +92,24 @@ A systemd user manager runs only while the account has a login session, unless l
 A oneshot service does not start a second run while the first is still going, so a long run does not overlap itself.
 
 To test the timer without waiting for the full hour, add `~/.config/systemd/user/work-issue.timer.d/test.conf` with `[Timer]` and `OnActiveSec=30s`, run `systemctl --user daemon-reload`, then `systemctl --user restart work-issue.timer`. Remove the drop-in afterwards. A oneshot service stays `activating` while it runs, so wait on `ActiveState` leaving `activating` (`systemctl --user is-active` reports it as not active and ends a wait loop at once).
+
+### Limits on memory and tasks
+
+A time limit on a single command does not stop a tool that keeps starting processes: it can use up the memory of the machine before the limit is reached (this happened with a respawning `nx migrate` in a scratch copy of a repository). A cgroup limit on the unit holds for every process of the run, whatever form the command takes, and needs no permission rule; that is why the agents carry no wrapper of their own, and why `pr-reviewer.md` leaves the cap to the machine.
+
+Both templates set `MemoryMax=<limit>` and `TasksMax=<limit>` in `[Service]`. The values are placeholders because no value was measured for any repository:
+
+- `MemoryMax=` is sized by the largest install, build or test run of the repositories the unit works on, plus the session and its agents. It also accepts a percentage of physical memory (`systemd.resource-control(5)`).
+- `TasksMax=` is sized by the processes and threads such a run starts at once; a parallel test runner or build counts each worker.
+- With the dispatcher every instance has its own cap, so `--parallel <n>` can use up to `n` times the value.
+
+At the cap, as `systemd.resource-control(5)` and `systemd.service(5)` describe it (read there, not observed): above `MemoryMax=` the kernel's OOM killer acts inside the unit's cgroup, and with the default `OOMPolicy=stop` the unit is stopped and marked failed, which is a run that was cut off (see "What the run reads and leaves behind": the checkout may stay on the PR branch). At `TasksMax=` new processes and threads fail to start, which shows up as an error of whatever tried to start them.
+
+A user unit can use these limits only when the user manager has the `memory` and `pids` controllers delegated. Check with `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers`; after `systemctl --user daemon-reload`, `systemctl --user show work-issue.service -p MemoryMax -p TasksMax` shows the values in effect.
+
+A session started by hand is in no such unit and is not capped unless it is started in one, for example `systemd-run --user --scope -p MemoryMax=<limit> -p TasksMax=<limit> claude`; everything the session starts, the agents and their tooling included, runs in that scope. This is a way to start the session, not a command a session runs, so it needs no permission rule.
+
+Not covered: the cron sketch starts no unit and gets no cap from this, and `MemoryMax=` does not limit swap (that is `MemorySwapMax=`).
 
 ### Permissions
 
@@ -173,6 +194,9 @@ Environment=CODING_ROOT=%h/<directory with your checkouts>
 Environment=TMPDIR=%h/.cache/work-issue/tmp/%I
 # Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
 Environment=NX_DAEMON=false
+# memory and task cap of this instance, sized as under "Limits on memory and tasks"
+MemoryMax=<limit>
+TasksMax=<limit>
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
 WorkingDirectory=%h
