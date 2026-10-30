@@ -1,6 +1,6 @@
 {
   "name": "nx-migrate",
-  "version": "2.0.58",
+  "version": "2.0.59",
   "description": "Migrate an Nx monorepo to the latest Nx version, or to a given one, with automatic conflict resolution and PR creation.",
   "author": {
     "name": "tehw0lf",
