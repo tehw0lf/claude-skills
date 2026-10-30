@@ -27,6 +27,9 @@ kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severit
                    dependency update cannot fix, counted over the first 100 alerts; updated is when the newest open alert was created)
        2 CI       (default branch whose head commit failed its checks; ref is the branch,
                    updated is that commit's date)
+       2 RUN      (a workflow, or a Dependabot update job, of the default branch whose newest completed
+                   run failed; listed after all CI rows; ref is the workflow file's name or the job
+                   ("npm_and_yarn in /app"), state is the conclusion, updated is when the run was created)
        3 PR       (ref #n, state "<checks>/<review decision>[/draft]", updated is the last activity)
        4 DEPS     (a PR opened by dependabot or renovate; as PR)
        5 ISSUE    (ref #n, state is the comma-separated labels, "bot" prepended for bot-opened issues,
@@ -39,7 +42,7 @@ Status lines start with "#":
 Ignore rules come from $XDG_CONFIG_HOME/inbox-ignore (default ~/.config/inbox-ignore): one glob per
 line, a line starting with "#" is a comment. A glob is matched against "owner/repo" (hides everything
 in that repository) and against "owner/repo" + ref, e.g. "tehw0lf/airbash#7" or
-"tehw0lf/*code-scanning". An ignored source is not queried, so it produces no SKIPPED line either.
+"tehw0lf/*code-scanning" or "tehw0lf/*runs". An ignored source is not queried, so it produces no SKIPPED line either.
 
 Files, all in $XDG_CACHE_HOME/claude-inbox (default ~/.cache/claude-inbox):
   inbox-<owner>.tsv   the last output for that owner
@@ -50,15 +53,25 @@ Files, all in $XDG_CACHE_HOME/claude-inbox (default ~/.cache/claude-inbox):
 
 A `gh` call that fails or takes longer than 60 seconds is retried once for the repository list and
 the search and then ends the run non-zero, leaving the cache as it was; an unreadable per-repository
-source becomes a SKIPPED line.
+source becomes a SKIPPED line. The runs of a repository are read with one call for the newest 100 runs
+of its default branch; a workflow or job whose newest run is not among them is not seen. A run decides
+for its workflow only when it is completed and belongs to the repository itself; red is failure,
+timed_out or startup_failure. A failed push run of the head commit becomes no RUN row (its CI row covers
+it), except a startup_failure, which creates no checks and so never reaches the rollup; the run still
+counts as the newest run of its workflow, so an older red run does not come back.
+Dependabot runs are grouped per update job, keyed by the run title ("<ecosystem> in <directory>"), because
+one Dependabot workflow runs a job per ecosystem and directory; this depends on the shape of GitHub's
+titles, and a title of none of the three known shapes falls back to one job per workflow path.
 """
 import fcntl
 import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -68,7 +81,7 @@ GH_TIMEOUT = 60
 SEARCH_LIMIT = 1000  # GitHub's search hands out no results beyond this
 DEP_BOTS = {"dependabot", "dependabot-preview", "renovate", "renovate-bot"}
 SEVERITIES = ["LOW", "MODERATE", "HIGH", "CRITICAL"]
-KINDS = [("SECURITY", "security"), ("CI", "failing default branches"), ("PR", "PRs"),
+KINDS = [("SECURITY", "security"), ("CI", "failing default branches"), ("RUN", "failed runs"), ("PR", "PRs"),
          ("DEPS", "dependency PRs"), ("ISSUE", "issues")]
 
 REPO_FIELDS = """
@@ -76,7 +89,7 @@ REPO_FIELDS = """
         vulnerabilityAlerts(states: OPEN, first: 100) {
           totalCount nodes { createdAt securityVulnerability { severity firstPatchedVersion { identifier } } }
         }
-        defaultBranchRef { name target { ... on Commit { committedDate statusCheckRollup { state } } } }"""
+        defaultBranchRef { name target { ... on Commit { committedDate oid statusCheckRollup { state } } } }"""
 
 REPOS = """
 query($owner: String!, $cursor: String) {
@@ -173,6 +186,54 @@ def code_scanning(repo):
     return 0, "", message
 
 
+RED = ("failure", "timed_out", "startup_failure")
+RUN_FIELDS = ('[.workflow_runs[] | select(.status == "completed") | {conclusion, event, path, name, '
+              'title: .display_title, sha: .head_sha, created: .created_at, url: .html_url, '
+              'repo: .head_repository.full_name}]')
+
+
+def dependabot_job(title):
+    """The update job of a Dependabot run title: "npm_and_yarn in /app - Update #123" and
+    "npm_and_yarn in /app for lodash - Update #123" give "npm_and_yarn in /app", "Graph Update: uv in /
+    #456" gives "Graph Update: uv in /"."""
+    match = re.fullmatch(r"(Graph Update: )?(\S+ in \S+(?:, \S+)*)(?: for .*| - Update #\d+| #\d+)?", title.strip())
+    return (match.group(1) or "") + match.group(2) if match else ""
+
+
+def workflow_runs(repo, branch, head):
+    """(rows, skip reason). The newest completed run of each workflow, or of each Dependabot update job,
+    on the default branch decides: a row for it when it is red, none when it is green. A push run of the
+    head commit decides but gives no row, except a startup_failure: the CI row covers the others."""
+    result = gh("api", f"repos/{repo}/actions/runs?branch={urllib.parse.quote(branch, safe='')}&per_page=100",
+                "-q", RUN_FIELDS)
+    if result.returncode != 0:
+        return [], result.stderr.strip().splitlines()[0] if result.stderr.strip() else "unknown error"
+    try:
+        runs = json.loads(result.stdout or "[]")
+    except ValueError:
+        return [], "unreadable answer"
+    runs.sort(key=lambda run: run["created"], reverse=True)
+    seen, rows = set(), []
+    for run in runs:
+        if run["repo"] != repo:
+            continue
+        dependabot = run["path"].startswith("dynamic/dependabot/")
+        job = dependabot_job(run["title"]) if dependabot else ""
+        key = ("dependabot", job) if job else run["path"]
+        if key in seen:
+            continue
+        seen.add(key)
+        if run["conclusion"] not in RED or (run["event"] == "push" and run["sha"] == head
+                                                  and run["conclusion"] != "startup_failure"):
+            continue
+        if job:
+            ref, title = job, f"Dependabot {job} failed"
+        else:
+            ref, title = run["path"].rsplit("/", 1)[-1], f"{run['name']} failed on {branch}"
+        rows.append((2, "RUN", repo, ref, run["conclusion"], run["created"], title, run["url"]))
+    return rows, None
+
+
 def ignore_rules():
     if not IGNORE.is_file():
         return []
@@ -234,6 +295,17 @@ def collect(owner, only=None):
                 rows.append((1, "SECURITY", repo["nameWithOwner"], "code-scanning", f"{shown} open", newest,
                              "Code scanning alerts", f"{repo['url']}/security/code-scanning"))
 
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        checked = [repo for repo in repos if repo["defaultBranchRef"]
+                   and not ignored(rules, repo["nameWithOwner"], "runs")]
+        results = pool.map(lambda repo: workflow_runs(
+            repo["nameWithOwner"], repo["defaultBranchRef"]["name"],
+            (repo["defaultBranchRef"].get("target") or {}).get("oid")), checked)
+        for repo, (found, reason) in zip(checked, results):
+            if reason:
+                skipped.append(f"# SKIPPED runs {repo['nameWithOwner']}: {reason}")
+            rows.extend(found)
+
     known = {repo["nameWithOwner"] for repo in repos}
     totals, received = {}, 0
     for item in graphql(ITEMS, totals, q=search):
@@ -265,6 +337,7 @@ def collect(owner, only=None):
 
     kept = [row for row in rows if not ignored(rules, row[2], row[3])]
     kept.sort(key=lambda row: row[5], reverse=True)
+    kept.sort(key=lambda row: [kind for kind, _ in KINDS].index(row[1]))  # CI before RUN: both are prio 2
     kept.sort(key=lambda row: row[0])
     header = f"# owner={owner} scope={scope} generated={int(time.time())} repos={len(repos)} ignored={len(rows) - len(kept)}"
     return "\n".join([header, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
