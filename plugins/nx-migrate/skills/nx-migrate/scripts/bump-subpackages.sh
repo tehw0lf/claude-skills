@@ -26,7 +26,8 @@
 #   this run: no earlier version; a git-ignored package directory gets its own note); a package whose HEAD manifest has no "version" and whose directory
 #   has changes (none is added); a directory with changes but no regular package.json (deleted, a
 #   directory, a symlink); a directory directly under libs/ or apps/ with a regular package.json that is not a
-#   project root and has changes (not bumped); an Nx graph without any project that holds a package.json.
+#   project root and has changes (not bumped); a package that would be bumped when nx.json has a "release" key
+#   (not bumped, see below); an Nx graph without any project that holds a package.json.
 # Skipped silently (the only silent skips; apart from the last one none of them hides a change): an unchanged package (with or
 #   without "version"); an unchanged project whose directory has no regular package.json (not a package); a package directory that was deleted (it no longer exists,
 #   so it is not scanned); an unchanged directory under libs/ or apps/ that is not a project; a package.json
@@ -53,6 +54,14 @@
 #   version satisfies gets a note. A package
 #   outside the mapped workspaces, or without a "name", gets a note (its pins are not checked); so does a
 #   manifest that cannot be read. The bump scan covers the Nx project packages, which need not be workspaces.
+# "release" block: when nx.json has a top-level "release" key (whatever its value), no new bump is made.
+#   Only that file is read: an "extends" file is not followed, so with "extends" and no "release" key (or
+#   an nx.json that jq cannot read) the run stops with exit 1 when a package would be bumped.
+#   Every package that would have been bumped gets a "# note:" line instead (all of them, not only the
+#   members of a release group: membership is computed inside Nx and is not re-implemented here). Packages
+#   already bumped by an earlier run are unaffected. Reason: with the default "disk" version resolver a
+#   manual bump becomes the base of the next nx release bump, with "git-tag" or "registry" it is
+#   overwritten, and in a fixed release group it leaves the manifests at different versions.
 # Two passes: the first checks every package (manifests in the working tree and in HEAD, versions) and
 #   writes nothing, so a failing check stops the script before the first bump. A committed version that
 #   is not valid semver also stops here: this run cannot fix HEAD. The second pass bumps. If
@@ -76,7 +85,7 @@
 #   succeeds (npx, Nx and the dependencies it needs installed, a graph Nx can compute). If no project has a package.json there is
 #   nothing to scan (note, exit 0).
 # Exit status: 0 = done (possibly nothing to bump); 1 = failure, with a message on stderr (a wrong argument, a --base that names no commit, git, jq, npm or
-#   node missing or failing, HEAD unresolvable, no package.json, Nx unable to compute the project graph (project-packages.sh failing: nothing is bumped), an unreadable or invalid manifest, an
+#   node missing or failing, an nx.json that jq cannot read or that has "extends" but no "release" key, while a package would be bumped, HEAD unresolvable, no package.json, Nx unable to compute the project graph (project-packages.sh failing: nothing is bumped), an unreadable or invalid manifest, an
 #   empty or non-object manifest, a version removed in this run, empty or non-string "version" (a version must be a non-empty string) or one with a control character, an earlier bump that is not a semver increase, a dependency spec on a package that would be bumped that its new version does not satisfy, npm's modules for the pin check not loadable or the workspaces not mappable, npm not changing the version). Nothing is skipped silently on an error.
 set -uo pipefail
 
@@ -131,6 +140,14 @@ is_increase() {
 [ -e nx.json ] && [ ! -f nx.json ] && die "nx.json is not a file"
 [ -f nx.json ] || die "no nx.json in $(pwd): run it in the root of the Nx workspace, not inside a package"
 grep -q '[^[:space:]]' nx.json || die "nx.json is empty or holds only whitespace"
+# A top-level "release" key means nx release manages the sub-package versions: new bumps are then only
+# reported (see below). nx_release is true (key present), false (absent) or unknown: nx.json is not one
+# JSON object that jq reads (Nx accepts comments and trailing commas, jq does not) or has an "extends"
+# key without "release" (Nx merges the extended file, which is not read here). Unknown stops the run only
+# when a package would be bumped (below), so a workspace with nothing to bump is not stopped by it.
+nx_release=$(jq -s -r 'if length == 1 and (.[0] | type) == "object"
+                       then (if .[0] | has("release") then "true" elif .[0] | has("extends") then "unknown" else "false" end)
+                       else "unknown" end' nx.json 2>/dev/null) || nx_release=unknown
 # (a) the root manifest: one valid JSON object (its own "version" is not read or checked: the script
 #     never bumps the root), and a usable "workspaces" field when there is one.
 [ -f package.json ] || die "no package.json in $(pwd): run it in the root of the Nx workspace"
@@ -247,6 +264,27 @@ for dir in libs/*/ apps/*/; do
   changes_in "$dir"
   [ -z "$tracked$untracked" ] || note "$dir/package.json is not the manifest of an Nx project and $dir has changes, skipped (not bumped)"
 done
+
+# With a "release" block in nx.json, nx release owns the versions: a manual patch bump would stack on top
+# of its next bump (resolver disk), be overwritten (git-tag, registry) or leave the manifests of a fixed
+# release group at different versions. Every new bump becomes a note; "already" records keep their handling.
+if [ "$nx_release" = unknown ]; then
+  for rec in ${plan[@]+"${plan[@]}"}; do
+    case "$rec" in bump$'\t'*) die "nx.json is not one JSON object that jq can read (comments, trailing commas?) or has an \"extends\" key without \"release\": cannot tell whether nx release manages the sub-package versions; nothing was bumped";; esac
+  done
+fi
+if [ "$nx_release" = true ]; then
+  kept=()
+  for rec in ${plan[@]+"${plan[@]}"}; do
+    IFS=$'\t' read -r kind dir old new <<<"$rec"
+    if [ "$kind" = bump ]; then
+      note "$dir (version $old) has changes, not bumped: nx.json has a \"release\" block, so nx release manages its version"
+    else
+      kept+=("$rec")
+    fi
+  done
+  plan=(${kept[@]+"${kept[@]}"})
+fi
 
 # A dependency spec that the HEAD version of a package satisfies and its new version does not leaves the
 # dependent without the workspace package once the package has moved (an exact pin, ^0.0.1, <=0.0.1,
