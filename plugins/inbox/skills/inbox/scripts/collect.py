@@ -56,11 +56,12 @@ the search and then ends the run non-zero, leaving the cache as it was; an unrea
 source becomes a SKIPPED line. The runs of a repository are read with one call for the newest 100 runs
 of its default branch; a workflow or job whose newest run is not among them is not seen. A run decides
 for its workflow only when it is completed and belongs to the repository itself; red is failure,
-timed_out or startup_failure. A push run of the head commit never becomes a RUN row (its CI row covers
-it), but it still counts as the newest run of its workflow, so an older red run does not come back.
+timed_out or startup_failure. A failed push run of the head commit becomes no RUN row (its CI row covers
+it), except a startup_failure, which creates no checks and so never reaches the rollup; the run still
+counts as the newest run of its workflow, so an older red run does not come back.
 Dependabot runs are grouped per update job, keyed by the run title ("<ecosystem> in <directory>"), because
 one Dependabot workflow runs a job per ecosystem and directory; this depends on the shape of GitHub's
-titles, and an unknown shape falls back to one job per workflow path.
+titles, and a title of none of the three known shapes falls back to one job per workflow path.
 """
 import fcntl
 import fnmatch
@@ -195,14 +196,14 @@ def dependabot_job(title):
     """The update job of a Dependabot run title: "npm_and_yarn in /app - Update #123" and
     "npm_and_yarn in /app for lodash - Update #123" give "npm_and_yarn in /app", "Graph Update: uv in /
     #456" gives "Graph Update: uv in /"."""
-    title = re.sub(r" #\d+$", "", re.sub(r" - Update #\d+$", "", title.strip()))
-    return title.split(" for ", 1)[0].strip()
+    match = re.fullmatch(r"(Graph Update: )?(\S+ in \S+(?:, \S+)*)(?: for .*| - Update #\d+| #\d+)?", title.strip())
+    return (match.group(1) or "") + match.group(2) if match else ""
 
 
 def workflow_runs(repo, branch, head):
     """(rows, skip reason). The newest completed run of each workflow, or of each Dependabot update job,
     on the default branch decides: a row for it when it is red, none when it is green. A push run of the
-    head commit decides but gives no row; the CI row covers it."""
+    head commit decides but gives no row, except a startup_failure: the CI row covers the others."""
     result = gh("api", f"repos/{repo}/actions/runs?branch={urllib.parse.quote(branch, safe='')}&per_page=100",
                 "-q", RUN_FIELDS)
     if result.returncode != 0:
@@ -222,7 +223,8 @@ def workflow_runs(repo, branch, head):
         if key in seen:
             continue
         seen.add(key)
-        if run["conclusion"] not in RED or (run["event"] == "push" and run["sha"] == head):
+        if run["conclusion"] not in RED or (run["event"] == "push" and run["sha"] == head
+                                                  and run["conclusion"] != "startup_failure"):
             continue
         if job:
             ref, title = job, f"Dependabot {job} failed"
