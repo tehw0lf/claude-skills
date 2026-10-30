@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: List everything on GitHub that a task can be derived from — for the repository the session is in, or across all of the user's repositories — security alerts, failing default branches, open PRs, dependency PRs from dependabot or renovate, and issues (including bot-opened ones such as spec updates) — in priority order, then ask what to work on. Use when the user says "inbox", "what's open", "what should I work on", "open issues", "was steht an", "woran soll ich arbeiten", "offene issues", "offene PRs" or similar.
+description: List everything on GitHub that a task can be derived from — for the repository the session is in, or across all of the user's repositories — security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs from dependabot or renovate, and issues (including bot-opened ones such as spec updates) — in priority order, then ask what to work on. Use when the user says "inbox", "what's open", "what should I work on", "open issues", "was steht an", "woran soll ich arbeiten", "offene issues", "offene PRs" or similar.
 argument-hint: [all | <owner/repo> | <owner> | ignore <owner/repo#n>]
 allowed-tools: Bash, AskUserQuestion
 ---
@@ -35,11 +35,12 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
    |---|---|---|
    | `SECURITY` | open Dependabot or code-scanning alerts of a repository | count, the worst severity and, when there are any, how many alerts `without patch` (Dependabot) |
    | `CI` | a default branch whose last commit failed its checks | `failure` or `error` |
+   | `RUN` | a workflow, or a Dependabot update job, of the default branch whose newest completed run failed (a red scheduled scan, a failed Dependabot update); a newer green run removes it | the conclusion: `failure`, `timed_out` or `startup_failure` |
    | `PR` | an open pull request | `<checks>/<review decision>`, `/draft` appended |
    | `DEPS` | an open pull request from dependabot or renovate | as `PR` |
    | `ISSUE` | an open issue | its labels; `bot` first when a bot opened it |
 
-   One line per item: repository, ref, title, state, age. The age comes from the `updated` column, and what that is depends on the kind: the last activity for `PR`, `DEPS` and `ISSUE`, the creation of the newest open alert for `SECURITY`, the date of the failing commit for `CI`. Label it accordingly ("newest alert 4 days ago", "red since the commit of …") instead of calling all of them "updated". Keep every item — shortening the list is the user's call (step 4), not yours. Where a group is long, group it by repository instead of dropping lines.
+   One line per item: repository, ref, title, state, age. The age comes from the `updated` column, and what that is depends on the kind: the last activity for `PR`, `DEPS` and `ISSUE`, the creation of the newest open alert for `SECURITY`, the date of the failing commit for `CI`, the start of the newest run of that workflow or job for `RUN`. Label it accordingly ("newest alert 4 days ago", "red since the commit of …") instead of calling all of them "updated". Keep every item — shortening the list is the user's call (step 4), not yours. Where a group is long, group it by repository instead of dropping lines.
 
    Read a `SECURITY` Dependabot line like this: `without patch` alerts have no fixed release, so no update can fix them. All others have one, but that does not mean this repository can reach it: a parent package may pin the vulnerable version or cap its range below the fix. Without a `DEPS` item in the same repository no Dependabot PR exists, so check first whether a parent pins it; if so, wait for the parent's release. For every Dependabot alert, report what blocks it and never work around it (no overrides). The alert count is not a PR count: the alerts of an already merged update disappear on their own, the open ones are still open on GitHub.
 
@@ -48,7 +49,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 4. **Ask what to work on** with a short recommendation of one to three items and the reason for each. Then:
 
    - the user picks an `ISSUE` item and the session's skill list names `work-issue:work-issue` → hand it to that skill as `'owner/repo#n'` (quoted), run from the checkout of that repository; do not read the issue beforehand, the skill reads it itself. The skill stops on a directory that is not a checkout of the issue's repository, so when the current directory is not one, ask the user for the checkout's path (the inbox reads GitHub only and cannot find it)
-   - the user picks any other item (`SECURITY`, `CI`, `PR`, `DEPS`), or an `ISSUE` while the session's skill list does not name `work-issue:work-issue` → read it (`gh issue view`, `gh pr view`, `gh api repos/<repo>/dependabot/alerts`) and work on it in that repository under its own rules
+   - the user picks any other item (`SECURITY`, `CI`, `RUN`, `PR`, `DEPS`), or an `ISSUE` while the session's skill list does not name `work-issue:work-issue` → read it (`gh issue view`, `gh pr view`, `gh run view` for a `RUN` url, `gh api repos/<repo>/dependabot/alerts`) and work on it in that repository under its own rules
    - the user never wants to see an item again → append its `owner/repo#n` to the ignore file as its own line and say so. `ignore <owner/repo#n>` as the argument does only this, without collecting first.
 
    **Done when** the user has picked something or said that nothing is to be done now.
@@ -64,6 +65,7 @@ tehw0lf/airbash#7
 tehw0lf/some-archive
 # one source everywhere
 tehw0lf/*code-scanning
+tehw0lf/*runs
 ```
 
 Add only what the user named. An ignored security alert or red branch stays invisible for good, so never ignore one to make the list shorter. An ignored source is not queried at all, so it cannot show up as `SKIPPED` either.
@@ -73,7 +75,7 @@ Add only what the user named. An ignored security alert or red branch stays invi
 - repositories that are archived or forks in the account-wide list (`--repo` lists them anyway), and anything outside GitHub
 - the session-start line: it stays account-wide and reads the cache, which the single-repository modes never touch
 - secret-scanning alerts
-- workflow runs that failed without being part of the head commit's check rollup, such as a failed Dependabot update run: `CI` is the rollup of the default branch's head commit and nothing else
+- a workflow or Dependabot update job whose newest run is not among the newest 100 runs of the default branch (`RUN` reads one page, and only the default branch; runs of other branches and of pull requests are not listed here)
 - open issues and pull requests beyond the first 1000 of an owner; the script prints a `# SKIPPED search` line when that happens
 - the worst Dependabot severity, the newest alert date and the `without patch` count are taken from a repository's first 100 open alerts
 - pull requests and issues in other owners' repositories that involve the user
