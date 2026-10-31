@@ -61,7 +61,10 @@ it), except a startup_failure, which creates no checks and so never reaches the 
 counts as the newest run of its workflow, so an older red run does not come back.
 Dependabot runs are grouped per update job, keyed by the run title ("<ecosystem> in <directory>"), because
 one Dependabot workflow runs a job per ecosystem and directory; this depends on the shape of GitHub's
-titles, and a title of none of the three known shapes falls back to one job per workflow path.
+titles, and a title of none of the three known shapes falls back to one job per workflow path. The key
+includes the directory list, so a change of a repository's directory list for an ecosystem splits its rows,
+like a change of GitHub's title text: the last red run under the old key stays listed until it leaves the
+newest 100 runs.
 """
 import fcntl
 import fnmatch

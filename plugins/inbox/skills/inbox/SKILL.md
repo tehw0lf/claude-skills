@@ -35,7 +35,7 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
    |---|---|---|
    | `SECURITY` | open Dependabot or code-scanning alerts of a repository | count, the worst severity and, when there are any, how many alerts `without patch` (Dependabot) |
    | `CI` | a default branch whose last commit failed its checks | `failure` or `error` |
-   | `RUN` | a workflow, or a Dependabot update job, of the default branch whose newest completed run failed (a red scheduled scan, a failed Dependabot update); a newer green run removes it | the conclusion: `failure`, `timed_out` or `startup_failure` |
+   | `RUN` | a workflow, or a Dependabot update job, of the default branch whose newest completed run failed (a red scheduled scan, a failed Dependabot update); a newer green run of the same workflow or update job removes it | the conclusion: `failure`, `timed_out` or `startup_failure` |
    | `PR` | an open pull request | `<checks>/<review decision>`, `/draft` appended |
    | `DEPS` | an open pull request from dependabot or renovate | as `PR` |
    | `ISSUE` | an open issue | its labels; `bot` first when a bot opened it |
@@ -76,6 +76,7 @@ Add only what the user named. An ignored security alert or red branch stays invi
 - the session-start line: it stays account-wide and reads the cache, which the single-repository modes never touch
 - secret-scanning alerts
 - a workflow or Dependabot update job whose newest run is not among the newest 100 runs of the default branch (`RUN` reads one page, and only the default branch; runs of other branches and of pull requests are not listed here)
+- a Dependabot update job whose directory list changed (for example from `/., /apps/x` to `/.`): it is keyed by its new title, so the last red run under the old title stays a `RUN` row until it leaves the newest 100 runs of the default branch, although the job under the new title may be green
 - open issues and pull requests beyond the first 1000 of an owner; the script prints a `# SKIPPED search` line when that happens
 - the worst Dependabot severity, the newest alert date and the `without patch` count are taken from a repository's first 100 open alerts
 - pull requests and issues in other owners' repositories that involve the user
