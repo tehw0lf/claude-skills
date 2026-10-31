@@ -43,8 +43,9 @@ Environment=CODING_ROOT=%h/<directory with your checkouts>
 Environment=TMPDIR=%h/.cache/work-issue/tmp
 # Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
 Environment=NX_DAEMON=false
-# caps memory and tasks of the whole run, every process the session, planner, worker and reviewer start included; size them as described under "Limits on memory and tasks"
+# caps memory and tasks of the whole run, every process the session, planner, worker and reviewer start included; size them as described under "Limits on memory and tasks"; MemorySwapMax=0 gives the run no swap, so it is stopped at the memory cap instead of filling the machine's swap
 MemoryMax=<limit>
+MemorySwapMax=0
 TasksMax=<limit>
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp
 # the skills never remove their temporary directories; drop entries older than seven days (the leading `-` keeps a failure from stopping the run; a oneshot unit does not overlap itself, so no running session loses files)
@@ -97,19 +98,20 @@ To test the timer without waiting for the full hour, add `~/.config/systemd/user
 
 A time limit on a single command does not stop a tool that keeps starting processes: it can use up the memory of the machine before the limit is reached (this happened with a respawning `nx migrate` in a scratch copy of a repository). A cgroup limit on the unit holds for every process of the run, whatever form the command takes, and needs no permission rule; that is why the agents carry no wrapper of their own, and why `pr-reviewer.md` leaves the cap to the machine.
 
-Both templates set `MemoryMax=<limit>` and `TasksMax=<limit>` in `[Service]`. The values are placeholders because no value was measured for any repository:
+Both templates set `MemoryMax=<limit>`, `MemorySwapMax=0` and `TasksMax=<limit>` in `[Service]`. The two `<limit>` values are placeholders because no value was measured for any repository:
 
 - `MemoryMax=` is sized by the largest install, build or test run of the repositories the unit works on, plus the session and its agents. It also accepts a percentage of physical memory (`systemd.resource-control(5)`).
 - `TasksMax=` is sized by the processes and threads such a run starts at once; a parallel test runner or build counts each worker.
+- `MemorySwapMax=0` is a fixed value, not sized: it keeps the unit's memory out of swap entirely (also pages that would otherwise be swapped out in normal operation), so `MemoryMax=` alone has to hold the whole run. A machine without swap is not affected by it.
 - With the dispatcher every instance has its own cap, so `--parallel <n>` can use up to `n` times the value.
 
-At the cap, as `systemd.resource-control(5)` and `systemd.service(5)` describe it (read there; the swap behaviour below was seen in a small transient unit, not in these templates): `MemoryMax=` sets the memory limit only, and the swap limit (`MemorySwapMax=`) stays unlimited unless it is set, so on a machine with swap the kernel first moves the excess of the unit's cgroup to swap, and the machine-wide swap can fill up before anything is killed. The OOM killer acts inside the unit's cgroup once the cgroup can no longer go to swap, and with the default `OOMPolicy=stop` the unit is then stopped and marked failed, which is a run that was cut off (see "What the run reads and leaves behind": the checkout may stay on the PR branch). At `TasksMax=` new processes and threads fail to start, which shows up as an error of whatever tried to start them.
+At the cap, as `systemd.resource-control(5)` and `systemd.service(5)` describe it (read there; the swap behaviour below was seen in a small transient unit, not in these templates: without `MemorySwapMax=` the run above `MemoryMax=` ended with result `success` and the excess in swap, with `MemorySwapMax=0` it ended with `oom-kill`): `MemoryMax=` alone sets the memory limit only and leaves the swap limit (`MemorySwapMax=`) unlimited, so on a machine with swap the kernel would first move the excess of the unit's cgroup to swap, and the machine-wide swap could fill up before anything is killed. With `MemorySwapMax=0`, as the templates set it, the cgroup cannot use swap, so the OOM killer acts inside the unit's cgroup once `MemoryMax=` is reached, and with the default `OOMPolicy=stop` the unit is then stopped and marked failed, which is a run that was cut off (see "What the run reads and leaves behind": the checkout may stay on the PR branch). At `TasksMax=` new processes and threads fail to start, which shows up as an error of whatever tried to start them.
 
-A user unit can use these limits only when the user manager has the `memory` and `pids` controllers delegated. Check with `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers`. After `systemctl --user daemon-reload`, `systemctl --user show work-issue.service -p MemoryMax -p TasksMax` shows the configured values and `-p EffectiveMemoryMax -p EffectiveTasksMax` the ones in effect (the most stringent of the unit and its parent slices). A value that systemd cannot parse, such as a `<limit>` left in place, is ignored with a warning in the journal and the unit runs without that cap and does not fail, so a missing cap shows up in these properties and in the journal.
+A user unit can use these limits only when the user manager has the `memory` and `pids` controllers delegated. Check with `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers`. After `systemctl --user daemon-reload`, `systemctl --user show work-issue.service -p MemoryMax -p MemorySwapMax -p TasksMax` shows the configured values and `-p EffectiveMemoryMax -p EffectiveTasksMax` the ones in effect (the most stringent of the unit and its parent slices); no effective counterpart of `MemorySwapMax` was printed on systemd 262, so the swap limit is read from `memory.swap.max` in the unit's cgroup directory, which needs the cgroup's swap accounting. A value that systemd cannot parse, such as a `<limit>` left in place, is ignored with a warning in the journal and the unit runs without that cap and does not fail, so a missing cap shows up in these properties and in the journal.
 
-A session started by hand is in no such unit and is not capped unless it is started in one, for example `systemd-run --user --scope -p MemoryMax=<limit> -p TasksMax=<limit> claude`; everything the session starts, the agents and their tooling included, runs in that scope. This is a way to start the session, not a command a session runs, so it needs no permission rule.
+A session started by hand is in no such unit and is not capped unless it is started in one, for example `systemd-run --user --scope -p MemoryMax=<limit> -p MemorySwapMax=0 -p TasksMax=<limit> claude`; everything the session starts, the agents and their tooling included, runs in that scope. This is a way to start the session, not a command a session runs, so it needs no permission rule.
 
-Not covered: the cron sketch starts no unit and gets no cap from this, and `MemoryMax=` does not limit swap (that is `MemorySwapMax=`).
+Not covered: the cron sketch starts no unit and gets no cap from this.
 
 ### Permissions
 
@@ -194,8 +196,9 @@ Environment=CODING_ROOT=%h/<directory with your checkouts>
 Environment=TMPDIR=%h/.cache/work-issue/tmp/%I
 # Nx starts a daemon in the background that outlives the session; the default KillMode ends it with the unit, but with KillMode=process (for example so that a Stop hook can finish) it stays in the unit's cgroup after the stop. No effect in a repository without Nx
 Environment=NX_DAEMON=false
-# memory and task cap of this instance, sized as under "Limits on memory and tasks"
+# memory and task cap of this instance, sized as under "Limits on memory and tasks"; MemorySwapMax=0 gives the instance no swap, so it is stopped at the memory cap instead of filling the machine's swap
 MemoryMax=<limit>
+MemorySwapMax=0
 TasksMax=<limit>
 ExecStartPre=/usr/bin/mkdir -p %h/.cache/work-issue/tmp/%I
 ExecStartPre=-/usr/bin/find %h/.cache/work-issue/tmp/%I -mindepth 1 -mtime +7 -delete
