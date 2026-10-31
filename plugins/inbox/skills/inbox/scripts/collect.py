@@ -21,7 +21,7 @@ The default owner is $INBOX_OWNER, else the account `gh` is logged in as. Needs 
 scope. Covers the owner's own repositories that are neither archived nor forks. POSIX only (flock).
 
 Output, tab-separated, sorted by priority and then by `updated`, newest first:
-  prio  kind  repo  ref  state  updated  title  url
+  prio  kind  repo  ref  state  updated  title  url  assignees  closing
 kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severity>[, <k> without patch]"
                    or "<n> open"; "without patch" counts alerts with no patched version, i.e. ones a
                    dependency update cannot fix, counted over the first 100 alerts; updated is when the newest open alert was created)
@@ -33,7 +33,10 @@ kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severit
        3 PR       (ref #n, state "<checks>/<review decision>[/draft]", updated is the last activity)
        4 DEPS     (a PR opened by dependabot or renovate; as PR)
        5 ISSUE    (ref #n, state is the comma-separated labels, "bot" prepended for bot-opened issues,
-                   updated is the last activity)
+                   updated is the last activity; assignees is the comma-separated logins and closing the
+                   open pull requests that would close the issue, as "#n" or "owner/repo#n", from the
+                   first 10 of each)
+The last two columns are "-" for every kind but ISSUE, and "-" for an issue without assignees or closing PRs.
 Status lines start with "#":
   # owner=<login> scope=<login | owner/name> generated=<epoch> repos=<n> ignored=<n>
   # SKIPPED <source> <repo>: <reason>      a source that could not be read; its items are missing.
@@ -119,6 +122,10 @@ query($q: String!, $cursor: String) {
       ... on Issue {
         number title url updatedAt author { __typename login }
         labels(first: 20) { nodes { name } } repository { nameWithOwner }
+        assignees(first: 10) { nodes { login } }
+        closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
+          nodes { number repository { nameWithOwner } }
+        }
       }
       ... on PullRequest {
         number title url updatedAt author { __typename login } isDraft reviewDecision
@@ -233,7 +240,7 @@ def workflow_runs(repo, branch, head):
             ref, title = job, f"Dependabot {job} failed"
         else:
             ref, title = run["path"].rsplit("/", 1)[-1], f"{run['name']} failed on {branch}"
-        rows.append((2, "RUN", repo, ref, run["conclusion"], run["created"], title, run["url"]))
+        rows.append((2, "RUN", repo, ref, run["conclusion"], run["created"], title, run["url"], "-", "-"))
     return rows, None
 
 
@@ -274,7 +281,7 @@ def collect(owner, only=None):
             state = f"{alerts['totalCount']} open, max {worst}" + (f", {unpatched} without patch" if unpatched else "")
             rows.append((1, "SECURITY", name, "dependabot", state,
                          max((node["createdAt"] for node in nodes), default=""),
-                         "Dependabot alerts", f"{repo['url']}/security/dependabot"))
+                         "Dependabot alerts", f"{repo['url']}/security/dependabot", "-", "-"))
         elif not repo["viewerCanAdminister"] and not ignored(rules, name, "dependabot"):
             unconfirmed += 1
         branch = repo["defaultBranchRef"]
@@ -282,7 +289,7 @@ def collect(owner, only=None):
         rollup = commit.get("statusCheckRollup")
         if rollup and rollup["state"] in ("FAILURE", "ERROR"):
             rows.append((2, "CI", name, branch["name"], rollup["state"].lower(), commit["committedDate"],
-                         f"checks failed on {branch['name']}", f"{repo['url']}/actions"))
+                         f"checks failed on {branch['name']}", f"{repo['url']}/actions", "-", "-"))
     if unconfirmed:
         skipped.append(f"# SKIPPED dependabot {everywhere}: {unconfirmed} repositories report no alerts, but "
                        "without admin permission on them that cannot be told apart from unreadable")
@@ -296,7 +303,7 @@ def collect(owner, only=None):
             elif count:
                 shown = "100+" if count == 100 else str(count)
                 rows.append((1, "SECURITY", repo["nameWithOwner"], "code-scanning", f"{shown} open", newest,
-                             "Code scanning alerts", f"{repo['url']}/security/code-scanning"))
+                             "Code scanning alerts", f"{repo['url']}/security/code-scanning", "-", "-"))
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         checked = [repo for repo in repos if repo["defaultBranchRef"]
@@ -329,11 +336,18 @@ def collect(owner, only=None):
                 (item["reviewDecision"] or "NO_REVIEW").lower(),
                 "draft" if item["isDraft"] else None]))
             prio, kind = (4, "DEPS") if login in DEP_BOTS else (3, "PR")
+            assignees = closing = "-"
         else:
             labels = [label["name"] for label in item["labels"]["nodes"]]
             state = ",".join((["bot"] if author.get("__typename") == "Bot" else []) + labels) or "-"
             prio, kind = 5, "ISSUE"
-        rows.append((prio, kind, name, ref, state, item["updatedAt"], item["title"], item["url"]))
+            assignees = ",".join(a["login"] for a in item["assignees"]["nodes"]) or "-"
+            closing = ",".join(
+                f"#{pr['number']}" if pr["repository"]["nameWithOwner"] == name
+                else f"{pr['repository']['nameWithOwner']}#{pr['number']}"
+                for pr in item["closedByPullRequestsReferences"]["nodes"]) or "-"
+        rows.append((prio, kind, name, ref, state, item["updatedAt"], item["title"], item["url"],
+                     assignees, closing))
     if (totals.get("count") or 0) > received:
         skipped.append(f"# SKIPPED search {everywhere}: only {received} of {totals['count']} open issues and "
                        f"pull requests were read, the search stops at {SEARCH_LIMIT}")
