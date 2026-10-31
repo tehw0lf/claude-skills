@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Collect everything on GitHub that a task can be derived from, for one owner. Read-only on GitHub.
 
-usage: collect.py [--owner <login>]   refresh from GitHub, write that owner's cache, print the list
+usage: collect.py                     refresh from GitHub for the default owner, write its cache, print the list
+       collect.py --owner <login>     the list for that one user or organisation, live; writes no cache
+                                      (nothing reads one), but takes the lock like a refresh
        collect.py --repo <owner/name> the same list for one repository, live; writes no cache and takes no
                                       lock, so the owner's cache and the --summary line stay owner-wide
        collect.py --here              --repo for the repository `gh repo view` resolves for the current
@@ -17,8 +19,13 @@ usage: collect.py [--owner <login>]   refresh from GitHub, write that owner's ca
        collect.py --background        the detached refresh behind --summary: prints nothing, does nothing
                                       while another refresh runs, and records a failure in refresh.error
 
-The default owner is $INBOX_OWNER, else the account `gh` is logged in as. Needs `gh` with the `repo`
-scope. Covers the owner's own repositories that are neither archived nor forks. POSIX only (flock).
+The default owner is $INBOX_OWNER, else the account `gh` is logged in as. When it is the `gh` login
+itself, the default run also covers every organisation that login is a member of (`viewer { organizations }`,
+read at run time, first 100), in one merged list and one cache file; an organisation hidden by an
+"<org>/*" ignore line is not queried. With $INBOX_OWNER naming someone else, `--owner`, `--repo` and
+`--here` the run stays that one owner or repository. Needs `gh` with the `repo` scope, and `read:org` to
+see the organisations. Covers the owners' own repositories that are neither archived nor forks. POSIX only
+(flock).
 
 Output, tab-separated, sorted by priority and then by `updated`, newest first:
   prio  kind  repo  ref  state  updated  title  url  assignees  closing
@@ -38,9 +45,16 @@ kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severit
                    first 10 of each)
 The last two columns are "-" for every kind but ISSUE, and "-" for an issue without assignees or closing PRs.
 Status lines start with "#":
-  # owner=<login> scope=<login | owner/name> generated=<epoch> repos=<n> ignored=<n>
+  # owner=<login> owners=<login>[,<org>...] scope=<login | owner/name> generated=<epoch> repos=<n> ignored=<n>
+                                           owners are the owners whose repositories were read (repos is
+                                           their total); an older cache file has no owners key
+  # NOTICE <text>                          repos=0: nothing was found to list, and why
   # SKIPPED <source> <repo>: <reason>      a source that could not be read; its items are missing.
                                            <repo> is "<owner>/*" when the source spans repositories.
+                                           Sources: "organizations <login>/*" (the organisation list could
+                                           not be read, or has more than 100; the login alone is listed) and
+                                           "repositories <org>/*" (that organisation's repositories could not
+                                           be read; its search is not run either).
 
 Ignore rules come from $XDG_CONFIG_HOME/inbox-ignore (default ~/.config/inbox-ignore): one glob per
 line, a line starting with "#" is a comment. A glob is matched against "owner/repo" (hides everything
@@ -48,15 +62,17 @@ in that repository) and against "owner/repo" + ref, e.g. "tehw0lf/airbash#7" or
 "tehw0lf/*code-scanning" or "tehw0lf/*runs". An ignored source is not queried, so it produces no SKIPPED line either.
 
 Files, all in $XDG_CACHE_HOME/claude-inbox (default ~/.cache/claude-inbox):
-  inbox-<owner>.tsv   the last output for that owner
+  inbox-<owner>.tsv   the last output of the default run, which resolved to that owner (only that run
+                      writes it)
   default-owner       the login a run without --owner resolved to; --summary reads it
   refresh.lock        held while a refresh runs, so refreshes never overlap
   refresh.error       "<epoch> <message>" of the last failed background refresh; removed by the next
                       successful refresh of the default owner
 
 A `gh` call that fails or takes longer than 60 seconds is retried once for the repository list and
-the search and then ends the run non-zero, leaving the cache as it was; an unreadable per-repository
-source becomes a SKIPPED line. The runs of a repository are read with one call for the newest 100 runs
+the search and then ends the run non-zero, leaving the cache as it was; for an organisation of the
+default run, a failed repository list or search becomes a SKIPPED line instead. An unreadable
+per-repository source becomes a SKIPPED line. The runs of a repository are read with one call for the newest 100 runs
 of its default branch; a workflow or job whose newest run is not among them is not seen. A run decides
 for its workflow only when it is completed and belongs to the repository itself; red is failure,
 timed_out or startup_failure. A failed push run of the head commit becomes no RUN row (its CI row covers
@@ -106,6 +122,11 @@ query($owner: String!, $cursor: String) {
     }
   }
 }""" % REPO_FIELDS
+
+ORGANIZATIONS = """
+query {
+  viewer { organizations(first: 100) { totalCount pageInfo { hasNextPage } nodes { login } } }
+}"""
 
 REPO = """
 query($owner: String!, $name: String!) {
@@ -179,6 +200,26 @@ def graphql(query, totals, **variables):
         if not page["pageInfo"]["hasNextPage"]:
             return
         cursor = page["pageInfo"]["endCursor"]
+
+
+def organizations():
+    """(organisation logins of the token's user, sorted, skip reason). Does not exit: without them the run
+    lists the login alone. One retry, like graphql()."""
+    args = ["api", "graphql", "-f", f"query={ORGANIZATIONS}"]
+    result = gh(*args)
+    if result.returncode != 0:
+        time.sleep(2)
+        result = gh(*args)
+    if result.returncode != 0:
+        return [], clean(result.stderr or result.stdout) or "unknown error"
+    try:
+        page = json.loads(result.stdout)["data"]["viewer"]["organizations"]
+        logins = sorted((node["login"] for node in page["nodes"]), key=str.lower)
+    except (ValueError, KeyError, TypeError):
+        return [], "unreadable answer"
+    if page["pageInfo"]["hasNextPage"]:
+        return logins, f"only the first 100 of {page['totalCount']} organisations were read"
+    return logins, None
 
 
 def code_scanning(repo):
@@ -259,17 +300,37 @@ def clean(text):
     return " ".join(str(text).split())
 
 
-def collect(owner, only=None):
-    """The list for all of `owner`'s repositories, or, with `only` ("owner/name"), for that one."""
-    rows, skipped, rules = [], [], ignore_rules()
+def collect(owner, only=None, organisations=(), notes=(), default=False):
+    """The list for all of `owner`'s repositories, or, with `only` ("owner/name"), for that one. With
+    `organisations`, their repositories are listed too; `notes` are status lines to print (SKIPPED);
+    `default` marks the default run, whose empty result points to /inbox <org>."""
+    rows, skipped, rules = [], list(notes), ignore_rules()
+    groups = []  # (owner, its repositories, search): only owners that were read
     if only:
-        repos = list(graphql(REPO, {}, owner=owner, name=only.partition("/")[2]))
-        scope, everywhere, search = only, only, f"repo:{only} is:open"
+        groups.append((owner, list(graphql(REPO, {}, owner=owner, name=only.partition("/")[2])),
+                       f"repo:{only} is:open"))
+        scope = only
     else:
-        repos = list(graphql(REPOS, {}, owner=owner))
-        scope, everywhere, search = owner, f"{owner}/*", f"user:{owner} is:open archived:false"
+        scope = owner
+        for name in [owner, *organisations]:
+            try:
+                found = list(graphql(REPOS, {}, owner=name))
+            except SystemExit as error:  # the login's own list stays fatal, an organisation's does not
+                if name == owner:
+                    raise
+                skipped.append(f"# SKIPPED repositories {name}/*: {clean(error.code).removeprefix('collect.py: ')}")
+                continue
+            groups.append((name, found, f"user:{name} is:open archived:false"))
+    repos = [repo for _, found, _ in groups for repo in found]
+    owners = ",".join(name for name, _, _ in groups)
 
-    unconfirmed = 0  # no alerts reported, but this token could not have read any
+    for name, found, _ in groups:
+        unconfirmed = sum(1 for repo in found if not repo["vulnerabilityAlerts"]["totalCount"]
+                          and not repo["viewerCanAdminister"]
+                          and not ignored(rules, repo["nameWithOwner"], "dependabot"))
+        if unconfirmed:  # no alerts reported, but this token could not have read any
+            skipped.append(f"# SKIPPED dependabot {only or name + '/*'}: {unconfirmed} repositories report no "
+                           "alerts, but without admin permission on them that cannot be told apart from unreadable")
     for repo in repos:
         name = repo["nameWithOwner"]
         alerts = repo["vulnerabilityAlerts"]
@@ -282,17 +343,12 @@ def collect(owner, only=None):
             rows.append((1, "SECURITY", name, "dependabot", state,
                          max((node["createdAt"] for node in nodes), default=""),
                          "Dependabot alerts", f"{repo['url']}/security/dependabot", "-", "-"))
-        elif not repo["viewerCanAdminister"] and not ignored(rules, name, "dependabot"):
-            unconfirmed += 1
         branch = repo["defaultBranchRef"]
         commit = (branch or {}).get("target") or {}
         rollup = commit.get("statusCheckRollup")
         if rollup and rollup["state"] in ("FAILURE", "ERROR"):
             rows.append((2, "CI", name, branch["name"], rollup["state"].lower(), commit["committedDate"],
                          f"checks failed on {branch['name']}", f"{repo['url']}/actions", "-", "-"))
-    if unconfirmed:
-        skipped.append(f"# SKIPPED dependabot {everywhere}: {unconfirmed} repositories report no alerts, but "
-                       "without admin permission on them that cannot be told apart from unreadable")
 
     scanned = [repo for repo in repos if not ignored(rules, repo["nameWithOwner"], "code-scanning")]
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -317,9 +373,22 @@ def collect(owner, only=None):
             rows.extend(found)
 
     known = {repo["nameWithOwner"] for repo in repos}
-    totals, received = {}, 0
-    for item in graphql(ITEMS, totals, q=search):
-        received += 1
+    items = []
+    for name, _, search in groups:
+        totals, found = {}, []
+        try:
+            found.extend(graphql(ITEMS, totals, q=search))
+        except SystemExit as error:
+            if name == owner:
+                raise
+            skipped.append(f"# SKIPPED search {name}/*: {clean(error.code).removeprefix('collect.py: ')}")
+            continue
+        items.extend(found)
+        received = len(found)
+        if (totals.get("count") or 0) > received:
+            skipped.append(f"# SKIPPED search {only or name + '/*'}: only {received} of {totals['count']} open "
+                           f"issues and pull requests were read, the search stops at {SEARCH_LIMIT}")
+    for item in items:
         if not item:
             continue
         name = item["repository"]["nameWithOwner"]
@@ -348,21 +417,24 @@ def collect(owner, only=None):
                 for pr in item["closedByPullRequestsReferences"]["nodes"]) or "-"
         rows.append((prio, kind, name, ref, state, item["updatedAt"], item["title"], item["url"],
                      assignees, closing))
-    if (totals.get("count") or 0) > received:
-        skipped.append(f"# SKIPPED search {everywhere}: only {received} of {totals['count']} open issues and "
-                       f"pull requests were read, the search stops at {SEARCH_LIMIT}")
 
     kept = [row for row in rows if not ignored(rules, row[2], row[3])]
     kept.sort(key=lambda row: row[5], reverse=True)
     kept.sort(key=lambda row: [kind for kind, _ in KINDS].index(row[1]))  # CI before RUN: both are prio 2
     kept.sort(key=lambda row: row[0])
-    header = f"# owner={owner} scope={scope} generated={int(time.time())} repos={len(repos)} ignored={len(rows) - len(kept)}"
-    return "\n".join([header, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
+    header = (f"# owner={owner} owners={owners} scope={scope} generated={int(time.time())} "
+              f"repos={len(repos)} ignored={len(rows) - len(kept)}")
+    notice = []
+    if not repos:
+        notice = [f"# NOTICE no repositories found for {owners}: it has none that is neither archived nor a fork"
+                  + ("; list an organisation with /inbox <org>" if default else "")]
+    return "\n".join([header, *notice, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
 
 
 def refresh(owner, background=False):
-    """Collect for `owner` (None: the default owner) and write its cache. One refresh at a time: a
-    background run gives way to a running one, a foreground run waits for it and then reads live."""
+    """Collect for `owner` (None: the default owner) and, for the default run only, write its cache. One
+    refresh at a time: a background run gives way to a running one, a foreground run waits for it and then
+    reads live. The default run covers the organisations of the `gh` login too, when the owner is that login."""
     DIR.mkdir(parents=True, exist_ok=True)
     with open(DIR / "refresh.lock", "w") as lock:
         try:
@@ -372,16 +444,26 @@ def refresh(owner, background=False):
         default = owner is None
         if default:
             owner = os.environ.get("INBOX_OWNER")
-        if not owner:
+        login = None
+        if default or not owner:
             result = gh("api", "user", "-q", ".login")
-            if result.returncode != 0:
+            if result.returncode == 0:
+                login = result.stdout.strip()
+            elif not owner:
                 sys.exit(f"collect.py: cannot determine the owner: {result.stderr.strip()}")
-            owner = result.stdout.strip()
-        text = collect(owner)
-        tmp = DIR / f"inbox.{os.getpid()}.tmp"
-        tmp.write_text(text)
-        tmp.replace(cache_file(owner))
+        owner = owner or login
+        organisations, notes = [], []
+        if default and login and owner.lower() == login.lower():
+            found, reason = organizations()
+            if reason:
+                notes.append(f"# SKIPPED organizations {owner}/*: {reason}")
+            rules = ignore_rules()
+            organisations = [org for org in found if org.lower() != owner.lower() and not ignored(rules, f"{org}/*", "")]
+        text = collect(owner, organisations=organisations, notes=notes, default=default)
         if default:
+            tmp = DIR / f"inbox.{os.getpid()}.tmp"
+            tmp.write_text(text)
+            tmp.replace(cache_file(owner))
             (DIR / "default-owner").write_text(owner + "\n")
             (DIR / "refresh.error").unlink(missing_ok=True)
         return text
@@ -410,7 +492,10 @@ def summary():
         kinds = [fields[1] for fields in (row.split("\t") for row in lines[1:] if not row.startswith("#"))]
         counts = ", ".join(f"{kinds.count(kind)} {label}" for kind, label in KINDS)
         skipped = sum(row.startswith("# SKIPPED") for row in lines)
-        line = (f"inbox ({head['owner']}): {counts}"
+        extra = len(head.get("owners", head["owner"]).split(",")) - 1  # a cache file from before has no owners
+        name = head["owner"] + (f" +{extra} org{'s' if extra > 1 else ''}" if extra > 0 else "")
+        line = (f"inbox ({name}): "
+                + ("no repositories found - run /inbox <org> for an organisation" if head["repos"] == "0" else counts)
                 + (f", {skipped} sources unreadable" if skipped else "") + f" - {int(age // 3600)}h old")
     except (OSError, ValueError, KeyError, IndexError):
         pass
