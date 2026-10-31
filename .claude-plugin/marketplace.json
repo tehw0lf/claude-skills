@@ -45,7 +45,7 @@
     },
     {
       "name": "inbox",
-      "description": "List everything on GitHub that a task can be derived from, for the current repository or across all of an owner's repositories: security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs and issues, with a one-line summary at session start.",
+      "description": "List everything on GitHub that a task can be derived from, for the current repository or across all of an owner's repositories: security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs and issues, with auto-work candidates among the issues and a one-line summary at session start.",
       "author": {
         "name": "tehw0lf"
       },
@@ -63,7 +63,7 @@
     },
     {
       "name": "work-issue",
-      "description": "Work one GitHub issue: a planner (Opus) first reads it and the code and posts an implementation plan or the open owner questions on the issue, or closes the issue when the owner's answer picks a close option, then the worker implements the current plan to an open pull request, or unsupervised through independent review and merge; an orchestrator runs planner and worker for labelled or named issues and continues issues that are already started (current plan, own open PR) until they are merged.",
+      "description": "Work one GitHub issue: a planner (Opus) first reads it and the code and posts an implementation plan or the open owner questions on the issue, or closes the issue when the owner's answer picks a close option, then the worker implements the current plan to an open pull request, or unsupervised through independent review and merge; an orchestrator runs planner and worker for labelled or named issues and continues issues that are already started (current plan, own open PR) until they are merged; a skill proposes the opt-in label per issue and sets it on confirmation.",
       "author": {
         "name": "tehw0lf"
       },
