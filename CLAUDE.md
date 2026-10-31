@@ -33,7 +33,7 @@ docs/                                      # coupling.md and commands.md, read a
 scripts/                                   # repository checks and tools, not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it (work-issue: resume.md, stopping.md and the worker-*.md files, see below)
-plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent and its layout file are the whole plugin)
+plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent, its layout file and `scripts/dependency-diff.py` are the whole plugin)
                                            # a plugin may hold several skills and agents (work-issue: plan-issue + issue-planner, work-issue + issue-worker, orchestrate-issue)
 plugins/pr-review/verdict-layout.md        # the verdict layout, read by pr-reviewer before it writes the verdict (beside agents/ because agents/**/*.md is checked as agents)
 plugins/<name>/hooks/hooks.json            # optional: hooks the plugin adds while it is enabled (inbox: the SessionStart summary)
@@ -79,6 +79,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - `inbox`: `collect.py` and its SessionStart hook.
 - Byte-identical copies in `nx-migrate` and `work-issue`: `check-install-config.py`, `merge-facts.py` (the `cmp` lines are in `docs/commands.md`).
 - `repo-commands.py`: how `tehw0lf/workflows` `test-and-build.yml` composes commands, and steps 4 to 7 of the `work-issue` `SKILL.md`.
+- `dependency-diff.py` and `pr-reviewer.md` (its dependency-file list and the `DEP` and `RESULT` lines), with the allow rule in `scheduling.md`.
 - The verdict layout of `pr-reviewer.md` and `verdict-layout.md`: `merge-facts.py`, `scripts/review-rounds.py`.
 - `verify-nx-provenance.js`: the pinned publisher.
 

@@ -24,6 +24,7 @@ python3 plugins/work-issue/skills/work-issue/scripts/repo-commands.py <checkout 
 python3 plugins/work-issue/skills/work-issue/scripts/check-lock-overrides.py <directory>   # reads files only, runs no tool; uv, Cargo, Go and Composer settings that hide a conflict (work-issue only, not shared with nx-migrate)
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/check-install-config.py plugins/work-issue/skills/work-issue/scripts/check-install-config.py   # the two copies must stay identical
 python3 plugins/work-issue/skills/work-issue/scripts/merge-facts.py <owner/repo> <pr>   # read-only (needs gh auth); lists the latest verdict, the head and every change of the PR's base branch at or after the verdict, plus the newest base change of the whole timeline (`LASTBASE`)
+python3 plugins/pr-review/scripts/dependency-diff.py <base ref> <head ref>   # reads git only; prints `DEP` lines and a `RESULT` of none, version-only or changed for the dependency files of the diff <base>...<head>
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/merge-facts.py plugins/work-issue/skills/work-issue/scripts/merge-facts.py   # the two copies must stay identical
 python3 scripts/review-rounds.py --since YYYY-MM-DD [--until YYYY-MM-DD] [--owner <login>]   # read-only (needs gh auth); counts review rounds and findings per round of the merged PRs in the range from their verdict comments
 ```
