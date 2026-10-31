@@ -1,6 +1,6 @@
 ---
 name: inbox
-description: List everything on GitHub that a task can be derived from — for the repository the session is in, or across all of the user's repositories — security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs from dependabot or renovate, and issues (including bot-opened ones such as spec updates) — in priority order, then ask what to work on. Use when the user says "inbox", "what's open", "what should I work on", "open issues", "was steht an", "woran soll ich arbeiten", "offene issues", "offene PRs" or similar.
+description: List everything on GitHub that a task can be derived from — for the repository the session is in, or across all repositories of the user's account and of the organisations it belongs to — security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs from dependabot or renovate, and issues (including bot-opened ones such as spec updates) — in priority order, then ask what to work on. Use when the user says "inbox", "what's open", "what should I work on", "open issues", "was steht an", "woran soll ich arbeiten", "offene issues", "offene PRs" or similar.
 argument-hint: [all | <owner/repo> | <owner> | ignore <owner/repo#n>]
 allowed-tools: Bash, AskUserQuestion
 ---
@@ -14,20 +14,20 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 ## Arguments
 
 - none — the repository of the current directory: `scripts/collect.py --here`. That is the repository `gh` resolves (`gh repo set-default`, else the remote `upstream`, `github` or `origin`), so a fork checkout with an `upstream` remote lists the parent. When there is none (no work tree, no remote, no remote on a GitHub host) the script exits 2; then run the owner-wide list (`all`) instead and say so.
-- `all` — every repository of the account `gh` is logged in as (or `$INBOX_OWNER`): `scripts/collect.py`, also from inside a checkout. A login that is literally `all` needs `--owner all`.
+- `all` — every repository of the account `gh` is logged in as and of every organisation that account is a member of, in one list: `scripts/collect.py`, also from inside a checkout. With `$INBOX_OWNER` set to another user or organisation it lists that owner alone. A login that is literally `all` needs `--owner all`.
 - `<owner/repo>` — one repository, wherever the session is: `scripts/collect.py --repo <owner/repo>`
-- `<owner>` — another user or organisation: `scripts/collect.py --owner <owner>`. Expect `# SKIPPED` lines there: alerts are readable only with admin permission on a repository.
+- `<owner>` — one user or organisation: `scripts/collect.py --owner <owner>` (reads live, writes no cache). This is also how to list an organisation that `all` does not cover. Expect `# SKIPPED` lines there: alerts are readable only with admin permission on a repository.
 - `ignore <owner/repo#n>` — hide one item for good, see step 4
 
 ## Steps
 
 1. **Collect.** Run `scripts/collect.py` with the mode the argument selects (see above). It always reads live and takes some seconds; the summary printed at session start comes from a cache and can be hours old, so never answer from it. A non-zero exit means the list is not available — report the message and stop; do not fall back to the cache or to memory. The one exception is exit 2 of `--here`, which means "no repository here" and switches to the account-wide list (see Arguments); a failed `gh` call under `--here` exits 1 and stops like any other.
 
-   The first line says what was read: `scope=<owner>` is the whole account, `scope=<owner/repo>` one repository. Name the scope before the list, and when it is one repository, say that `all` gives the overview of every repository. The single-repository modes read live and write no cache.
+   The first line says what was read: `scope=<owner>` is the whole account, `scope=<owner/repo>` one repository, and `owners=` names the owners whose repositories the list covers (the login and its organisations; an older cache has no such key). Name the scope and the owners before the list, and when it is one repository, say that `all` gives the overview of every repository. The single-repository modes read live and write no cache.
 
    Output is tab-separated: `prio  kind  repo  ref  state  updated  title  url  assignees  closing`, already sorted by priority and then by last update. `assignees` and `closing` are `-` for every kind but `ISSUE`. Lines starting with `#` are status lines.
 
-2. **Report what is missing.** Every `# SKIPPED <source> <repo>: <reason>` line is a source that could not be read, so its items are absent, not zero. Name them before the list. A `SKIPPED` line whose repository is `<owner>/*` concerns the whole source: `dependabot` when repositories without admin permission report no alerts, which cannot be told apart from unreadable, and `search` when there are more open issues and pull requests than the search returns, so the `PR`, `DEPS` and `ISSUE` groups are incomplete. Mention the `ignored=<n>` count from the first line when it is not 0.
+2. **Report what is missing.** Every `# SKIPPED <source> <repo>: <reason>` line is a source that could not be read, so its items are absent, not zero. Name them before the list. A `SKIPPED` line whose repository is `<owner>/*` concerns the whole source: `dependabot` when repositories without admin permission report no alerts, which cannot be told apart from unreadable, and `search` when there are more open issues and pull requests than the search returns, so the `PR`, `DEPS` and `ISSUE` groups are incomplete. A `# SKIPPED organizations <login>/*` line means the list of organisations could not be read or has more than 100, so organisations are missing (or `$INBOX_OWNER` is set and the `gh` login could not be read); `# SKIPPED repositories <org>/*` means one organisation could not be read (for example SSO not authorised for the token), and its issues and pull requests are missing too. A `# NOTICE` line (the first line says `repos=0`) means nothing was found to list: relay it and offer `/inbox <org>` for an organisation. Mention the `ignored=<n>` count from the first line when it is not 0.
 
 3. **Show the list**, grouped by kind in the order the script gives:
 
@@ -67,13 +67,16 @@ tehw0lf/some-archive
 # one source everywhere
 tehw0lf/*code-scanning
 tehw0lf/*runs
+# a whole organisation, also from the account-wide list; it is not queried at all
+some-org/*
 ```
 
 Add only what the user named. An ignored security alert or red branch stays invisible for good, so never ignore one to make the list shorter. An ignored source is not queried at all, so it cannot show up as `SKIPPED` either.
 
 ## Not covered
 
-- repositories that are archived or forks in the account-wide list (`--repo` lists them anyway), and anything outside GitHub
+- repositories that are archived or forks in the account-wide list, organisations included (`--repo` lists them anyway), and anything outside GitHub
+- organisations of the login when `$INBOX_OWNER` names someone else, organisations beyond the first 100, and organisations the login only has outside-collaborator access to (membership only; the token also needs `read:org`, and an organisation whose SSO is not authorised for it shows as `SKIPPED` or, if GitHub answers without an error, not at all)
 - the session-start line: it stays account-wide and reads the cache, which the single-repository modes never touch
 - secret-scanning alerts
 - a workflow or Dependabot update job whose newest run is not among the newest 100 runs of the default branch (`RUN` reads one page, and only the default branch; runs of other branches and of pull requests are not listed here)
