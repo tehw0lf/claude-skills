@@ -5,7 +5,8 @@ Usage: dependency-diff.py <base ref> <head ref>      (run in the checkout)
 
 Compares the PR's diff (`git diff --name-status <base>...<head>`, merge base to
 head) for files whose name is on the dependency-file list of pr-reviewer.md
-(package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, pyproject.toml,
+(package.json, package-lock.json, npm-shrinkwrap.json, yarn.lock,
+pnpm-lock.yaml, pnpm-workspace.yaml, bun.lock, bun.lockb, pyproject.toml,
 uv.lock, requirements*.txt, go.mod, go.sum, Cargo.toml, Cargo.lock,
 composer.json, composer.lock), by file name anywhere in the tree.
 
@@ -15,7 +16,9 @@ Output, one line each:
 
 version-only is limited to the root package.json (equal as parsed JSON after
 removing the top-level "version") and the root package-lock.json (equal after
-removing the top-level "version" and packages[""].version). Every other change
+removing the top-level "version" and packages[""].version), and the same
+equality must hold between the base ref itself and the head, so that a base that
+has moved on in its dependencies since the merge base is "changed". Every other change
 to a listed file, and every added or deleted one, is "changed" (a rename counts
 as a deleted and an added file). RESULT is none when no listed file changed,
 version-only when every DEP line is version-only, otherwise changed.
@@ -28,8 +31,8 @@ import json
 import subprocess
 import sys
 
-NAMES = ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-         "pyproject.toml", "uv.lock", "requirements*.txt", "go.mod", "go.sum",
+NAMES = ["package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock",
+         "pnpm-lock.yaml", "pnpm-workspace.yaml", "bun.lock", "bun.lockb", "pyproject.toml", "uv.lock", "requirements*.txt", "go.mod", "go.sum",
          "Cargo.toml", "Cargo.lock", "composer.json", "composer.lock"]
 
 
@@ -87,7 +90,8 @@ def main():
             kind = "deleted"
         elif path in ("package.json", "package-lock.json"):
             mb = git("merge-base", base, head).decode().strip()
-            same = strip(path, load(mb, path)) == strip(path, load(head, path))
+            h = strip(path, load(head, path))
+            same = strip(path, load(mb, path)) == h and strip(path, load(base, path)) == h
             kind = "version-only" if same else "changed"
         else:
             kind = "changed"
