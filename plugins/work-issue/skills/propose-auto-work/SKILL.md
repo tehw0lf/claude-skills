@@ -23,7 +23,7 @@ For each reference, from any directory, by the full path of the script (the base
 <skill directory>/../work-issue/scripts/issue-context.py 'owner/repo#n'
 ```
 
-`CHECKOUT`, `BRANCH`, `MANIFEST` and `WORKTREE` describe the current directory and are ignored, as are their `# SKIPPED local-branches` and `# SKIPPED worktree` lines. A non-zero exit excludes that issue with the message as its reason.
+`CHECKOUT`, `BRANCH local`, `MANIFEST` and `WORKTREE` describe the current directory and are ignored, as are `# SKIPPED local-branches` and `# SKIPPED worktree`. A `BRANCH remote <name>` line (read from GitHub) and a `# SKIPPED remote-branches` line are not ignored: they are shown to the user in the question of step 4 (a remote branch named after the issue stops the worker if it holds commits beyond the default branch, and an unreadable branch list cannot be told apart from that). A non-zero exit excludes that issue with the message as its reason.
 
 An issue is **excluded**, with the reason shown to the user, when it:
 
@@ -43,7 +43,7 @@ Once over the remaining issues:
 <skill directory>/../orchestrate-issue/scripts/run-context.py 'owner/repo#n'...
 ```
 
-Read `REPO` and `CHECKS` (the `CHECKOUT` lines are not needed here). Then, per repository:
+A non-zero exit prints its reason on stderr and nothing on stdout, and ends the call for every repository in it: exclude the issues of that call with the message as the reason, or run the script once per repository so that only that repository's issues are excluded. Read `REPO` and `CHECKS` (the `CHECKOUT` lines are not needed here). Then, per repository:
 
 ```bash
 gh api repos/<owner/repo>/collaborators/<ACCOUNT>/permission
@@ -62,9 +62,9 @@ Show the groups before the first question.
 
 ### 4. Ask per issue
 
-One question (`AskUserQuestion`) per issue of the first two groups, with the title, the group note and the full link to the plan comment (`https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<id>` from the `PLAN` line), so the plan the label authorises is one click away. Never one question for several issues, never an "all" option or a default. Reason: the label starts an unattended merge, and the owner's agreement is to a plan they have read.
+One question (`AskUserQuestion`) per issue of the first two groups, with the title, the group note and the full link to the plan comment (`https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<id>` from the `PLAN` line), so the current plan is one click away, and any `BRANCH remote` or `# SKIPPED remote-branches` line of step 1. Say in the question that the label covers more than this plan: `orchestrate-issue` plans an issue again when the plan goes stale (an owner comment, new questions, a commenter whose permission could not be read) and replans once after a plan stop, and then works and merges without asking again. Never one question for several issues, never an "all" option or a default. Reason: the label starts an unattended merge, and it is not bound to the plan that was shown.
 
-For an issue in "plan first", ask whether to run the planner. On yes, spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not offered in that run: the user reads the plan and calls this skill again. Reason: the label is set on a plan the owner has read.
+For an issue in "plan first", ask whether to run the planner. On yes, spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not offered in that run: the user reads the plan and calls this skill again. Reason: the user should have read a plan before the label is set, even though the label is not bound to it.
 
 ### 5. Label
 
@@ -96,7 +96,7 @@ For each repository that got a label:
 <skill directory>/../orchestrate-issue/scripts/run-context.py <owner/repo>
 ```
 
-Report every issue just labelled whose `ISSUE` line is missing, or shows a permission other than `admin`, `maintain` or `write`, or an `edit` of `untrusted` or `-`, as "labelled, but `orchestrate-issue` will not take it", with the field. Reason: the orchestrator also drops a labelled issue whose body or title was edited by an account without write access or whose edit history could not be read, and `run-context.py` shows that only in label mode. Do not remove the label; that is the user's call.
+A non-zero exit reports that repository's labelled issues as "not checked", with the message. Otherwise report every issue just labelled whose `ISSUE` line is missing, or shows a permission other than `admin`, `maintain` or `write`, or an `edit` of `untrusted` or `-`, as "labelled, but `orchestrate-issue` will not take it", with the field. Reason: the orchestrator also drops a labelled issue whose body or title was edited by an account without write access or whose edit history could not be read, and `run-context.py` shows that only in label mode. Do not remove the label; that is the user's call.
 
 ### 7. Report
 
