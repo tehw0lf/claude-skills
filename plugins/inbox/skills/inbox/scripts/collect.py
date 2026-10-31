@@ -3,7 +3,8 @@
 
 usage: collect.py                     refresh from GitHub for the default owner, write its cache, print the list
        collect.py --owner <login>     the list for that one user or organisation, live; writes no cache
-                                      (nothing reads one), but takes the lock like a refresh
+                                      (a cache of it would replace the file --summary reads when the
+                                      owner is the default one), but takes the lock like a refresh
        collect.py --repo <owner/name> the same list for one repository, live; writes no cache and takes no
                                       lock, so the owner's cache and the --summary line stay owner-wide
        collect.py --here              --repo for the repository `gh repo view` resolves for the current
@@ -52,7 +53,9 @@ Status lines start with "#":
   # SKIPPED <source> <repo>: <reason>      a source that could not be read; its items are missing.
                                            <repo> is "<owner>/*" when the source spans repositories.
                                            Sources: "organizations <login>/*" (the organisation list could
-                                           not be read, or has more than 100; the login alone is listed) and
+                                           not be read, so only the login is listed; or it has more than
+                                           100, so the first 100 are; or $INBOX_OWNER is set and the gh
+                                           login could not be read, so no organisation is added) and
                                            "repositories <org>/*" (that organisation's repositories could not
                                            be read; its search is not run either).
 
@@ -426,7 +429,9 @@ def collect(owner, only=None, organisations=(), notes=(), default=False):
               f"repos={len(repos)} ignored={len(rows) - len(kept)}")
     notice = []
     if not repos:
-        notice = [f"# NOTICE no repositories found for {owners}: it has none that is neither archived nor a fork"
+        notice = [f"# NOTICE no repositories found for {owners}: "
+                  + ("none of them has a" if "," in owners else "it has no")
+                  + " repository that is neither archived nor a fork"
                   + ("; list an organisation with /inbox <org>" if default else "")]
     return "\n".join([header, *notice, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
 
@@ -444,15 +449,21 @@ def refresh(owner, background=False):
         default = owner is None
         if default:
             owner = os.environ.get("INBOX_OWNER")
-        login = None
+        login, notes = None, []
         if default or not owner:
             result = gh("api", "user", "-q", ".login")
+            if result.returncode != 0:
+                time.sleep(2)
+                result = gh("api", "user", "-q", ".login")
             if result.returncode == 0:
                 login = result.stdout.strip()
             elif not owner:
                 sys.exit(f"collect.py: cannot determine the owner: {result.stderr.strip()}")
+            else:  # $INBOX_OWNER is set: whether it is the login, and so whether organisations apply, is unknown
+                notes.append(f"# SKIPPED organizations {owner}/*: cannot read the gh login: "
+                             f"{clean(result.stderr) or 'unknown error'}")
         owner = owner or login
-        organisations, notes = [], []
+        organisations = []
         if default and login and owner.lower() == login.lower():
             found, reason = organizations()
             if reason:
