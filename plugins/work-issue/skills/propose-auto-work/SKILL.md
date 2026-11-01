@@ -1,6 +1,6 @@
 ---
 name: propose-auto-work
-description: "Propose the opt-in label auto-work for GitHub issues and set it per issue on the user's confirmation — checks for each issue whether a current plan exists, which status checks the repository requires and whether the logged-in account may label with effect, asks one question per issue, creates the label on request, then checks that orchestrate-issue would take each labelled issue. Interactive only, not part of a scheduled run. Use when the user says \"label auto-work\", \"propose auto-work\", \"set the auto-work label\", \"which issues can run unattended\", \"auto-work vorschlagen\", \"auto-work Label setzen\", \"welche Issues automatisch abarbeiten\"."
+description: "Propose the opt-in label auto-work for GitHub issues and set it per issue on the user's confirmation — shows each issue's current plan where one exists (an issue without one is planned at run time by orchestrate-issue, or first on request), checks which status checks the repository requires and whether the logged-in account may label with effect, asks one question per issue, creates the label on request, then checks that orchestrate-issue would take each labelled issue. Interactive only, not part of a scheduled run. Use when the user says \"label auto-work\", \"propose auto-work\", \"set the auto-work label\", \"which issues can run unattended\", \"auto-work vorschlagen\", \"auto-work Label setzen\", \"welche Issues automatisch abarbeiten\"."
 argument-hint: "'owner/repo#n'..."
 allowed-tools: Bash, AskUserQuestion, Agent
 ---
@@ -9,9 +9,9 @@ allowed-tools: Bash, AskUserQuestion, Agent
 
 Turns "this issue could run unattended" into the label `auto-work` that `orchestrate-issue` reads, one issue at a time and only on the user's answer. The inbox lists candidates (issues without assignee, open closing PR or `needs-decision` label) and hands the ones the user picks to this skill as quoted `'owner/repo#n'` references. Without arguments, ask the user for the references; do not search for issues here.
 
-**Interactive only.** The skill asks a question per issue, so it does not run in a scheduled or unattended session. Reason: the label starts a later unattended merge (`orchestrate-issue`, step 1), so the person who sets it has to decide for each issue, having seen its plan.
+**Interactive only.** The skill asks a question per issue, so it does not run in a scheduled or unattended session. Reason: the label starts a later unattended merge (`orchestrate-issue`, step 1), so the person who sets it has to decide for each issue, with its current plan where one exists and, without one, knowing that `orchestrate-issue` plans it unattended before it works and merges.
 
-It is the only place that sets `auto-work`. It changes nothing but labels: no issue text, no comment, no code. A run of the planner is offered, never combined with the labelling (step 4).
+It is the only place that sets `auto-work`. It changes nothing but labels: no issue text, no comment, no code. For an issue without a current plan a run of the planner is offered as one answer of the question, never combined with the labelling (step 4).
 
 ## Steps
 
@@ -53,18 +53,21 @@ Resolve the role as `role_of()` in `run-context.py` does: a built-in `role_name`
 
 ### 3. Groups
 
-- **auto-work:** `PLAN … current` and at least one required check on the `CHECKS` line.
-- **auto-work without merge:** `PLAN … current`, and a `CHECKS` line of `- -` or a `# SKIPPED rules` / `# SKIPPED protection` line for the repository. Note: the run ends at a reviewed, open PR for a person to merge (`orchestrate-issue`, step 5).
-- **plan first:** no `PLAN … current` (`PLAN … stale` or no `PLAN` line). No label is offered.
+- **auto-work:** at least one required check on the `CHECKS` line.
+- **auto-work without merge:** a `CHECKS` line of `- -` or a `# SKIPPED rules` / `# SKIPPED protection` line for the repository. Note: the run ends at a reviewed, open PR for a person to merge (`orchestrate-issue`, step 5).
 - **excluded:** each issue with its reason.
+
+Each issue of the first two groups gets a plan note: with `PLAN … current` the link to the plan comment; without it (`PLAN … stale` or no `PLAN` line) "no current plan: `orchestrate-issue` plans it at run time".
 
 Show the groups before the first question.
 
 ### 4. Ask per issue
 
-One question (`AskUserQuestion`) per issue of the first two groups, with the title, the group note and the full link to the plan comment (`https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<id>` from the `PLAN` line), so the current plan is one click away, and any `BRANCH remote` or `# SKIPPED remote-branches` line of step 1. Say in the question that the label covers more than this plan: `orchestrate-issue` plans an issue again when the plan goes stale (an owner comment, new questions, a commenter whose permission could not be read) and replans once after a plan stop, and then works and merges without asking again. Never one question for several issues, never an "all" option or a default. Reason: the label starts an unattended merge, and it is not bound to the plan that was shown.
+One question (`AskUserQuestion`) per issue of the first two groups, with the title, the group note, the plan note and, for `PLAN … current`, the full link to the plan comment (`https://github.com/<owner>/<repo>/issues/<n>#issuecomment-<id>` from the `PLAN` line), so the current plan is one click away, and any `BRANCH remote` or `# SKIPPED remote-branches` line of step 1. Say in the question that the label covers more than this plan: `orchestrate-issue` plans an issue again when the plan goes stale (an owner comment, new questions, a commenter whose permission could not be read) and replans once after a plan stop, and then works and merges without asking again. Never one question for several issues, never an "all" option or a default. Reason: the label starts an unattended merge, and it is not bound to the plan that was shown.
 
-For an issue in "plan first", ask whether to run the planner. On yes, spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not offered in that run: the user reads the plan and calls this skill again. Reason: the user should have read a plan before the label is set, even though the label is not bound to it.
+For an issue without a current plan the question also says that no plan has been shown and that the planner plans it at run time, and offers three answers: set the label, run the planner first, or no.
+
+On "run the planner first", spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not set in that run: the user reads the plan and calls this skill again. Reason: the label starts planning, work and merge unattended, which the person accepts per issue with or without having seen a plan; the planner run stays for those who want to read one first.
 
 ### 5. Label
 
@@ -100,6 +103,6 @@ A non-zero exit reports that repository's labelled issues as "not checked", with
 
 ### 7. Report
 
-One outcome line per handed issue: labelled (and taken or not by step 6), declined, plan first (planner run or not, with the link of the plan or the questions), or excluded with its reason. Name `orchestrate-issue` as the next step.
+One outcome line per handed issue: labelled (with or without a current plan; taken or not by step 6), planner run (with the link of the plan or the questions, not labelled), declined, or excluded with its reason. Name `orchestrate-issue` as the next step.
 
 **Done when** every handed issue has one outcome line.
