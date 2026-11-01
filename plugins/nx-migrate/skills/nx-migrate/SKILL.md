@@ -47,12 +47,15 @@ Record the current branch (`git branch --show-current`; empty output means a det
 ```bash
 git fetch origin
 gh repo view --json defaultBranchRef -q .defaultBranchRef.name    # <default>
+git rev-parse --verify --quiet refs/heads/chore/nx-migrate-<target>    # exit 0: the branch exists, stop (below)
 git switch --no-overwrite-ignore -c chore/nx-migrate-<target> refs/remotes/origin/<default>
 ```
 
 (`chore/nx-migrate-latest` without a target version, `chore/nx-migrate-<version>` with one.)
 
 Then record the commit the branch starts from (`git rev-parse HEAD`, called the start commit below): steps 10, 11 and 12 measure against it, because Nx may commit during step 5.
+
+**Stop before the switch (no branch, no install)** when the `rev-parse` line exits 0: the local branch already exists, `git switch -c` would refuse its name, and deleting or resetting it (`git switch -C`, `git branch -D`) or taking another name could discard commits of an earlier run or of an open PR. Report the branch and what it holds beyond the default branch (`git log --oneline refs/remotes/origin/<default>..refs/heads/chore/nx-migrate-<target>`); a person decides whether to delete, merge or keep it. Exit 1 means it does not exist and the switch follows.
 
 `--no-overwrite-ignore` because the switch changes the tree and step 1's clean check does not see ignored files: git would otherwise replace an ignored file where `refs/remotes/origin/<default>` tracks something, and a later switch back would delete it. When git refuses, it names the paths and creates no branch: stop and report those paths, a person decides whether the local file may move.
 
@@ -100,7 +103,7 @@ Then `npx nx migrate --run-migrations 2>&1`. Fix each failing migration's underl
 
 **AI-prompt migrations** (Nx 23.1+, "N prompt migrations deferred", written to `tools/ai-migrations/`): apply each in the listed order, honouring its stated preconditions. A no-op is often the correct outcome — e.g. `migrate-ban-types-rule` changes nothing when `@typescript-eslint/ban-types` appears only inside `migrations.json`. Do not invent work. If a prompt names a target the workspace lacks (e.g. `typecheck`), say so and rely on step 8. Note the files an applied prompt creates as well; the prompt files in `tools/ai-migrations/` are not workspace content and are not noted.
 
-When cleaning up, `tools/ai-migrations/` may hold *tracked* files from earlier runs: check `git status --short` for unexpected `D` entries and `git checkout -- <path>` anything you did not create.
+When cleaning up, `tools/ai-migrations/` may hold *tracked* files from earlier runs: list them with `git -c core.quotePath=false status --porcelain --untracked-files=no -- ':(top,literal)<prefix>tools/ai-migrations/'` (`<prefix>` from `git rev-parse --show-prefix`, as in step 11) and restore every unexpected `D` entry that you did not create with `git checkout -- ':(top,literal)<entry>'`, one argument per entry, the entry as the listing printed it without the status columns. An entry whose path contains `'` or starts with `"` (C-quoted) is not put into the command, unquoted or escaped by hand: report it as git printed it and stop. The reasons are those of step 11: porcelain paths are relative to the git root (`top`), and without `literal` a name such as `a*` or `b[1]` would also restore other files.
 
 ### 6. Sync sub-package dependencies
 
