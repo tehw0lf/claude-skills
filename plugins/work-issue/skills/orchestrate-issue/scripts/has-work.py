@@ -38,7 +38,9 @@ permission, the edit history, an assignee other than the account, a pull request
 already closes the issue, or a conflicting PR; such an issue is a hit here and the session then
 reports it and spawns nothing. An own PR that does not link the current plan is a hit too, unless it
 carries an unanswered stop marker on its head (the rule above does not compare the plan). A
-`# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before.
+`# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before. The same holds for an
+own pushed branch (a `PUSHED` line of issue-context.py) on a plan that is no longer current: it is a hit
+here, and the session reports it and spawns nothing. One on the current plan is finished by the worker.
 
 Output, one line:
   WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit

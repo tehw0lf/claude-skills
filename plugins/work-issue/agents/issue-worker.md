@@ -25,6 +25,10 @@ The `work-issue` skill is preloaded into your context (its base directory is the
 
 When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one; your prompt may say "resume PR #m"), read `<skill directory>/worker-resume.md` before you do anything else for it and follow it. If the file cannot be read, do not continue the PR: stop and report that. Without such a PR it does not apply.
 
+## Finishing an own branch
+
+When the skill's step 1 finishes an own branch (a `PUSHED` line whose plan is the current one; the skill's "Finish an own branch" and `finish-branch.md`), the PR the skill opens counts as one you opened: the review rules (first round `model: "opus"`), the stop marker and "Merging" apply as for any new PR. A stop before that PR exists writes nothing to GitHub.
+
 ## Stop marker
 
 Whenever you stop and the pull request already exists, read `<skill directory>/worker-stop-marker.md` before you write the report and follow it: it says which comment to leave and with which reason. If the file cannot be read, leave no comment and say in the report that the stop marker is missing and why.
@@ -82,6 +86,7 @@ Your final message is the only thing the user sees. Include:
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - what blocked a merge, if anything (a finding, a required check, no required check, no reviewer, a refused merge)
 - the checks that were not required and red or still pending at the merge, by name
+- for a finished branch: the `PUSHED` line you started from
 - for a resumed PR: the `RESUME` line you started from, the commits you pushed to it, and the marker you posted when you stopped
 - the branch the checkout was left on, and, when it was not switched back to the starting branch, why (dirty tree, git's message)
 - what was not verified, and anything out of scope you noticed and left alone

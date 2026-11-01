@@ -62,6 +62,15 @@ Output, one tab-separated line per fact, in this order:
   BRANCH    <remote|local>  <name>
               a branch with a path segment that starts with the issue number: <n>-…, <n>_…,
               issue-<n>…, or the number alone (fix/12-crash, 12-crash, feat/issue-12)
+  PUSHED    <branch>  <head sha>  <commits beyond the default branch>  <plan comment id or ->
+              one line per BRANCH remote that holds at least one commit not on the default branch and is the
+              head branch of no open pull request of this repository: a branch pushed and not (yet) turned
+              into a PR, for instance because a run was aborted between `git push` and `gh pr create`. The
+              plan id is read from the commits: it is set when every commit beyond the default branch carries
+              the trailer line `Work-issue-plan: https://github.com/<repo>/issues/<n>#issuecomment-<id>` (this
+              repository, this issue, full line) with one and the same id, else `-`. Step 8 of work-issue
+              writes that trailer; a branch without it is not known to be the run's own. Whether the id is
+              the PLAN comment's is for the caller to compare
   MANIFEST  <path>  <version or ->
               package.json, pyproject.toml, Cargo.toml in the current directory and one or two levels
               below it; node_modules, dist, build, target, coverage, vendor and hidden directories
@@ -82,7 +91,9 @@ Status lines start with "#":
                                    account, pull-requests, resume, comments, permission (the role of an
                                    author could not be read, so that author is not trusted), plan (ACCOUNT
                                    is unknown, so plan and question comments were not evaluated), refs,
-                                   remote-branches, local-branches, manifests, worktree
+                                   remote-branches, local-branches, pushed (the commits or the open pull
+                                   request of a branch could not be read, so it has no PUSHED line),
+                                   manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
 issue, the newest 100 cross-references, the newest 100 comments, the first 30 mentioned numbers and
@@ -97,6 +108,7 @@ import os
 import re
 import subprocess
 import sys
+from urllib.parse import quote
 
 TIMEOUT = 60
 PAGE = 100
@@ -451,10 +463,71 @@ def print_refs(repo, owner, name, numbers, account):
             emit("REF", f"#{node['number']}", kind, node["state"].lower(), node["title"] if trusted else None)
 
 
-def print_branches(repo, number):
+def plan_from_messages(messages, repo, number):
+    """The plan comment id (a string) when every commit message carries the trailer line
+    `Work-issue-plan: https://github.com/<repo>/issues/<number>#issuecomment-<id>` and all ids are the same,
+    else None (also for no messages). The line has to match as a whole; host and repository are compared
+    without regard to case."""
+    trailer = re.compile(
+        rf"Work-issue-plan:[ \t]*https://github\.com/{re.escape(repo)}/issues/{number}#issuecomment-(\d+)[ \t]*",
+        re.IGNORECASE,
+    )
+    ids = set()
+    for message in messages:
+        found = [m.group(1) for m in (trailer.fullmatch(line.rstrip("\r")) for line in message.split("\n")) if m]
+        if not found:
+            return None
+        ids.update(found)
+    return ids.pop() if len(ids) == 1 else None
+
+
+def print_pushed(repo, owner, default, number, branches):
+    """PUSHED lines for the remote branches that hold commits beyond the default branch and are the head
+    of no open pull request of this repository."""
+    if not branches:
+        return
+    if not default:
+        skipped("pushed", "the repository has no default branch to compare with")
+        return
+    for branch in branches:
+        out, reason = run(["gh", "api", f"repos/{repo}/compare/{quote(default, safe='/')}...{quote(branch, safe='/')}"])
+        try:
+            info = json.loads(out) if reason is None else None
+            ahead, commits = info["ahead_by"], info["commits"]
+            ok = isinstance(ahead, int) and isinstance(commits, list) and all(
+                isinstance(c, dict) and isinstance(c.get("sha"), str)
+                and isinstance((c.get("commit") or {}).get("message"), str)
+                for c in commits
+            )
+        except (ValueError, KeyError, TypeError):
+            ok = False
+        if not ok:
+            skipped("pushed", f"{branch}: {reason or 'unexpected answer from the compare endpoint'}")
+            continue
+        if ahead == 0:
+            continue
+        if ahead > len(commits):
+            skipped("pushed", f"{branch}: only {len(commits)} of {ahead} commits were returned")
+            continue
+        out, reason = run(["gh", "api", f"repos/{repo}/pulls?state=open&head={quote(owner + ':' + branch, safe='')}"])
+        try:
+            opened = json.loads(out) if reason is None else None
+        except ValueError:
+            opened = None
+        if not isinstance(opened, list):
+            skipped("pushed", f"{branch}: {reason or 'unexpected answer from the pull request list'}")
+            continue
+        if opened:
+            continue
+        plan = plan_from_messages([c["commit"]["message"] for c in commits], repo, number)
+        emit("PUSHED", branch, commits[-1]["sha"], ahead, plan)
+
+
+def print_branches(repo, owner, default, number):
     # the form step 2 of the skill creates, plus the common "issue-<n>"; a number elsewhere in a
     # name (release/2.19, v19, lodash-4.17.19) is a version, not this issue
     pattern = re.compile(rf"(?:^|/)(?:issue[-_]?)?{number}(?:[-_]|$)", re.IGNORECASE)
+    remote = []
     out, reason = run(["gh", "api", f"repos/{repo}/branches", "--paginate", "-q", ".[].name"])
     if reason is not None:
         skipped("remote-branches", reason)
@@ -462,6 +535,7 @@ def print_branches(repo, number):
         for branch in out.split():
             if pattern.search(branch):
                 emit("BRANCH", "remote", branch)
+                remote.append(branch)
     out, reason = run(["git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"])
     if reason is not None:
         skipped("local-branches", reason)
@@ -469,6 +543,7 @@ def print_branches(repo, number):
         for branch in out.split():
             if pattern.search(branch):
                 emit("BRANCH", "local", branch)
+    print_pushed(repo, owner, default, number, [b for b in remote if b != default])
 
 
 def manifest_version(path):
@@ -646,7 +721,7 @@ def main():
     elif any(relation == "closes" for relation, _ in pulls.values()):
         skipped("resume", "the account is unknown, so its own pull requests cannot be recognised")
     print_refs(repo, owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls], account)
-    print_branches(repo, number)
+    print_branches(repo, owner, (repository.get("defaultBranchRef") or {}).get("name"), number)
     print_manifests()
     print_worktree()
 
