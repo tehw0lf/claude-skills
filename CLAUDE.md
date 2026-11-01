@@ -88,3 +88,6 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 Classic branch protection is off on `main`, but an active repository ruleset applies to the default branch: no deletion, no non-fast-forward push, and the required status check "GitGuardian Security Checks" with the branch required to be up to date before merging. The check comes from an installed GitHub app, not from a workflow in this repository. It matters because `orchestrate-issue` and `issue-worker` merge only where the default branch requires at least one status check; without it an orchestrated worker would stop before every merge here. The up-to-date rule leaves every open PR behind `main` after each merge; `issue-worker` then merges `main` into the branch (`update-branch`, never a rebase) and reviews the new head before it merges. Read the current rules with `gh api repos/tehw0lf/claude-skills/rules/branches/main` instead of trusting this text.
 
 The history is feature branches merged by PR with conventional-commit subjects scoped to the plugin (`fix(setup-workflows): …`); keep to that.
+
+- **One action per session.** A session does one action; for an issue, exactly one issue from plan to merge.
+- **A failed run is not repeated by hand.** If an agent or unit run fails, report it; do not redo its steps manually.
