@@ -89,5 +89,4 @@ Classic branch protection is off on `main`, but an active repository ruleset app
 
 The history is feature branches merged by PR with conventional-commit subjects scoped to the plugin (`fix(setup-workflows): …`); keep to that.
 
-- **One action per session.** A session does one action; for an issue, exactly one issue from plan to merge.
-- **A failed run is not repeated by hand.** If an agent or unit run fails, report it; do not redo its steps manually.
+- **One action per session.** A session does one action; for an issue, one issue, taken as far as the run goes (merged, or stopped with a report). `orchestrate-issue --max <n>` stays the caller's explicit decision to take more. Reason: a larger run reaches the session limit and its workers abort, so bigger work is split across sessions.
