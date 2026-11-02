@@ -34,7 +34,7 @@ Output, one tab-separated line per fact, in this order:
               the newest question comment written by ACCOUNT: its first line is
               `<!-- work-issue:questions -->`. answered: a later comment by an account with admin, maintain or
               write permission (ACCOUNT included); an edit of the issue text is not an answer, the script
-              cannot tell who made it. Comments whose first line is any of the markers (plan, questions, finish-stopped) never count as answers or
+              cannot tell who made it. Comments whose first line is any of the markers (plan, questions, finish-stopped, finish-released) never count as answers or
               as owner comments, whoever wrote them: ACCOUNT is usually the owner's own login
   PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
               the newest plan comment written by ACCOUNT: its first line is
@@ -75,8 +75,13 @@ Output, one tab-separated line per fact, in this order:
               one line per branch for which ACCOUNT's newest comment has the first line
               `<!-- work-issue:finish-stopped branch=<branch> head=<full sha> plan=<plan comment id> attempt=<n> reason=<kind> -->`
               (written by issue-worker when it stops in finish mode, before a pull request exists). answered: a
-              later comment by an account with admin, maintain or write permission that carries none of the
-              markers (plan, questions, finish-stopped). Only facts: whether the marker still counts (same
+              later comment (release marker) by an account with admin, maintain or write permission (ACCOUNT
+              included; a permission that could not be read releases nothing) whose first line is
+              `<!-- work-issue:finish-released branch=<branch> head=<sha> plan=<plan comment id> -->` with the same
+              branch and plan id as the finish marker and a head that is a prefix of the finish marker's head or the
+              other way round. A release marker is a marker like plan and questions: it is no owner comment
+              (PLAN stays as it is) and no answer. A plain comment of a writer does not set answered; it makes the
+              PLAN stale (owner-comment). Only facts: whether the marker still counts (same
               PUSHED head, same PLAN id) is for the caller to compare
   MANIFEST  <path>  <version or ->
               package.json, pyproject.toml, Cargo.toml in the current directory and one or two levels
@@ -253,6 +258,9 @@ QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
 FINISH_MARKER = re.compile(
     r"<!--\s*work-issue:finish-stopped\s+branch=(\S+)\s+head=([0-9a-f]{7,40})\s+plan=(\d+)\s+attempt=(\d+)\s+reason=([a-z-]+)\s*-->"
 )
+RELEASE_MARKER = re.compile(
+    r"<!--\s*work-issue:finish-released\s+branch=(\S+)\s+head=([0-9a-f]{7,40})\s+plan=(\d+)\s*-->"
+)
 TRUSTED_ROLES = {"admin", "maintain", "write"}
 BUILTIN_ROLES = {"admin", "maintain", "write", "triage", "read", "none"}
 _roles = {}
@@ -327,7 +335,12 @@ def print_plan_state(repo, issue, comments, login):
 
     def is_marker(comment):
         first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
-        return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first) or FINISH_MARKER.fullmatch(first))
+        return bool(
+            PLAN_MARKER.fullmatch(first)
+            or QUESTIONS_MARKER.fullmatch(first)
+            or FINISH_MARKER.fullmatch(first)
+            or RELEASE_MARKER.fullmatch(first)
+        )
 
     def comments_after(since):
         """(comments by trusted accounts, comments whose author's role could not be read), both without markers"""
@@ -426,8 +439,9 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
 def print_finish_stops(repo, comments, login):
     """FINISHSTOP lines: per branch the newest finish marker written by `login` (anyone can comment, so only
     the account the agents act as counts). Only facts: the caller compares head and plan with PUSHED and PLAN.
-    answered: a later comment by an account with admin, maintain or write permission that carries none of
-    the markers (plan, questions, finish-stopped)."""
+    answered: a later release marker (`finish-released`, same branch, same plan id, head equal or a prefix of
+    the finish marker's head or the other way round) by an account with admin, maintain or write permission.
+    A plain comment of a writer does not release; it makes the plan stale."""
     newest = {}
     for comment in comments:  # oldest first: the last match per branch is the newest
         author = (comment.get("author") or {}).get("login") or ""
@@ -441,9 +455,13 @@ def print_finish_stops(repo, comments, login):
         answered = False
         for later in comments:
             first = (later.get("body") or "").lstrip().split("\n", 1)[0].strip()
+            release = RELEASE_MARKER.fullmatch(first)
             if (
-                (later.get("createdAt") or "") > (comment.get("createdAt") or "")
-                and not (PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first) or FINISH_MARKER.fullmatch(first))
+                release
+                and (later.get("createdAt") or "") > (comment.get("createdAt") or "")
+                and release.group(1) == branch
+                and release.group(3) == plan
+                and (head.startswith(release.group(2)) or release.group(2).startswith(head))
                 and is_trusted(repo, later, login) is True
             ):
                 answered = True

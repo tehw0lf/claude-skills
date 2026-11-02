@@ -34,9 +34,10 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
   - an issue with a parked branch: no hit. Parked is a `PUSHED` line whose plan field equals the id of the
     `PLAN … current` line, together with a `FINISHSTOP` line (finish marker of a worker that stopped in finish
     mode) for the same branch with the same head (compared by prefix), the same plan id, attempt 2 or more and not
-    `answered`. Attempt 1 (the one automatic retry), another head or another plan make it a hit again; a later
-    comment of a writer sets `answered` but also makes the plan stale, and `parked` is then false because there
-    is no `PLAN … current` line (the session reports or replans)
+    `answered` (released by a matching `finish-released` marker of a writer). Attempt 1 (the one automatic
+    retry), another head or another plan make it a hit again; so does a release marker, which keeps the plan
+    current, so the retry is taken. A plain comment of a writer does not release: it makes the plan stale, and
+    `parked` is then false because there is no `PLAN … current` line (the session reports the branch, no replan)
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
@@ -45,8 +46,9 @@ already closes the issue, or a conflicting PR; such an issue is a hit here and t
 reports it and spawns nothing. An own PR that does not link the current plan is a hit too, unless it
 carries an unanswered stop marker on its head (the rule above does not compare the plan). A
 `# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before. The same holds for an
-own pushed branch (a `PUSHED` line of issue-context.py) on a plan that is no longer current: it is a hit
-here, and the session reports it and spawns nothing. One on the current plan is finished by the worker, unless it is parked (rule above).
+own pushed branch (a `PUSHED` line of issue-context.py) on a plan that is no longer current, including a
+plan id equal to the id of a stale `PLAN` line: it is a hit here, and the session reports it and spawns
+nothing (no planner, no retry). One on the current plan is finished by the worker, unless it is parked (rule above).
 
 Output, one line:
   WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit

@@ -73,7 +73,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 
 - `setup-workflows` and `tehw0lf/workflows`: the orchestrator inputs, `fetch-permissions.py`, `validate-caller.py`.
 - `prune-branches` (`classify.sh --all`): `$CODING_ROOT` and the keep rules.
-- `work-issue` and `pr-review`: `issue-worker.md` and the `worker-*.md` files beside the `work-issue` `SKILL.md` (`worker-merging.md` calls `merge-facts.py`, `worker-stop-marker.md` writes the stop marker), `pr-reviewer.md`; the line kinds of `issue-context.py` and the plan, questions, closed, stopped and finish-stopped comment formats (the `FINISHSTOP` line and the parked rule of `has-work.py`) shared by `plan-issue`, `work-issue`, `issue-worker` and `issue-context.py`.
+- `work-issue` and `pr-review`: `issue-worker.md` and the `worker-*.md` files beside the `work-issue` `SKILL.md` (`worker-merging.md` calls `merge-facts.py`, `worker-stop-marker.md` writes the stop marker), `pr-reviewer.md`; the line kinds of `issue-context.py` and the plan, questions, closed, stopped, finish-stopped and finish-released comment formats (the `FINISHSTOP` line and the parked rule of `has-work.py`) shared by `plan-issue`, `work-issue`, `issue-worker` and `issue-context.py`.
 - `nx-migrate` and `pr-review`: `nx-migrator.md`.
 - `orchestrate-issue`: `has-work.py`, `dispatch.py`, `run-context.py` and the units in `scheduling.md`, which rely on `issue-context.py` lines and on GitHub endpoints; `propose-auto-work`, which reads `issue-context.py` and `run-context.py` lines and applies the labeler rule of `orchestrate-issue`.
 - `inbox`: `collect.py` (its row columns, including `assignees` and `closing`), its SessionStart hook and the optional hand-off of step 4 to `work-issue:propose-auto-work`.
