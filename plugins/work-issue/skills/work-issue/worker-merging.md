@@ -44,11 +44,13 @@ At most one update per run: a head that is `BEHIND` again at that second read st
 gh pr checks <PR> -R <owner>/<repo> --required    # a named check missing here has not reported: stop with pending-check now, a watch cannot see it
 timeout 300 gh pr checks <PR> -R <owner>/<repo> --required --watch    # only while a listed check is pending; at most five minutes (exit 124: the time ran out)
 gh pr checks <PR> -R <owner>/<repo> --required    # confirm: every check pass goes on; fail or cancel stops with red-check, skipping with awaiting-merge (a person decides whether a skipped required check is enough), missing or pending with pending-check when the prompt names the required checks, else with awaiting-merge
-gh pr checks <PR> -R <owner>/<repo>    # once, for the report only: name each check that is not required and red or still pending
+gh pr checks <PR> -R <owner>/<repo>    # once, for the report only: name each check that is not required and red or still pending; the empty result and any failure are handled as below the block, neither changes the merge decision
 gh pr view <PR> -R <owner>/<repo> --json headRefOid -q .headRefOid    # must equal the reviewed SHA
 ```
 
 Run the `timeout 300` watch with the Bash tool's own `timeout` parameter set to `330000` (milliseconds): the tool ends a call after 120 seconds by default, which would cut the wait short. A watch that ends without its own exit code (the tool stopped it) counts like exit 124: the confirming listing after it decides.
+
+The report-only call (without `--required`) exits 1 both when no check of any kind has reported and on a real error, and only the message on stderr tells them apart. Exit 1 with `no checks reported on the '<branch>' branch` means that no check of any kind has reported on the head: the report says "no checks reported on the head"; it is not an error and not a reason to stop. Any other non-zero exit is reported as "checks that are not required could not be read", with the message `gh` gave; it is no reason to stop either. Reason: checks that are not required are no merge condition (first list, second item), so neither outcome changes whether the worker merges or stops. In a repository without any checks the `--required` call above already ends the run (`awaiting-merge`, or `pending-check` when the prompt names the required checks); this rule only applies where the report call is still run, for example for the report of that stop, and is not a second gate.
 
 Then read the verdict and base facts. This is the last check before the merge, after the required checks are green. `<skill directory>` is the `work-issue` skill directory named in the first line of the preloaded skill.
 
