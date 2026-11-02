@@ -57,7 +57,10 @@ Status lines start with "#":
                                            100, so the first 100 are; or $INBOX_OWNER is set and the gh
                                            login could not be read, so no organisation is added) and
                                            "repositories <org>/*" (that organisation's repositories could not
-                                           be read; its search is not run either).
+                                           be read; its search is not run either) and
+                                           "dependabot <owner>/*" (repositories report no alerts but the token
+                                           lacks admin permission to tell that from unreadable, or they have
+                                           Dependabot alerts disabled; hidden by a "dependabot" ignore rule).
 
 Ignore rules come from $XDG_CONFIG_HOME/inbox-ignore (default ~/.config/inbox-ignore): one glob per
 line, a line starting with "#" is a comment. A glob is matched against "owner/repo" (hides everything
@@ -110,7 +113,7 @@ KINDS = [("SECURITY", "security"), ("CI", "failing default branches"), ("RUN", "
          ("DEPS", "dependency PRs"), ("ISSUE", "issues")]
 
 REPO_FIELDS = """
-        nameWithOwner url viewerCanAdminister
+        nameWithOwner url viewerCanAdminister hasVulnerabilityAlertsEnabled
         vulnerabilityAlerts(states: OPEN, first: 100) {
           totalCount nodes { createdAt securityVulnerability { severity firstPatchedVersion { identifier } } }
         }
@@ -334,6 +337,12 @@ def collect(owner, only=None, organisations=(), notes=(), default=False):
         if unconfirmed:  # no alerts reported, but this token could not have read any
             skipped.append(f"# SKIPPED dependabot {only or name + '/*'}: {unconfirmed} repositories report no "
                            "alerts, but without admin permission on them that cannot be told apart from unreadable")
+        disabled = sum(1 for repo in found if repo["viewerCanAdminister"]
+                       and not repo["hasVulnerabilityAlertsEnabled"]
+                       and not ignored(rules, repo["nameWithOwner"], "dependabot"))
+        if disabled:  # alerts switched off: the zero alerts it reports is not "no alerts"
+            skipped.append(f"# SKIPPED dependabot {only or name + '/*'}: {disabled} repositories have "
+                           "Dependabot alerts disabled")
     for repo in repos:
         name = repo["nameWithOwner"]
         alerts = repo["vulnerabilityAlerts"]
