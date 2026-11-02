@@ -36,9 +36,13 @@ Output, one tab-separated line per fact, in this order:
               write permission (ACCOUNT included); an edit of the issue text is not an answer, the script
               cannot tell who made it. Comments whose first line is any of the markers (plan, questions, finish-stopped, finish-released) never count as answers or
               as owner comments, whoever wrote them: ACCOUNT is usually the owner's own login
-  PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
+  PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->  <adopted plan comment id or ->
               the newest plan comment written by ACCOUNT: its first line is
-              `<!-- work-issue:plan base=<sha> -->`. stale: the issue text was edited after the plan
+              `<!-- work-issue:plan base=<sha> -->` or `<!-- work-issue:plan base=<sha> adopts=<plan comment id> -->`.
+              The last field is the `adopts=` id when it is the id of an earlier plan comment of ACCOUNT (a plan
+              that adopts an own pushed branch or pull request that is still on that earlier plan), else `-`: its own id,
+              a later id, a comment that is no plan and another author's comment all give `-`. One level only: the
+              adopted plan's own `adopts=` is not followed. It is printed for current and stale plans alike. stale: the issue text was edited after the plan
               (reason issue-edited), a comment by an account with admin, maintain or write permission came
               after it (owner-comment), a comment by an account whose permission could not be read came
               after it (unknown-commenter: it could be a writer's, so the plan is not current), or
@@ -49,7 +53,8 @@ Output, one tab-separated line per fact, in this order:
             <its reason or ->  <answered or ->
               one line per open pull request that closes the issue, was written by ACCOUNT and has its
               head branch in this repository. The plan id is the PLAN comment's when the body links it as
-              https://github.com/<repo>/issues/<n>#issuecomment-<id> outside code, else the first such link; an id
+              https://github.com/<repo>/issues/<n>#issuecomment-<id> outside code; when the body links several, the
+              current plan's id is preferred, then the id the current plan adopts, else the first such link; an id
               anywhere else in the text is no link. A verdict is a comment by ACCOUNT whose first line is
               `## Independent local review`, its head the `Reviewed head:` line. A stop marker is a comment by
               ACCOUNT whose first line is `<!-- work-issue:stopped head=<sha> reason=<kind> -->` (written by
@@ -253,7 +258,7 @@ def mentioned_numbers(texts, own):
     return seen
 
 
-PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})\s*-->")
+PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})(?:\s+adopts=(\d+))?\s*-->")
 QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
 FINISH_MARKER = re.compile(
     r"<!--\s*work-issue:finish-stopped\s+branch=(\S+)\s+head=([0-9a-f]{7,40})\s+plan=(\d+)\s+attempt=(\d+)\s+reason=([a-z-]+)\s*-->"
@@ -317,11 +322,15 @@ def is_trusted(repo, comment, account):
 def print_plan_state(repo, issue, comments, login):
     """PLAN and QUESTIONS lines. Anyone can comment on an issue, so only comments written by `login`
     (the account the agents act as) count as plan or questions, and only comments without a marker by an
-    account with admin, maintain or write permission count as answers. Returns the comment id of the newest plan, or None."""
+    account with admin, maintain or write permission count as answers. Returns (comment id of the newest plan,
+    the id it adopts or None), or (None, None). The adopted id is the `adopts=` value of the newest plan when it is
+    the id of an earlier plan comment of `login`; any other value (its own id, a later id, a comment that is no plan,
+    another author's comment) is printed as `-` and returns None."""
     if not login:
         skipped("plan", "the account is unknown, so plan and question comments cannot be attributed")
-        return None
+        return None, None
     plan = questions = None
+    plans = []  # (databaseId, createdAt) of every plan comment of `login`, oldest first
     for comment in comments:  # oldest first: the last match is the newest
         first = (comment.get("body") or "").lstrip().split("\n", 1)[0]
         author = (comment.get("author") or {}).get("login") or ""
@@ -329,7 +338,8 @@ def print_plan_state(repo, issue, comments, login):
             continue
         match = PLAN_MARKER.fullmatch(first.strip())
         if match:
-            plan = (comment, match.group(1))
+            plan = (comment, match.group(1), match.group(2))
+            plans.append((comment["databaseId"], comment["createdAt"]))
         elif QUESTIONS_MARKER.fullmatch(first.strip()):
             questions = comment
 
@@ -352,7 +362,8 @@ def print_plan_state(repo, issue, comments, login):
         state = "answered" if comments_after(questions["createdAt"])[0] else "open"
         emit("QUESTIONS", questions["databaseId"], questions["createdAt"], state)
     if plan:
-        comment, base = plan
+        comment, base, claimed = plan
+        adopted = next((pid for pid, created in plans if str(pid) == claimed and created < comment["createdAt"]), None)
         reason = "-"
         if (issue.get("lastEditedAt") or "") > comment["createdAt"]:
             reason = "issue-edited"
@@ -362,9 +373,9 @@ def print_plan_state(repo, issue, comments, login):
             reason = "unknown-commenter"
         elif questions and questions["createdAt"] > comment["createdAt"]:
             reason = "newer-questions"
-        emit("PLAN", comment["databaseId"], comment["createdAt"], base, "current" if reason == "-" else "stale", reason)
-        return comment["databaseId"]
-    return None
+        emit("PLAN", comment["databaseId"], comment["createdAt"], base, "current" if reason == "-" else "stale", reason, adopted)
+        return comment["databaseId"], adopted
+    return None, None
 
 STOP_MARKER = re.compile(r"<!--\s*work-issue:stopped\s+head=([0-9a-f]{7,40})\s+reason=([a-z-]+)\s*-->")
 VERDICT_HEADING = "## Independent local review"
@@ -372,7 +383,7 @@ REVIEWED_HEAD = re.compile(r"^Reviewed head:\s*`?([0-9a-f]{7,40})`?\s*$", re.MUL
 CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
 
 
-def print_resume(repo, owner, name, number, pulls, login, plan_id):
+def print_resume(repo, owner, name, number, pulls, login, plan_id, adopted_id=None):
     """RESUME lines: one per open pull request that closes the issue and that this account wrote in this
     repository (not a fork). Whether it is the account's own work on the current plan is for the caller to
     compare; the lines only carry the facts. Anyone can comment on a PR, so verdicts and stop markers count
@@ -403,7 +414,7 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
             skipped("resume", f"#{pull_number}: only the newest {PAGE} of {comments['totalCount']} comments were read")
             continue
         linked = plan_link.findall(CODE.sub(" ", pull.get("body") or ""))
-        plan = str(plan_id) if plan_id is not None and str(plan_id) in linked else (linked[0] if linked else None)
+        plan = next((str(i) for i in (plan_id, adopted_id) if i is not None and str(i) in linked), linked[0] if linked else None)
         verdict_head, verdicts, stop = None, 0, None
         for comment in nodes:  # oldest first: the last match is the newest
             if ((comment.get("author") or {}).get("login") or "").lower() != login.lower():
@@ -772,9 +783,9 @@ def main():
         comment.get("body") for comment in comments["nodes"]
         if is_trusted(repo, comment, account) is True
     ]
-    plan_id = print_plan_state(repo, issue, [c for c in comments["nodes"] if c], account)
+    plan_id, adopted_id = print_plan_state(repo, issue, [c for c in comments["nodes"] if c], account)
     if account:
-        print_resume(repo, owner, name, number, pulls, account, plan_id)
+        print_resume(repo, owner, name, number, pulls, account, plan_id, adopted_id)
     elif any(relation == "closes" for relation, _ in pulls.values()):
         skipped("resume", "the account is unknown, so its own pull requests cannot be recognised")
     print_refs(repo, owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls], account)
