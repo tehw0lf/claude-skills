@@ -67,7 +67,7 @@ One question (`AskUserQuestion`) per issue of the first two groups, with the tit
 
 For an issue without a current plan the question also says that no plan has been shown and that the planner plans it at run time, and offers three answers: set the label, run the planner first, or no.
 
-On "run the planner first", spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not set in that run: the user reads the plan and calls this skill again. Reason: the label starts planning, work and merge unattended, which the person accepts per issue with or without having seen a plan; the planner run stays for those who want to read one first.
+On "run the planner first", spawn `work-issue:issue-planner` with the issue reference and a checkout chosen as `orchestrate-issue` step 2 does (the `CHECKOUT` lines of `run-context.py`). The label is not set in that run. The planner reports a plan, the open questions, the close of the issue on the owner's answer (with the link of its `closed` comment), or a stop (with the link of an existing comment when there is one). Run `issue-context.py` again: the close counts only when it shows `ISSUE … closed` together with the planner's report of it (the planner posts the `closed` comment before it closes the issue, so a failed close leaves an open issue). On a plan or questions the user reads them and calls this skill again; on a close nothing is labelled and there is nothing to call again, because step 1 excludes a closed issue; a stop is reported with its reason; a reported close that the second run does not show as closed (the close failed) or a closed issue without such a report (closed by someone else during the run) is reported as that, not as a close. Reason: the label starts planning, work and merge unattended, which the person accepts per issue with or without having seen a plan; the planner run stays for those who want to read one first.
 
 ### 5. Label
 
@@ -103,6 +103,6 @@ A non-zero exit reports that repository's labelled issues as "not checked", with
 
 ### 7. Report
 
-One outcome line per handed issue: labelled (with or without a current plan; taken or not by step 6), planner run (with the link of the plan or the questions, not labelled), declined, or excluded with its reason. Name `orchestrate-issue` as the next step.
+One outcome line per handed issue: labelled (with or without a current plan; taken or not by step 6), planner run (with the link of the plan, of the questions or of the `closed` comment when the planner closed the issue on the owner's answer, the reason of a stop with the link of an existing comment when there is one, or a close that was not confirmed or was made by someone else; not labelled), declined, or excluded with its reason. Name `orchestrate-issue` as the next step.
 
 **Done when** every handed issue has one outcome line.
