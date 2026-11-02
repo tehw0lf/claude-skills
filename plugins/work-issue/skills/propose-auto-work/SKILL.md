@@ -23,7 +23,7 @@ For each reference, from any directory, by the full path of the script (the base
 <skill directory>/../work-issue/scripts/issue-context.py 'owner/repo#n'
 ```
 
-`CHECKOUT`, `BRANCH local`, `MANIFEST` and `WORKTREE` describe the current directory and are ignored, as are `# SKIPPED local-branches` and `# SKIPPED worktree`. A `BRANCH remote <name>` line (read from GitHub) and a `# SKIPPED remote-branches` line are not ignored: they are shown to the user in the question of step 4 (a remote branch named after the issue stops the worker if it holds commits beyond the default branch, and an unreadable branch list cannot be told apart from that). A non-zero exit excludes that issue with the message as its reason.
+`CHECKOUT`, `BRANCH local`, `MANIFEST` and `WORKTREE` describe the current directory and are ignored, as are `# SKIPPED local-branches` and `# SKIPPED worktree`. A `BRANCH remote <name>` line (read from GitHub) and a `# SKIPPED remote-branches` line are not ignored: they are shown to the user in the question of step 4 (a remote branch named after the issue stops the worker if it holds commits beyond the default branch, unless a `PUSHED` line marks it as the run's own branch on the current plan, which the worker finishes, and an unreadable branch list cannot be told apart from that). A non-zero exit excludes that issue with the message as its reason.
 
 An issue is **excluded**, with the reason shown to the user, when it:
 
