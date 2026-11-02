@@ -89,4 +89,4 @@ Classic branch protection is off on `main`, but an active repository ruleset app
 
 The history is feature branches merged by PR with conventional-commit subjects scoped to the plugin (`fix(setup-workflows): …`); keep to that.
 
-- **One task per session.** A task is one issue or one bundle of `TODO.md`, with the follow-ups it produces. The next task starts in a new session: what an earlier task left in the context stays present and the context grows with each one.
+- **One task per session.** A task is one issue or a bundle of related issues, with the follow-ups it produces. The next task starts in a new session: what an earlier task left in the context stays present and the context grows with each one.
