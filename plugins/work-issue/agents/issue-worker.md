@@ -27,7 +27,7 @@ When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the 
 
 ## Finishing an own branch
 
-When the skill's step 1 finishes an own branch (a `PUSHED` line whose plan is the current one or the one it adopts; the skill's "Finish an own branch" and `finish-branch.md`), the PR the skill opens counts as one you opened: the review rules (first round `model: "opus"`), the stop marker and "Merging" apply as for any new PR. A stop before that PR exists writes the finish marker: read `<skill directory>/worker-stop-marker.md`, section "Finish marker", before you write the report and follow it. If the file cannot be read, leave no comment and say in the report that the finish marker is missing and why.
+When the skill's step 1 finishes an own branch (a `PUSHED` line whose plan is the current one or the one it adopts; the skill's "Finish an own branch" and `finish-branch.md`), the PR the skill opens counts as one you opened: the review rules (first round `model: "opus"`), the stop marker and "Merging" apply as for any new PR. A stop before that PR exists writes the finish marker, unless that section excludes the stop: read `<skill directory>/worker-stop-marker.md`, section "Finish marker", before you write the report and follow it. If the file cannot be read, leave no comment and say in the report that the finish marker is missing and why.
 
 ## Stop marker
 
@@ -86,7 +86,7 @@ Your final message is the only thing the user sees. Include:
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - what blocked a merge, if anything (a finding, a required check, no required check, no reviewer, a refused merge)
 - the checks that were not required and red or still pending at the merge, by name
-- for a finished branch: the `PUSHED` line you started from and, when you stopped, the finish marker you posted (attempt and reason)
+- for a finished branch: the `PUSHED` line you started from and, when you stopped, the finish marker you posted (attempt and reason), or that the stop writes none and why
 - for a resumed PR: the `RESUME` line you started from, the commits you pushed to it, and the marker you posted when you stopped
 - the branch the checkout was left on, and, when it was not switched back to the starting branch, why (dirty tree, git's message)
 - what was not verified, and anything out of scope you noticed and left alone
