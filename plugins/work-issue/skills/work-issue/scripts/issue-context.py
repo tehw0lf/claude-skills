@@ -64,8 +64,8 @@ Output, one tab-separated line per fact, in this order:
               issue-<n>…, or the number alone (fix/12-crash, 12-crash, feat/issue-12)
   PUSHED    <branch>  <head sha>  <commits beyond the default branch>  <plan comment id or ->
               one line per BRANCH remote that holds at least one commit not on the default branch and is the
-              head branch of no open pull request of this repository: a branch pushed and not (yet) turned
-              into a PR, for instance because a run was aborted between `git push` and `gh pr create`. The
+              head branch of no pull request of this repository, open, closed or merged: a branch pushed and
+              never turned into a PR, for instance because a run was aborted between `git push` and `gh pr create`. The
               plan id is read from the commits: it is set when every commit beyond the default branch carries
               the trailer line `Work-issue-plan: https://github.com/<repo>/issues/<n>#issuecomment-<id>` (this
               repository, this issue, full line) with one and the same id, else `-`. Step 8 of work-issue
@@ -91,8 +91,8 @@ Status lines start with "#":
                                    account, pull-requests, resume, comments, permission (the role of an
                                    author could not be read, so that author is not trusted), plan (ACCOUNT
                                    is unknown, so plan and question comments were not evaluated), refs,
-                                   remote-branches, local-branches, pushed (the commits or the open pull
-                                   request of a branch could not be read, so it has no PUSHED line),
+                                   remote-branches, local-branches, pushed (the commits or the pull
+                                   requests of a branch could not be read, so it has no PUSHED line),
                                    manifests, worktree
 
 Limits, each reported as a SKIPPED line when it is hit: the newest 100 pull requests that close the
@@ -483,7 +483,8 @@ def plan_from_messages(messages, repo, number):
 
 def print_pushed(repo, owner, default, number, branches):
     """PUSHED lines for the remote branches that hold commits beyond the default branch and are the head
-    of no open pull request of this repository."""
+    of no pull request of this repository, whatever its state: the branch of a closed or squash-merged PR
+    stays on the remote and is not an aborted run's."""
     if not branches:
         return
     if not default:
@@ -509,7 +510,7 @@ def print_pushed(repo, owner, default, number, branches):
         if ahead > len(commits):
             skipped("pushed", f"{branch}: only {len(commits)} of {ahead} commits were returned")
             continue
-        out, reason = run(["gh", "api", f"repos/{repo}/pulls?state=open&head={quote(owner + ':' + branch, safe='')}"])
+        out, reason = run(["gh", "api", f"repos/{repo}/pulls?state=all&head={quote(owner + ':' + branch, safe='')}"])
         try:
             opened = json.loads(out) if reason is None else None
         except ValueError:
