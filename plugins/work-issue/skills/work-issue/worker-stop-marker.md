@@ -1,6 +1,6 @@
 ## Stop marker
 
-Every stop **after the PR exists** (a stop before it leaves nothing on GitHub, see "Stop instead of asking", except a stop in finish mode, which ends with the finish marker on the issue, see "Finish marker" below) ends with one comment on the PR, written last, before your report:
+Every stop **after the PR exists** (a stop before it leaves nothing on GitHub, see "Stop instead of asking", except a stop in finish mode, which may end with the finish marker on the issue, see "Finish marker" below) ends with one comment on the PR, written last, before your report:
 
 ```bash
 gh pr comment <PR> -R <owner>/<repo> --body-file <file>
