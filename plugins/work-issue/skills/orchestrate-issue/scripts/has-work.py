@@ -34,8 +34,9 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
   - an issue with a parked branch: no hit. Parked is a `PUSHED` line whose plan field equals the id of the
     `PLAN … current` line, together with a `FINISHSTOP` line (finish marker of a worker that stopped in finish
     mode) for the same branch with the same head (compared by prefix), the same plan id, attempt 2 or more and not
-    `answered`. Attempt 1 (the one automatic retry), another head, another plan or a later comment of a writer
-    make it a hit again
+    `answered`. Attempt 1 (the one automatic retry), another head or another plan make it a hit again; a later
+    comment of a writer sets `answered` but also makes the plan stale, and `parked` is then false because there
+    is no `PLAN … current` line (the session reports or replans)
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
