@@ -34,7 +34,7 @@ Output, one tab-separated line per fact, in this order:
               the newest question comment written by ACCOUNT: its first line is
               `<!-- work-issue:questions -->`. answered: a later comment by an account with admin, maintain or
               write permission (ACCOUNT included); an edit of the issue text is not an answer, the script
-              cannot tell who made it. Comments whose first line is either marker never count as answers or
+              cannot tell who made it. Comments whose first line is any of the markers (plan, questions, finish-stopped) never count as answers or
               as owner comments, whoever wrote them: ACCOUNT is usually the owner's own login
   PLAN      <comment id>  <createdAt>  <base sha>  <current|stale>  <reason or ->
               the newest plan comment written by ACCOUNT: its first line is
@@ -71,6 +71,13 @@ Output, one tab-separated line per fact, in this order:
               repository, this issue, full line) with one and the same id, else `-`. Step 8 of work-issue
               writes that trailer; a branch without it is not known to be the run's own. Whether the id is
               the PLAN comment's is for the caller to compare
+  FINISHSTOP  <branch>  <head sha>  <plan comment id>  <attempt>  <reason>  <answered or ->
+              one line per branch for which ACCOUNT's newest comment has the first line
+              `<!-- work-issue:finish-stopped branch=<branch> head=<full sha> plan=<plan comment id> attempt=<n> reason=<kind> -->`
+              (written by issue-worker when it stops in finish mode, before a pull request exists). answered: a
+              later comment by an account with admin, maintain or write permission that carries none of the
+              markers (plan, questions, finish-stopped). Only facts: whether the marker still counts (same
+              PUSHED head, same PLAN id) is for the caller to compare
   MANIFEST  <path>  <version or ->
               package.json, pyproject.toml, Cargo.toml in the current directory and one or two levels
               below it; node_modules, dist, build, target, coverage, vendor and hidden directories
@@ -243,6 +250,9 @@ def mentioned_numbers(texts, own):
 
 PLAN_MARKER = re.compile(r"<!--\s*work-issue:plan\s+base=([0-9a-f]{7,40})\s*-->")
 QUESTIONS_MARKER = re.compile(r"<!--\s*work-issue:questions\s*-->")
+FINISH_MARKER = re.compile(
+    r"<!--\s*work-issue:finish-stopped\s+branch=(\S+)\s+head=([0-9a-f]{7,40})\s+plan=(\d+)\s+attempt=(\d+)\s+reason=([a-z-]+)\s*-->"
+)
 TRUSTED_ROLES = {"admin", "maintain", "write"}
 BUILTIN_ROLES = {"admin", "maintain", "write", "triage", "read", "none"}
 _roles = {}
@@ -317,7 +327,7 @@ def print_plan_state(repo, issue, comments, login):
 
     def is_marker(comment):
         first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
-        return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first))
+        return bool(PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first) or FINISH_MARKER.fullmatch(first))
 
     def comments_after(since):
         """(comments by trusted accounts, comments whose author's role could not be read), both without markers"""
@@ -411,6 +421,34 @@ def print_resume(repo, owner, name, number, pulls, login, plan_id):
             "RESUME", f"#{pull_number}", pull["headRefOid"], plan, (pull.get("mergeable") or "UNKNOWN").lower(),
             verdict_head, verdicts, stop[1] if stop else None, stop[2] if stop else None, "answered" if answered else None,
         )
+
+
+def print_finish_stops(repo, comments, login):
+    """FINISHSTOP lines: per branch the newest finish marker written by `login` (anyone can comment, so only
+    the account the agents act as counts). Only facts: the caller compares head and plan with PUSHED and PLAN.
+    answered: a later comment by an account with admin, maintain or write permission that carries none of
+    the markers (plan, questions, finish-stopped)."""
+    newest = {}
+    for comment in comments:  # oldest first: the last match per branch is the newest
+        author = (comment.get("author") or {}).get("login") or ""
+        if author.lower() != login.lower():
+            continue
+        first = (comment.get("body") or "").lstrip().split("\n", 1)[0].strip()
+        marker = FINISH_MARKER.fullmatch(first)
+        if marker:
+            newest[marker.group(1)] = (comment, marker.groups())
+    for branch, (comment, (_b, head, plan, attempt, reason)) in newest.items():
+        answered = False
+        for later in comments:
+            first = (later.get("body") or "").lstrip().split("\n", 1)[0].strip()
+            if (
+                (later.get("createdAt") or "") > (comment.get("createdAt") or "")
+                and not (PLAN_MARKER.fullmatch(first) or QUESTIONS_MARKER.fullmatch(first) or FINISH_MARKER.fullmatch(first))
+                and is_trusted(repo, later, login) is True
+            ):
+                answered = True
+                break
+        emit("FINISHSTOP", branch, head, plan, attempt, reason, "answered" if answered else None)
 
 
 def print_comments(repo, comments, account):
@@ -723,6 +761,8 @@ def main():
         skipped("resume", "the account is unknown, so its own pull requests cannot be recognised")
     print_refs(repo, owner, name, [n for n in mentioned_numbers(texts, number) if n not in pulls], account)
     print_branches(repo, owner, (repository.get("defaultBranchRef") or {}).get("name"), number)
+    if account:
+        print_finish_stops(repo, [c for c in comments["nodes"] if c], account)
     print_manifests()
     print_worktree()
 

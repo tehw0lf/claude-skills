@@ -31,6 +31,11 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
     skipped or red keeps it waiting: a red or skipped one for a person, who re-runs it or pushes, a
     missing or pending one for the next tick. No other reason is released here: a push or an owner
     comment on the PR does that, as in the session
+  - an issue with a parked branch: no hit. Parked is a `PUSHED` line whose plan field equals the id of the
+    `PLAN … current` line, together with a `FINISHSTOP` line (finish marker of a worker that stopped in finish
+    mode) for the same branch with the same head (compared by prefix), the same plan id, attempt 2 or more and not
+    `answered`. Attempt 1 (the one automatic retry), another head, another plan or a later comment of a writer
+    make it a hit again
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
@@ -40,7 +45,7 @@ reports it and spawns nothing. An own PR that does not link the current plan is 
 carries an unanswered stop marker on its head (the rule above does not compare the plan). A
 `# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before. The same holds for an
 own pushed branch (a `PUSHED` line of issue-context.py) on a plan that is no longer current: it is a hit
-here, and the session reports it and spawns nothing. One on the current plan is finished by the worker.
+here, and the session reports it and spawns nothing. One on the current plan is finished by the worker, unless it is parked (rule above).
 
 Output, one line:
   WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit
@@ -264,6 +269,28 @@ def resume_state(repo, lines):
     return state
 
 
+def parked(lines):
+    """True when the output has a PUSHED line on the current plan and a FINISHSTOP line for the same branch,
+    head (by prefix) and plan with attempt 2 or more that is not answered: the worker stopped twice on this
+    head and nobody has acted since."""
+    plan = next((f[1] for f in (line.split("\t") for line in lines) if f[0] == "PLAN" and len(f) == 6 and f[4] == "current"), None)
+    if plan is None:
+        return False
+    for line in lines:
+        pushed = line.split("\t")
+        if pushed[0] != "PUSHED" or len(pushed) != 5 or pushed[4] != plan:
+            continue
+        for other in lines:
+            stop = other.split("\t")
+            if (
+                stop[0] == "FINISHSTOP" and len(stop) == 7 and stop[1] == pushed[1]
+                and (stop[2].startswith(pushed[2]) or pushed[2].startswith(stop[2]))
+                and stop[3] == plan and stop[4].isdigit() and int(stop[4]) >= 2 and stop[6] == "-"
+            ):
+                return True
+    return False
+
+
 def listing(target, label, is_owner, every=False):
     """([(owner/repo, number, label names)], more) for the open issues of the target that carry the label, oldest
     first; `more` is True when the search holds more than the first page of 100, which the caller reads as a failed
@@ -321,6 +348,8 @@ def hit(repo, number, names):
     """The kind of hit for the issue, or None when it waits."""
     lines = context(repo, number)
     if WAITING_LABEL in names and waiting(repo, number, lines):
+        return None
+    if parked(lines):
         return None
     state = resume_state(repo, lines)
     if state == "waiting":
