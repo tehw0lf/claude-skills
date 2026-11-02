@@ -1,4 +1,4 @@
-**An own PR or pushed branch on a plan that no longer stands.** Read when step 1 of `plan-issue` sends you here: a `RESUME` or `PUSHED` line has a plan field that is not `-`, and the `PLAN` line is `stale`, missing, or current with another id that it does not adopt. The PR or branch is the account's own earlier work (a `PUSHED` plan id is set only when every commit carries the `Work-issue-plan` trailer of `work-issue` step 8; a `RESUME` plan id is the plan link in the body of a PR written by `ACCOUNT`). A plan written next to it that does not account for it would orphan it, because `work-issue` stops on such a branch or PR. The result of this run is therefore one of two comments, never a plain plan:
+**An own PR or pushed branch on a plan that no longer stands.** Read when step 1 of `plan-issue` sends you here: a `RESUME` or `PUSHED` line has a plan field that is not `-`, and the `PLAN` line is `stale` or missing. The PR or branch is the account's own earlier work (a `PUSHED` plan id is set only when every commit carries the `Work-issue-plan` trailer of `work-issue` step 8; a `RESUME` plan id is the plan link in the body of a PR written by `ACCOUNT`). A plan written next to it that does not account for it would orphan it, because `work-issue` stops on such a branch or PR. The result of this run is therefore one of two comments, never a plain plan:
 
 - a plan that **adopts** the PR or branch (the marker carries `adopts=<plan comment id>`), or
 - a **questions** comment (`needs-decision`) that asks the owner.
@@ -12,7 +12,8 @@ Take the newest comment of the plan the line names (read it with `gh api repos/<
 - **`issue-edited`:** plan from the current issue text as for any plan (steps 2 to 5 of `plan-issue`) and compare that plan with the old one. You do not need the earlier text and do not read the edit history.
 - **`owner-comment`, `newer-questions`:** read the comments after the old plan through `--comments`; they are what changed.
 - **`unknown-commenter`, or `OMITTED` above 0 where a comment may be relevant:** you cannot tell what changed. Do not adopt: post the questions comment.
-- **A plan that is current by its comments but stale by code move** (step 1, the files under Changes moved), and **a current plan with a line on another id:** plan again and compare the same way. The replacement adopts the line's id.
+- **A plan that is current by its comments but stale by code move** (step 1, the files under Changes moved): plan again and compare the same way. The replacement adopts the line's id.
+- **A `PUSHED` line with an unanswered `FINISHSTOP` line of attempt 2 or more on the same head (compared by prefix):** the worker stopped twice on it and a plain comment of a writer is not a release. Do not adopt on your own judgment: post the questions comment, name the finish reason, and say that option A also releases the branch. The owner's answer A is then the release.
 - **No `PLAN` line:** plan as for any plan and compare with the old one.
 
 Adopt only when both hold:
@@ -47,7 +48,7 @@ With several lines only B is offered.
 
 ### The answer
 
-Under `QUESTIONS … answered`, read the questions comment of this file and the newest trusted comment after it (from `--comments`). Then:
+Applies only when the newest questions comment is one of this file (it names a branch or PR with its full head and offers A "adopt: it fits" and B "a person handles it first") and `QUESTIONS` is `answered`. Any other `QUESTIONS … answered` line, for instance the questions of the original planning, is not an answer to it: judge as under Judging. Otherwise read that questions comment and the newest trusted comment after it (from `--comments`). Then:
 
 - **A, and only A:** check that the line named in the questions still exists with the same branch or PR, the same head (compared by prefix) and the same plan id. If it does, write the adopting plan; **Decisions** links the answer. If it does not, post a new questions comment that says what changed.
 - **B, and only B:** if the line is gone, plan the issue as usual. If it is still there, post a new questions comment that says so.

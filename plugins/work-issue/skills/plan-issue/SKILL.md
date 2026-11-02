@@ -26,7 +26,7 @@ Stop and report, without writing anything, under the same conditions as step 1 o
 
 An open `PR` that closes the issue and has no `RESUME` line (somebody else's, a fork, or one that could not be read) and an own PR whose `RESUME` plan field is `-` stay stops; a `PUSHED` line with plan field `-` is somebody's branch and stays as it is.
 
-**An own PR or pushed branch.** A `RESUME` or `PUSHED` line whose plan field is not `-` is the account's own earlier work on a plan. When the `PLAN` line is `current` and the field equals its comment id or its last field (the id it adopts), the plan stands. Otherwise (`PLAN … stale`, no `PLAN` line, or a field that is neither the plan's id nor the id it adopts), read `adopt.md` in the directory of this skill before you do anything else and follow it: it says how to judge whether the PR or branch still fits, and that the result is a plan with `adopts=` or a questions comment, never a plain plan next to that work. If the file cannot be read, stop and report that.
+**An own PR or pushed branch.** A `RESUME` or `PUSHED` line whose plan field is not `-` is the account's own earlier work on a plan. When the `PLAN` line is `current`, the plan stands, whatever the field says: report the line as "own PR or branch on a plan other than the current one" with the existing plan's link and write nothing. Otherwise (`PLAN … stale` or no `PLAN` line), read `adopt.md` in the directory of this skill before you do anything else and follow it: it says how to judge whether the PR or branch still fits, and that the result is a plan with `adopts=` or a questions comment, never a plain plan next to that work. If the file cannot be read, stop and report that.
 
 Then look at `PLAN` and `QUESTIONS`:
 

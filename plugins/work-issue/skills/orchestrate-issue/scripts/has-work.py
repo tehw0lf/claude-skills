@@ -37,10 +37,10 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
     `answered` (released by a matching `finish-released` marker of a writer). Attempt 1 (the one automatic
     retry), another head or another plan make it a hit again; so does a release marker, which keeps the plan
     current, so the retry is taken. A plain comment of a writer does not release: it makes the plan stale, and
-    `parked` is then false because there is no `PLAN … current` line (the session reports the branch, no replan)
+    `parked` is then false because there is no `PLAN … current` line (a stale plan makes the issue a hit again: the session sends the planner, which asks the owner before it adopts a branch with such a marker)
   - an issue with a current plan and an own `PUSHED` or `RESUME` line whose plan field is neither `-`, nor the
     current plan id, nor the plan id it adopts: no hit. The session could only report it (the branch or PR
-    is on another plan that no replan would adopt, as a current plan is not replaced)
+    is on another plan; the current plan stands, so a planner would change nothing)
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
