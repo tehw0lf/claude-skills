@@ -23,11 +23,11 @@ The `work-issue` skill is preloaded into your context (its base directory is the
 
 ## Resuming an own PR
 
-When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one; your prompt may say "resume PR #m"), read `<skill directory>/worker-resume.md` before you do anything else for it and follow it. If the file cannot be read, do not continue the PR: stop and report that. Without such a PR it does not apply.
+When the skill's step 1 recognises an own PR (a `RESUME` line whose plan is the current one or the one it adopts; your prompt may say "resume PR #m"), read `<skill directory>/worker-resume.md` before you do anything else for it and follow it. If the file cannot be read, do not continue the PR: stop and report that. Without such a PR it does not apply.
 
 ## Finishing an own branch
 
-When the skill's step 1 finishes an own branch (a `PUSHED` line whose plan is the current one; the skill's "Finish an own branch" and `finish-branch.md`), the PR the skill opens counts as one you opened: the review rules (first round `model: "opus"`), the stop marker and "Merging" apply as for any new PR. A stop before that PR exists writes the finish marker: read `<skill directory>/worker-stop-marker.md`, section "Finish marker", before you write the report and follow it. If the file cannot be read, leave no comment and say in the report that the finish marker is missing and why.
+When the skill's step 1 finishes an own branch (a `PUSHED` line whose plan is the current one or the one it adopts; the skill's "Finish an own branch" and `finish-branch.md`), the PR the skill opens counts as one you opened: the review rules (first round `model: "opus"`), the stop marker and "Merging" apply as for any new PR. A stop before that PR exists writes the finish marker: read `<skill directory>/worker-stop-marker.md`, section "Finish marker", before you write the report and follow it. If the file cannot be read, leave no comment and say in the report that the finish marker is missing and why.
 
 ## Stop marker
 

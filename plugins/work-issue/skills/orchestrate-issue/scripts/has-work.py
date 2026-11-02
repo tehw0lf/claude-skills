@@ -32,12 +32,15 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
     missing or pending one for the next tick. No other reason is released here: a push or an owner
     comment on the PR does that, as in the session
   - an issue with a parked branch: no hit. Parked is a `PUSHED` line whose plan field equals the id of the
-    `PLAN … current` line, together with a `FINISHSTOP` line (finish marker of a worker that stopped in finish
-    mode) for the same branch with the same head (compared by prefix), the same plan id, attempt 2 or more and not
+    `PLAN … current` line or the plan id that line adopts (its 7th field), together with a `FINISHSTOP` line (finish marker of a worker that stopped in finish
+    mode) for the same branch with the same head (compared by prefix), the current plan id, attempt 2 or more and not
     `answered` (released by a matching `finish-released` marker of a writer). Attempt 1 (the one automatic
     retry), another head or another plan make it a hit again; so does a release marker, which keeps the plan
     current, so the retry is taken. A plain comment of a writer does not release: it makes the plan stale, and
-    `parked` is then false because there is no `PLAN … current` line (the session reports the branch, no replan)
+    `parked` is then false because there is no `PLAN … current` line (a stale plan makes the issue a hit again: the session sends the planner, which asks the owner before it adopts a branch with such a marker)
+  - an issue with a current plan and an own `PUSHED` or `RESUME` line whose plan field is neither `-`, nor the
+    current plan id, nor the plan id it adopts: no hit. The session could only report it (the branch or PR
+    is on another plan; the current plan stands, so a planner would change nothing)
   - any other issue: a hit
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
@@ -46,9 +49,11 @@ already closes the issue, or a conflicting PR; such an issue is a hit here and t
 reports it and spawns nothing. An own PR that does not link the current plan is a hit too, unless it
 carries an unanswered stop marker on its head (the rule above does not compare the plan). A
 `# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before. The same holds for an
-own pushed branch (a `PUSHED` line of issue-context.py) on a plan that is no longer current, including a
-plan id equal to the id of a stale `PLAN` line: it is a hit here, and the session reports it and spawns
-nothing (no planner, no retry). One on the current plan is finished by the worker, unless it is parked (rule above).
+own pushed branch (a `PUSHED` line of issue-context.py) or own PR on a plan other than the current one and
+the one it adopts, with a stale plan or none: it is a hit, and the session sends the planner, which adopts the
+branch or PR (an `adopts=` plan) or asks the owner (a `needs-decision` question, which the rule above then
+holds back). With a current plan the same line is no hit (rule above). One on the current plan or the plan
+it adopts is finished or resumed by the worker, unless it is parked (rule above).
 
 Output, one line:
   WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit
@@ -272,16 +277,42 @@ def resume_state(repo, lines):
     return state
 
 
+def current_plan(lines):
+    """(plan id, adopted plan id or None) of the `PLAN … current` line (7 fields), or (None, None)."""
+    for fields in (line.split("\t") for line in lines):
+        if fields[0] == "PLAN" and len(fields) == 7 and fields[4] == "current":
+            return fields[1], (None if fields[6] == "-" else fields[6])
+    return None, None
+
+
+def foreign_line(lines):
+    """True when the issue has a current plan and an own PUSHED or RESUME line whose plan field is neither `-`,
+    nor the current plan, nor the plan it adopts: the session could only report it and spawns nothing."""
+    plan, adopted = current_plan(lines)
+    if plan is None:
+        return False
+    for fields in (line.split("\t") for line in lines):
+        if fields[0] == "PUSHED" and len(fields) == 5:
+            found = fields[4]
+        elif fields[0] == "RESUME" and len(fields) == 10:
+            found = fields[3]
+        else:
+            continue
+        if found != "-" and found != plan and found != adopted:
+            return True
+    return False
+
+
 def parked(lines):
-    """True when the output has a PUSHED line on the current plan and a FINISHSTOP line for the same branch,
-    head (by prefix) and plan with attempt 2 or more that is not answered: the worker stopped twice on this
-    head and nobody has acted since."""
-    plan = next((f[1] for f in (line.split("\t") for line in lines) if f[0] == "PLAN" and len(f) == 6 and f[4] == "current"), None)
+    """True when the output has a PUSHED line on the current plan or the plan it adopts and a FINISHSTOP line for
+    the same branch, head (by prefix) and the current plan id with attempt 2 or more that is not answered: the
+    worker stopped twice on this head and nobody has acted since."""
+    plan, adopted = current_plan(lines)
     if plan is None:
         return False
     for line in lines:
         pushed = line.split("\t")
-        if pushed[0] != "PUSHED" or len(pushed) != 5 or pushed[4] != plan:
+        if pushed[0] != "PUSHED" or len(pushed) != 5 or pushed[4] not in (plan, adopted):
             continue
         for other in lines:
             stop = other.split("\t")
@@ -352,7 +383,7 @@ def hit(repo, number, names):
     lines = context(repo, number)
     if WAITING_LABEL in names and waiting(repo, number, lines):
         return None
-    if parked(lines):
+    if parked(lines) or foreign_line(lines):
         return None
     state = resume_state(repo, lines)
     if state == "waiting":
