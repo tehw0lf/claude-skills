@@ -3,7 +3,7 @@
 A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own. The sequence therefore goes back to that branch before it decides what is the run's own:
 
 ```bash
-git diff HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
+git diff --binary HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
 git reset --hard                            # on the run's branch: discards the tracked changes (a rewritten lockfile, edited tracked ignore files), so that the switch neither refuses nor carries them over
 git switch <previous branch>           # the branch WORKTREE named; for "(detached)": git switch --detach <the commit kept in step 1>. Only when it exits 0 do the commands below run
 git -c core.quotePath=false ls-files --others --exclude-standard -- ':(glob)**/.gitignore'   # ignore files the run created
@@ -18,7 +18,7 @@ A `comm` that exits non-zero (a missing snapshot; also a quoted line that put a 
 Only when the first listing printed a path (a pathspec that matches nothing makes `git add -N` fail), use the next block with those paths: with a saved diff its first two commands, without a saved diff only its third. Each path is its own `:(literal)` argument, as git printed it (a path with `'` has stopped the clean-up above, so every path filled in here is safe inside single quotes): git reads the arguments as pathspecs, so without `:(literal)` a `*`, `?` or `[` in a name would also match other ignore files, among them ignored ones that were there before the run, which `git add -N -f` followed by `git reset --hard` deletes.
 
 ```bash
-git add -N -- ':(literal)<path>' … && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
+git add -N -- ':(literal)<path>' … && git diff --binary HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
 git reset --hard                            # with a saved diff: removes the intent-to-add ignore files again
 git clean -f -- ':(literal)<path>' …          # without a saved diff: removes them
 ```
@@ -26,7 +26,7 @@ git clean -f -- ':(literal)<path>' …          # without a saved diff: removes 
 Only when a path was selected, use the next block with those paths, after the previous one if that ran: they are ignored, so plain `git add -N` refuses them and plain `git clean -f` leaves them. With a saved diff its first command, without a saved diff its second; the third always runs. The paths are `:(literal)` arguments here too, for the reason given above. No `git clean -fx` is run for them: a permission rule for it would need a `*` for the paths and would also allow `git clean -fx -- .`, which deletes every ignored file. The mark and the reset remove them without it, and a file such an ignore file re-included stays as an untracked file.
 
 ```bash
-git add -N -f -- ':(literal)<path>' … && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
+git add -N -f -- ':(literal)<path>' … && git diff --binary HEAD >> <temporary directory>/abandoned.diff   # with a saved diff
 git add -N -f -- ':(literal)<path>' …       # without a saved diff
 git reset --hard                            # removes the intent-to-add ignore files again
 ```
@@ -34,7 +34,7 @@ git reset --hard                            # removes the intent-to-add ignore f
 Then, always, in this order:
 
 ```bash
-git add -N . && git diff HEAD >> <temporary directory>/abandoned.diff   # with a saved diff only: now only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
+git add -N . && git diff --binary HEAD >> <temporary directory>/abandoned.diff   # with a saved diff only: now only files untracked under the restored rules are marked, so -N makes the run's new files part of the diff
 git reset --hard && git clean -fd           # ignored files (dependencies, build output) stay
 git branch -D <the branch from step 2>      # only that one: a branch this run did not create is never deleted
 ```
@@ -42,6 +42,8 @@ git branch -D <the branch from step 2>      # only that one: a branch this run d
 Run everything after the switch only when the switch exited 0. If it fails (an untracked file the run wrote sits at a path the previous branch tracks), run no further command of this clean-up and do not delete the run's branch: the checkout stays on the run's branch, whose ignore rules would make the listings, `git add -N` and `git clean` act on files that are not the run's own, and the report names the paths git prints. Reason for the order: untracked and ignored files come along with a `git switch`, so a file that only the previous branch ignores (a project `.npmrc`) counts as untracked on the branch step 2 created from `origin/<default>`; there `git clean -fd` deletes it, `git add -N .` writes its content (a registry token, for example) into the saved diff, and the `git reset --hard` that follows removes it. On the previous branch the rules are those step 1's clean check was made under, so exactly the files untracked there are the run's own. A file the run wrote that the previous branch ignores stays and is not in the saved diff: leaving a file is recoverable, deleting one that was there before is not.
 
 Ignored files that were there before the run are protected by step 2's `--no-overwrite-ignore`, not by step 1's clean check. The switch back above has no such option: every path it can replace was tracked and clean when step 1 ran and was removed by step 2's switch, so whatever sits there was written by the run, and with the option the switch would refuse and strand the checkout on the run's branch.
+
+Every saved diff is written with `--binary`: without it git writes a binary file (an image, a fixture) only as `Binary files … differ`, and `git apply` cannot restore that file from the saved diff.
 
 The tracked ignore files are restored and the run's own ignore files removed before `git add -N` because a file the change un-ignored (a project `.npmrc`, for example) would otherwise be marked intent-to-add, deleted by `git reset --hard`, and its content (a registry token, for example) written into the saved diff. Each line is a plain command without pipes. The commands of this clean-up are run as written here, without the trailing `#` comments of the code blocks, as for `git stash create` in step 6: the example permission list of `orchestrate-issue` (`scheduling.md`) allows `git reset --hard` and `git clean -fd` as exact commands.
 
