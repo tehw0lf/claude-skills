@@ -103,6 +103,6 @@ A non-zero exit reports that repository's labelled issues as "not checked", with
 
 ### 7. Report
 
-One outcome line per handed issue: labelled (with or without a current plan; taken or not by step 6), planner run (with the link of the plan, of the questions or of the `closed` comment when the planner closed the issue on the owner's answer, the reason of a stop, or a close that was not confirmed or was made by someone else; not labelled), declined, or excluded with its reason. Name `orchestrate-issue` as the next step.
+One outcome line per handed issue: labelled (with or without a current plan; taken or not by step 6), planner run (with the link of the plan, of the questions or of the `closed` comment when the planner closed the issue on the owner's answer, the reason of a stop with the link of an existing comment when there is one, or a close that was not confirmed or was made by someone else; not labelled), declined, or excluded with its reason. Name `orchestrate-issue` as the next step.
 
 **Done when** every handed issue has one outcome line.
