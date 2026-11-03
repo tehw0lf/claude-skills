@@ -295,7 +295,9 @@ A routine is not a file: it is a server-side object created in the web UI (claud
 
 ## Cloud: task fired by the label
 
-Verified: nothing. Neither the workflow below nor a fired task was run; no target repository and task were available. Every open point of "Cloud: routine" applies unchanged (plugins in the cloud session, `gh` credentials, nested agents), and so do its remarks on what the session may do: the list under "Permissions" does not limit a cloud run, and the session acts on GitHub as the connected account.
+Verified: nothing. Neither the workflow below nor a fired task was run; no target repository and task were available. Every open point of "Cloud: routine" applies unchanged (plugins in the cloud session, `gh` credentials, nested agents). Two further statements are taken from the documentation and were not checked either: the list under "Permissions" does not limit a cloud run, and the session acts on GitHub as the connected account.
+
+Unverified, to be confirmed by the owner before use: the values of the headers `anthropic-beta` and `anthropic-version`, whether the body `{}` (or no body) is accepted, and the secret names `WORK_ISSUE_FIRE_TOKEN` and `WORK_ISSUE_FIRE_URL`, which are names chosen for this example and not taken from the documentation.
 
 The two triggers above wait for the next tick: a label set now is picked up within the hour. A task with an API trigger can instead be started by the label event itself, through a GitHub Actions workflow in the target repository that sends one POST to the task's fire endpoint.
 
