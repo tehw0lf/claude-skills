@@ -63,8 +63,13 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
                      `pipenv run pytest`; only when no uv, poetry or pdm PROJECT line is printed for
                      the directory
                requirements `python3 -m venv .venv && .venv/bin/python -m pip install -r <file> ...` (one
-                     `-r` per file, in the order of the PROJECT line) / `.venv/bin/python -m pytest`;
-                     only when the directory has neither pyproject.toml nor Pipfile
+                     `-r` per file of requirements.txt and those of requirements-dev.txt,
+                     requirements_dev.txt, requirements-test.txt, requirements_test.txt,
+                     requirements-tests.txt, requirements_tests.txt that exist; requirements.txt first,
+                     the others sorted; other requirements*.txt are alternative sets: listed on the
+                     PROJECT line, not installed; no row when none of these files exists) /
+                     `.venv/bin/python -m pytest`; only when the directory has neither pyproject.toml
+                     nor Pipfile
                composer `composer install` / `./vendor/bin/phpunit` (phpunit.xml, phpunit.xml.dist or
                      phpunit.dist.xml present)
              Only rows that were run against the real tool are listed. Plain pyproject projects have
@@ -409,9 +414,14 @@ def project(root, d):
     reqs = sorted(f for f in files if fnmatch.fnmatch(f, "requirements*.txt"))
     if reqs:
         fb = []
-        if "pyproject.toml" not in files and "Pipfile" not in files:
+        # install set: requirements.txt, then the dev/test names that exist, sorted; other
+        # requirements*.txt are alternative sets (lite, full, per platform) and stay out
+        devtest = ("requirements-dev.txt", "requirements_dev.txt", "requirements-test.txt",
+                   "requirements_test.txt", "requirements-tests.txt", "requirements_tests.txt")
+        inst = [f for f in ("requirements.txt",) if f in files] + sorted(f for f in devtest if f in files)
+        if inst and "pyproject.toml" not in files and "Pipfile" not in files:
             fb = [("install", "python3 -m venv .venv && .venv/bin/python -m pip install %s"
-                   % " ".join("-r " + r for r in reqs)),
+                   % " ".join("-r " + r for r in inst)),
                   ("test", ".venv/bin/python -m pytest")]
         line("requirements", ",".join(reqs), "", fb)
     if "Cargo.toml" in files:
