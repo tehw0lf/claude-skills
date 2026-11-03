@@ -81,7 +81,8 @@ Your final message is the only thing the user sees. Include:
 
 - the issue, and either the PR with its merge state or why you stopped — for a stop: the questions, the options and your recommendation
 - the cause you found and what changed
-- the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, or that none is set
+- the root version scripts (`preversion`, `version`, `postversion`) that ran during the bump and the files and entries they changed, and, when the branch update bumped the version again, the file and the versions (from, to), or that none is set
+- when the branch update resolved a version-only conflict: the files and the versions (PR, base, resolved), or the precondition that failed
 - validation results with real numbers, and which source the commands came from
 - the review verdict per round with the reviewed SHA, and the follow-up issues opened
 - what blocked a merge, if anything (a finding, a required check, no required check, no reviewer, a refused merge)
