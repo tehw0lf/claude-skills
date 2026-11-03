@@ -1,6 +1,6 @@
 ## Stopping after the branch exists
 
-A stop in steps 3 to 7 leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own. The sequence therefore goes back to that branch before it decides what is the run's own:
+A stop in steps 3 to 7, or in step 8 before its first commit, leaves the checkout as step 1 found it. The working tree was clean then (a dirty one is a stop in step 1) and nothing has been committed, so every uncommitted change, and every file that is untracked under the ignore rules of the branch step 1 found, is this run's own. The sequence therefore goes back to that branch before it decides what is the run's own:
 
 ```bash
 git diff --binary HEAD > <temporary directory>/abandoned.diff   # only when there is work worth showing: HEAD includes what is already staged (a `git mv`, a `git rm`) and the edits of tracked ignore files. Outside the checkout, or the clean-up below deletes it; name the file in the report
