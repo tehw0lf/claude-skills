@@ -45,8 +45,10 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
 
 This is the simple test of the selection, not the whole of it. It does not look at the labeler's
 permission, the edit history, an assignee other than the account, a pull request of somebody else that
-already closes the issue, or a conflicting PR; such an issue is a hit here and the session then
-reports it and spawns nothing. An own PR that does not link the current plan is a hit too, unless it
+already closes the issue; such an issue is a hit here and the session then
+reports it and spawns nothing. An own conflicting PR is a hit too, and the session gives it to the
+worker, which resolves a version-only conflict or stops with the marker `conflict`; the `RESUME` rule
+above then holds the PR back. An own PR that does not link the current plan is a hit too, unless it
 carries an unanswered stop marker on its head (the rule above does not compare the plan). A
 `# SKIPPED resume` line leaves the PR unread, and the issue is a hit as before. The same holds for an
 own pushed branch (a `PUSHED` line of issue-context.py) or own PR on a plan other than the current one and
