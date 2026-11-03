@@ -13,8 +13,8 @@
 # files are always read from the working tree.
 # After `nx-migrator` merges the default branch into the PR branch, step 10 passes the merged base
 # (`git merge-base HEAD refs/remotes/origin/<default>`) as <rev>, so that "changed" and "already bumped"
-# are measured over the base the PR now contains: a version that equals the base's is bumped again, and
-# one above it is "already bumped".
+# are measured over the base the PR now contains: a version that equals the base's is bumped again
+# only when its directory still differs from that base, and one above it is "already bumped".
 # "Changed" = a tracked difference from HEAD (staged or not) or an untracked, non-ignored file in the
 # package directory, leaving out files below a nested project root (as in Nx, a file belongs to the deepest
 # project root that contains it: a change in the project libs/a/inner does not change libs/a, whether or

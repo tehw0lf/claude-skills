@@ -79,7 +79,7 @@ The skill opens every PR against the default branch, so a stacked PR or a depend
 
 - `git fetch origin`
 - `gh pr view <PR> -R <owner>/<repo> --json mergeStateStatus -q .mergeStateStatus`
-- per checked file: `git ls-tree --name-only refs/remotes/origin/<default> -- ':(literal)<path>'` (empty output: absent on the base, counts as above), then `git show refs/remotes/origin/<default>:<path>` and `git show <reviewed-sha>:<path>`. A JSON manifest is read by its `version` field (for example `jq -r .version`), and `VERSION` by its content.
+- per checked file: `git ls-tree --name-only refs/remotes/origin/<default> -- ':(literal)<path>'` (empty output: absent on the base, counts as above), then `git show refs/remotes/origin/<default>:./<path>` and `git show <reviewed-sha>:./<path>` (`./` resolves the path from the workspace root like `git ls-tree` does, and as `bump-subpackages.sh` reads its base; without it `git show` resolves from the git root, which differs when the workspace sits below it). A JSON manifest is read by its `version` field (for example `jq -r .version`), and `VERSION` by its content.
 
 "Above" is semantic-version precedence, the test `bump-subpackages.sh` applies (step 10 moves prerelease versions, which a plain number comparison cannot order). Outcomes:
 
@@ -144,7 +144,7 @@ Then, as one plain command — not in a loop or a compound command:
 gh pr merge <PR> -R <owner>/<repo> --squash --delete-branch --match-head-commit <reviewed-sha>
 ```
 
-`--match-head-commit` makes the merge fail if the head moved after the review, so nothing unreviewed can ride along. A merge that is refused (branch protection, a missing token scope, a head that is no longer up to date because the base moved in the seconds after the last read) is reported with the message `gh` gave and not worked around; a refusal because the head is not up to date counts like `BEHIND`.
+`--match-head-commit` makes the merge fail if the head moved after the review, so nothing unreviewed can ride along. A merge that is refused (branch protection, a missing token scope, a head that is no longer up to date because the base moved in the seconds after the last read) is reported with the message `gh` gave and not worked around; a refusal because the head is not up to date counts like `BEHIND` at the last read: stop and report that a person updates the branch, no update is made here.
 
 ## Report back
 
