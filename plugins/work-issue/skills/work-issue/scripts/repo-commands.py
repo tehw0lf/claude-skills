@@ -46,15 +46,28 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
   FALLBACK <dir> <kind> <command>
              the usual command of the ecosystem, for a kind no other source names. Rows:
                npm   install `npm ci` (package-lock.json or npm-shrinkwrap.json present) else `npm install`
-               yarn  `yarn install`        pnpm  `pnpm install`
+               yarn  `yarn install`        pnpm  `pnpm install`        bun  `bun install`
                nx    `npx nx run-many -t lint` / `-t test` / `-t build`, plus `-t e2e` when an e2e target
                      is declared
                uv    `uv sync` / `uv run ruff check` / `uv run pytest` / `uv build`
                cargo `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test` / `cargo build`
                go    `go vet ./...` / `go test ./...` / `go build ./...`
-               gradle `./gradlew build` (wrapper only), kind build
-             Only rows that were run against the real tool are listed. bun, Maven, Composer, Gradle
-             without a wrapper, Poetry, PDM, Pipenv, requirements-only and plain pyproject projects have
+               gradle `./gradlew build` (wrapper present) else `gradle build`, kind build
+               maven `./mvnw verify` (mvnw present) else `mvn verify`, kind build
+               poetry `poetry install` / `poetry run pytest` / `poetry build` (no build row when
+                     pyproject.toml sets `package-mode = false`)
+               pdm   `pdm install` / `pdm run pytest` / `pdm build` (no build row when pyproject.toml
+                     sets `distribution = false`)
+                     (poetry and pdm only when no other of uv, poetry, pdm and Pipfile is present)
+               pipenv `pipenv sync --dev` (Pipfile.lock present) else `pipenv install --dev`, and
+                     `pipenv run pytest`; only when no uv, poetry or pdm PROJECT line is printed for
+                     the directory
+               requirements `python3 -m venv .venv && .venv/bin/python -m pip install -r <file> ...` (one
+                     `-r` per file, in the order of the PROJECT line) / `.venv/bin/python -m pytest`;
+                     only when the directory has neither pyproject.toml nor Pipfile
+               composer `composer install` / `./vendor/bin/phpunit` (phpunit.xml, phpunit.xml.dist or
+                     phpunit.dist.xml present)
+             Only rows that were run against the real tool are listed. Plain pyproject projects have
              no row: their commands come from the sources above.
   SKIPPED  <source> <reason>
              an input that is not a plain scalar (a `${{ }}` expression, a block or multi-line scalar), a
@@ -346,7 +359,7 @@ def project(root, d):
         fb = []
         if mgr == "npm":
             fb = [("install", "npm ci" if {"package-lock.json", "npm-shrinkwrap.json"} & files else "npm install")]
-        elif mgr in ("yarn", "pnpm"):
+        elif mgr in ("yarn", "pnpm", "bun"):
             fb = [("install", "%s install" % mgr)]
         line(mgr, "package.json", ",".join(locks), fb)
         text = read(os.path.join(path, "package.json"))
@@ -364,6 +377,7 @@ def project(root, d):
             if has_e2e_target(path):
                 fb.append(("e2e", "npx nx run-many -t e2e"))
             line("nx", "nx.json", "", fb)
+    pymgrs = 0  # uv, poetry, pdm found in pyproject.toml
     if "pyproject.toml" in files:
         text = read(os.path.join(path, "pyproject.toml")) or ""
         uv = "uv.lock" in files or "[tool.uv" in text
@@ -372,17 +386,34 @@ def project(root, d):
         pdm = "pdm.lock" in files or "[tool.pdm" in text
         if uv:
             line("uv", "pyproject.toml", "uv.lock" if "uv.lock" in files else "", uvfb)
+        # one manager only: two would print two competing installs
+        pymgrs = uv + poetry + pdm
+        single = pymgrs + ("Pipfile" in files) == 1
         if poetry:
-            line("poetry", "pyproject.toml", "poetry.lock" if "poetry.lock" in files else "")
+            line("poetry", "pyproject.toml", "poetry.lock" if "poetry.lock" in files else "",
+                 [("install", "poetry install"), ("test", "poetry run pytest")]
+                 + ([] if re.search(r"^\s*package-mode\s*=\s*false\b", text, re.M) else [("build", "poetry build")])
+                 if single else [])
         if pdm:
-            line("pdm", "pyproject.toml", "pdm.lock" if "pdm.lock" in files else "")
+            line("pdm", "pyproject.toml", "pdm.lock" if "pdm.lock" in files else "",
+                 [("install", "pdm install"), ("test", "pdm run pytest")]
+                 + ([] if re.search(r"^\s*distribution\s*=\s*false\b", text, re.M) else [("build", "pdm build")])
+                 if single else [])
         if not (uv or poetry or pdm):
             line("python", "pyproject.toml", "")
     if "Pipfile" in files:
-        line("pipenv", "Pipfile", "Pipfile.lock" if "Pipfile.lock" in files else "")
+        locked = "Pipfile.lock" in files
+        line("pipenv", "Pipfile", "Pipfile.lock" if locked else "",
+             [("install", "pipenv sync --dev" if locked else "pipenv install --dev"),
+              ("test", "pipenv run pytest")] if not pymgrs else [])
     reqs = sorted(f for f in files if fnmatch.fnmatch(f, "requirements*.txt"))
     if reqs:
-        line("requirements", ",".join(reqs), "")
+        fb = []
+        if "pyproject.toml" not in files and "Pipfile" not in files:
+            fb = [("install", "python3 -m venv .venv && .venv/bin/python -m pip install %s"
+                   % " ".join("-r " + r for r in reqs)),
+                  ("test", ".venv/bin/python -m pytest")]
+        line("requirements", ",".join(reqs), "", fb)
     if "Cargo.toml" in files:
         line("cargo", "Cargo.toml", "Cargo.lock" if "Cargo.lock" in files else "", [
             ("format", "cargo fmt --check"), ("lint", "cargo clippy -- -D warnings"),
@@ -394,12 +425,16 @@ def project(root, d):
     if gradle:
         wrapper = "gradlew" in files
         line("gradle", ",".join(gradle), "gradlew" if wrapper else "",
-             [("build", "./gradlew build")] if wrapper else [])
+             [("build", "./gradlew build" if wrapper else "gradle build")])
     if "pom.xml" in files:
         wrapper = "mvnw" in files
-        line("maven", "pom.xml", "mvnw" if wrapper else "")
+        line("maven", "pom.xml", "mvnw" if wrapper else "",
+             [("build", "./mvnw verify" if wrapper else "mvn verify")])
     if "composer.json" in files:
-        line("composer", "composer.json", "composer.lock" if "composer.lock" in files else "")
+        fb = [("install", "composer install")]
+        if {"phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml"} & files:
+            fb.append(("test", "./vendor/bin/phpunit"))
+        line("composer", "composer.json", "composer.lock" if "composer.lock" in files else "", fb)
         text = read(os.path.join(path, "composer.json"))
         if text is not None:
             try:
