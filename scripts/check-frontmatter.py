@@ -31,7 +31,7 @@ SKILL_KEYS = COMMON | {"when_to_use", "argument-hint", "arguments", "disable-mod
                        "hooks", "paths", "shell", "metadata", "license", "compatibility"}
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "default", "best", "opusplan"}
-# The four patterns below carry no anchors: they are applied with fullmatch, because `$` also matches before a trailing newline.
+# The patterns below carry no anchors: they are applied with fullmatch, because `$` also matches before a trailing newline.
 # an alias or a full id, optionally with the 1M-context suffix
 MODEL_ID = re.compile(r"(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?")
 TOOL = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(\(.+\))?")
@@ -115,12 +115,12 @@ def check_tools(key, val, find, whitespace=True):
     mcp_glob = MCP_TOOL_GLOB if whitespace else MCP_SERVER_GLOB  # whitespace=True means a skill key
     for it in items:
         if it.startswith("mcp__") and "(" in it:
-            find(key, "an MCP tool takes no specifier here: settings files skip mcp__ rules with parentheses, "
+            find(key, f"{it!r}: an MCP tool takes no specifier here: settings files skip mcp__ rules with parentheses, "
                       "and only the --disallowedTools CLI flag matches MCP parameters; drop the (...)")
             continue
         if not it.startswith("mcp__") and TOOL_NAME_GLOB.fullmatch(it):
             if key != "disallowed-tools":
-                find(key, "tool-name globs are accepted only in a skill's disallowed-tools; name the tool")
+                find(key, f"tool-name glob {it!r} is accepted only in a skill's disallowed-tools; name the tool")
             continue
         valid = TOOL.fullmatch(it) or mcp_glob.fullmatch(it) or (deny and it == "mcp__*")
         # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
