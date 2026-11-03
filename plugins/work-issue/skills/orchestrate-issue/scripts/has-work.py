@@ -23,8 +23,10 @@ with `issue-context.py` (work-issue skill), and the rule per issue is:
     own (a label set by hand) goes on to the next rule
   - an issue with a `RESUME` line whose stop marker names the PR's current head (compared by prefix)
     and is not `answered`: no hit, the PR waits. Reason `pending-check` is the exception: the worker
-    stopped because a required check had not concluded, not for a person, so the issue is a hit once
-    every required check of the default branch (active rulesets and classic branch protection, every
+    stopped because a required check had not concluded, not for a person, so the issue is a hit at once,
+    without reading the checks, when the PR's `RESUME` mergeable field is `conflicting` (a required check
+    may never report on a conflicting head, and such a head cannot be merged whatever its checks say).
+    Otherwise it is a hit once every required check of the default branch (active rulesets and classic branch protection, every
     page, as in run-context.py) is listed with the bucket `pass` in `gh pr checks --required --json
     name,bucket` on that PR: the same listing the worker stops on, so a PR is not released into a
     session that would stop again at the same check. A required check that is missing there, pending,
@@ -58,7 +60,7 @@ holds back). With a current plan the same line is no hit (rule above). One on th
 it adopts is finished or resumed by the worker, unless it is parked (rule above).
 
 Output, one line:
-  WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green>     a hit
+  WORK  <owner/repo#n>  <label|answered-or-unasked|checks-green|conflicting>     a hit
   NONE                                                    no hit in any argument
 
 Exit codes, as systemd.service(5) reads them for ExecCondition=:
@@ -92,7 +94,7 @@ that belongs to no repository (bad argument, an owner that cannot be resolved, a
 incomplete, holds more than 1000 results or whose pages end before its total) is still 255 with nothing on
 stdout. Lines, in the order in
 which the repositories are decided (`owner/repo` arguments first, then the search, oldest issue first):
-  WORK   <owner/repo#n>  <label|answered-or-unasked|checks-green>    the repository's first hit
+  WORK   <owner/repo#n>  <label|answered-or-unasked|checks-green|conflicting>    the repository's first hit
   ERROR  <owner/repo>    <reason>                                    its check failed; no session for it
   NONE                                                               neither a WORK nor an ERROR line
 Exit codes: 0 at least one WORK line, 1 NONE, 2 ERROR lines and no WORK line, 255 as above. Not meant for
@@ -263,16 +265,19 @@ def checks_green(repo, pull):
 def resume_state(repo, lines):
     """'waiting' when an own PR carries an unanswered stop marker on its current head and does not wait
     on checks that are green by now, 'checks-green' when such a marker has reason pending-check and its
-    checks are green, else None."""
+    checks are green, 'conflicting' when such a marker has reason pending-check and the PR is conflicting
+    (its checks are not read), else None."""
     state = None
     for line in lines:
         fields = line.split("\t")
         if fields[0] != "RESUME" or len(fields) != 10:
             continue
-        pull, head, marker, reason, answered = fields[1], fields[2], fields[7], fields[8], fields[9]
+        pull, head, mergeable, marker, reason, answered = fields[1], fields[2], fields[4], fields[7], fields[8], fields[9]
         if marker == "-" or answered != "-" or not (head.startswith(marker) or marker.startswith(head)):
             continue
-        if reason == "pending-check" and checks_green(repo, pull):
+        if reason == "pending-check" and mergeable == "conflicting":
+            state = state or "conflicting"
+        elif reason == "pending-check" and checks_green(repo, pull):
             state = state or "checks-green"
         else:
             return "waiting"
