@@ -54,11 +54,14 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
                go    `go vet ./...` / `go test ./...` / `go build ./...`
                gradle `./gradlew build` (wrapper present) else `gradle build`, kind build
                maven `./mvnw verify` (mvnw present) else `mvn verify`, kind build
-               poetry `poetry install` / `poetry run pytest` / `poetry build`
-               pdm   `pdm install` / `pdm run pytest` / `pdm build`
+               poetry `poetry install` / `poetry run pytest` / `poetry build` (no build row when
+                     pyproject.toml sets `package-mode = false`)
+               pdm   `pdm install` / `pdm run pytest` / `pdm build` (no build row when pyproject.toml
+                     sets `distribution = false`)
                      (poetry and pdm only when no other of uv, poetry, pdm and Pipfile is present)
                pipenv `pipenv sync --dev` (Pipfile.lock present) else `pipenv install --dev`, and
-                     `pipenv run pytest`; only when pyproject.toml names no uv, poetry or pdm
+                     `pipenv run pytest`; only when no uv, poetry or pdm PROJECT line is printed for
+                     the directory
                requirements `python3 -m venv .venv && .venv/bin/python -m pip install -r <file> ...` (one
                      `-r` per file, in the order of the PROJECT line) / `.venv/bin/python -m pytest`;
                      only when the directory has neither pyproject.toml nor Pipfile
@@ -388,11 +391,13 @@ def project(root, d):
         single = pymgrs + ("Pipfile" in files) == 1
         if poetry:
             line("poetry", "pyproject.toml", "poetry.lock" if "poetry.lock" in files else "",
-                 [("install", "poetry install"), ("test", "poetry run pytest"), ("build", "poetry build")]
+                 [("install", "poetry install"), ("test", "poetry run pytest")]
+                 + ([] if re.search(r"^\s*package-mode\s*=\s*false\b", text, re.M) else [("build", "poetry build")])
                  if single else [])
         if pdm:
             line("pdm", "pyproject.toml", "pdm.lock" if "pdm.lock" in files else "",
-                 [("install", "pdm install"), ("test", "pdm run pytest"), ("build", "pdm build")]
+                 [("install", "pdm install"), ("test", "pdm run pytest")]
+                 + ([] if re.search(r"^\s*distribution\s*=\s*false\b", text, re.M) else [("build", "pdm build")])
                  if single else [])
         if not (uv or poetry or pdm):
             line("python", "pyproject.toml", "")
