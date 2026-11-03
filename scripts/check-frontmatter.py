@@ -5,7 +5,8 @@
 """Check the front matter of every plugin agent (plugins/*/agents/**/*.md) and skill
 (plugins/*/skills/*/SKILL.md): delimiters, strict YAML parse (repeated keys are errors), a mapping,
 `name` and `description` non-empty strings, keys against the documented field sets, `model` and
-`effort` against fixed values, and the shape (not the existence) of tool names. Agent tool strings
+`effort` against fixed values (`model`: one set per kind, agents narrower than skills because `default`
+and `best` did not run for an agent), and the shape (not the existence) of tool names. Agent tool strings
 (`tools`, `disallowedTools`) are comma-separated only; skill tool strings (`allowed-tools`,
 `disallowed-tools`) are comma- or whitespace-separated. MCP names and the documented MCP patterns
 are accepted: `mcp__<server>__*` in all tool keys, partial globs such as `mcp__<server>__get_*` in skill
@@ -30,7 +31,12 @@ SKILL_KEYS = COMMON | {"when_to_use", "argument-hint", "arguments", "disable-mod
                        "user-invocable", "allowed-tools", "disallowed-tools", "context", "agent",
                        "hooks", "paths", "shell", "metadata", "license", "compatibility"}
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
-MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "default", "best", "opusplan"}
+# `model` is checked against one set per kind. Real runs on Claude Code 2.1.317: an agent with
+# `model: default` failed at spawn (the literal `default` went to the API, which refused it), and an agent
+# with `model: best` ended with an API error before doing any work, so neither is accepted for agents;
+# skills with `default`, `best`, `opusplan` and `inherit` loaded and ran. Re-check both sets when re-running.
+AGENT_MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "opusplan"}
+SKILL_MODELS = AGENT_MODELS | {"default", "best"}
 # The patterns below carry no anchors: they are applied with fullmatch, because `$` also matches before a trailing newline.
 # an alias or a full id, optionally with the 1M-context suffix
 MODEL_ID = re.compile(r"(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?")
@@ -165,8 +171,10 @@ def check(path, kind):
         find("name", "must not contain ':'")
     if "model" in fm:
         m = fm["model"]
-        if not isinstance(m, str) or not (m in MODELS or MODEL_ID.fullmatch(m)):
-            find("model", f"unknown model {m!r}")
+        models = AGENT_MODELS if kind == "agent" else SKILL_MODELS
+        if not isinstance(m, str) or not (m in models or MODEL_ID.fullmatch(m)):
+            find("model", f"unknown model {m!r} for a{'n' if kind == 'agent' else ''} {kind}; {kind} values: "
+                          f"{', '.join(sorted(models))}, a full claude- id, sonnet[1m] or opus[1m]")
     if "effort" in fm and not (isinstance(fm["effort"], str) and fm["effort"] in EFFORTS):
         find("effort", f"unknown effort {fm['effort']!r}")
     tool_keys = ("tools", "disallowedTools") if kind == "agent" else ("allowed-tools", "disallowed-tools")
