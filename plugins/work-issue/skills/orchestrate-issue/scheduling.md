@@ -1,6 +1,6 @@
 # Running orchestrate-issue on a schedule
 
-`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, up to its limit (one unless `--max` is given), and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes two ways, a local systemd timer (one session at a time, or one per repository with several in parallel) and a cloud routine. Neither is part of the plugin; they are examples.
+`orchestrate-issue` schedules nothing itself: one call takes the issues that are ready, up to its limit (one unless `--max` is given), and an issue that waits for an owner answer ends that run at its questions. To pick up `auto-work` issues without a person starting each run, something outside the skill has to call it. This file describes three ways, a local systemd timer (one session at a time, or one per repository with several in parallel), a cloud routine on a schedule, and a cloud task fired by the label event. None is part of the plugin; they are examples.
 
 ## What every trigger has to respect
 
@@ -10,7 +10,7 @@
 - An issue that is already started is continued by the next run: its own open PR goes back to the worker for validation, review and merge. When the worker stops there, it leaves a comment starting with `<!-- work-issue:stopped … -->` on the PR, and later runs report the PR as waiting for a person and spawn nothing until somebody pushes to it or comments on it with admin, maintain or write permission. The marker reason `pending-check` needs nobody: the worker waits at most five minutes for the required checks, and when one has not reported or concluded by then, the next run that finds all of them passed resumes the PR and merges it; a PR that has become conflicting meanwhile is resumed at once, and the worker resolves a version-only conflict. The answer goes on the PR: a comment on the issue makes the plan stale (`owner-comment`), and the next run then sends the planner, which adopts the PR (a plan with `adopts=`) or asks the owner with a `needs-decision` question, instead of reporting it for a person. After an adopting plan the PR is continued; after a question that nobody has answered, the issue waits like any other.
 - One issue per run unless `--max` is given. A trigger that runs often with a high `--max` raises the number of unattended merges per day; choose both together. Each reviewed PR can also leave follow-up issues without `auto-work`, which wait for a person, so the same two settings set how fast that backlog grows.
 - Where the default branch has no required status check, or the checks could not be read, the worker stops at an open, reviewed PR and does not merge. That is by design.
-- One trigger per repository, and none next to an account-wide one: a trigger whose scope is an account or organisation covers every repository in it. The dispatcher under "Several repositories in parallel" is one trigger in this sense: it replaces the single unit, it does not run next to it. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other, also not when their scopes overlap: the assignee check only stops on an assignee other than the account itself.
+- One trigger per repository, and none next to an account-wide one: a trigger whose scope is an account or organisation covers every repository in it. The dispatcher under "Several repositories in parallel" is one trigger in this sense: it replaces the single unit, it does not run next to it. Two runners (a timer and a routine, or two machines) on the same account are not guarded against each other, also not when their scopes overlap: the assignee check only stops on an assignee other than the account itself. A task fired by the label workflow and a schedule (on the same task or on another runner) are two runners in this sense, and two labels set in quick succession fire two cloud sessions on the same repository, which nothing guards against each other either; a `concurrency:` group in the workflow would serialise only the POST requests, not the sessions, so the example below sets none.
 - An account as scope widens what one label can start: every repository the token reaches becomes a target of unattended merges once a labeler with write access sets `auto-work` there. The gate is the same per repository (a required status check; without one the worker does not merge), the list under "Permissions" was built for one npm repository (plus two rules, `Bash(claude plugin validate*)` and `Bash(bash -n plugins/*/skills/*/scripts/*.sh)`, that only this plugin repository needs), and a repository of another ecosystem needs its own tool rules, otherwise the denial stops the worker there.
 
 ## Gates against an unattended merge are yours
@@ -292,3 +292,48 @@ A routine is not a file: it is a server-side object created in the web UI (claud
 ```
 
 `allowed_tools` here adds `Agent` to the skill's default list because the orchestrator spawns the planner and worker; whether the routine accepts it was not checked. The prompt has to be self-contained: the session starts with no context from any local conversation.
+
+## Cloud: task fired by the label
+
+Verified: nothing. Neither the workflow below nor a fired task was run; no target repository and task were available. Every open point of "Cloud: routine" applies unchanged (plugins in the cloud session, `gh` credentials, nested agents), and so do its remarks on what the session may do: the list under "Permissions" does not limit a cloud run, and the session acts on GitHub as the connected account.
+
+The two triggers above wait for the next tick: a label set now is picked up within the hour. A task with an API trigger can instead be started by the label event itself, through a GitHub Actions workflow in the target repository that sends one POST to the task's fire endpoint.
+
+Setup:
+
+- In the web UI, create a task (or open the one from "Cloud: routine") and add an API trigger. The token is generated there only, shown once, and scoped to firing that one task; it can be rotated there. Store it as an Actions secret of the target repository (`WORK_ISSUE_FIRE_TOKEN` below), and the fire URL the trigger dialog shows as a second secret (`WORK_ISSUE_FIRE_URL`), so that no URL or id is written into the workflow file.
+- The task's saved prompt is `/work-issue:orchestrate-issue --max 1 <owner>/<repo>`: the repository, never the number of the issue of the event. An explicit `owner/repo#n` is exempt from the labeler and edit checks (step 1 of `orchestrate-issue`: naming the issue is the consent), so a number taken from the event would let whoever fires the event skip the write-access check.
+- A task with this trigger needs no schedule. If it keeps one, see "What every trigger has to respect" on two runners.
+
+`.github/workflows/work-issue-fire.yml` in the target repository:
+
+```yaml
+name: work-issue-fire
+on:
+  issues:
+    types: [labeled]
+permissions: {}
+jobs:
+  fire:
+    if: github.event.label.name == 'auto-work'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fire the task
+        env:
+          FIRE_URL: ${{ secrets.WORK_ISSUE_FIRE_URL }}
+          FIRE_TOKEN: ${{ secrets.WORK_ISSUE_FIRE_TOKEN }}
+        run: |
+          curl --fail --silent --show-error -X POST "$FIRE_URL" \
+            -H "Authorization: Bearer $FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+```
+
+What the example does and does not do:
+
+- The job runs only for the label `auto-work`; the filter is on the label name and nothing else. Anyone who can set a label (triage access included) can therefore fire a session. The session applies the labeler check of "What every trigger has to respect" and spends usage on finding nothing when the labeler has no write access. That is why the scope is the repository.
+- No text of the event reaches the session: the body is an empty JSON object (no `text` field), nothing of `github.event` is written into `run:`, and the secrets come in through `env:`, never as `${{ }}` inside the script. The step uses `curl` on the runner only, so there is no third-party action to pin. `permissions: {}` leaves the workflow's `GITHUB_TOKEN` without rights.
+- The headers `anthropic-beta` and `anthropic-version` are the values the Claude Code documentation named for the fire endpoint when this section was written (page "Automate work with scheduled tasks", section "Add an API trigger"). That endpoint is a research preview: breaking changes ship under a new dated beta header, and the two previous header versions keep working. Take the current value from that page; the value in the example was not tried against the endpoint, and whether the body may be left out instead of `{}` was not checked.
+- The event trigger of the task itself was not used because no label filter is documented for issue events, so every label change would start a session.
