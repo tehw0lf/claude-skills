@@ -44,7 +44,9 @@ per fact on stdout (<dir> is relative to the checkout root, "." for the root):
              a workflow file under .github/workflows that holds no caller; its plain `run:` steps are
              documentation of the CI, read by the skill.
   FALLBACK <dir> <kind> <command>
-             the usual command of the ecosystem, for a kind no other source names. Rows:
+             the usual command of the ecosystem, for a kind no other source names, and for the
+             install only for an ecosystem for which no other source names an install (ecosystems
+             and an install that names none: step 4 of SKILL.md). Rows:
                npm   install `npm ci` (package-lock.json or npm-shrinkwrap.json present) else `npm install`
                yarn  `yarn install`        pnpm  `pnpm install`        bun  `bun install`
                nx    `npx nx run-many -t lint` / `-t test` / `-t build`, plus `-t e2e` when an e2e target
