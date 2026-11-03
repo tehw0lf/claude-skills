@@ -9,7 +9,9 @@
 (`tools`, `disallowedTools`) are comma-separated only; skill tool strings (`allowed-tools`,
 `disallowed-tools`) are comma- or whitespace-separated. MCP names and the documented MCP patterns
 are accepted: `mcp__<server>__*` in all tool keys, partial globs such as `mcp__<server>__get_*` in skill
-keys only (permission-rule semantics), `mcp__*` only in the deny keys.
+keys only (permission-rule semantics), `mcp__*` only in the deny keys. Non-MCP tool-name globs (`*`,
+`B*`) are accepted in a skill's `disallowed-tools` only; in any other key they get a message of their own.
+An `mcp__` name with a parenthesised specifier is reported in every tool key.
 usage: check-frontmatter.py [<repo-root>]      default: .
 Output: one line per finding, `<path>\t<key or ->\t<message>`. Exit 1 on any finding, 0 on none,
 2 when the root is missing or holds no agent or skill (a check that found nothing must not pass).
@@ -38,6 +40,9 @@ TOOL = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(\(.+\))?")
 # are documented for permission rules only, so they are accepted in skill keys alone.
 MCP_SERVER_GLOB = re.compile(r"mcp__[A-Za-z0-9_-]+__\*")
 MCP_TOOL_GLOB = re.compile(r"mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_*-]+")
+# Non-MCP tool-name globs: permission deny rules accept them, allow rules skip them, and the sub-agents
+# page names only MCP globs, so they are accepted in a skill's `disallowed-tools` alone.
+TOOL_NAME_GLOB = re.compile(r"(?=[^(]*\*)[A-Za-z*][A-Za-z0-9_*-]*")
 DENY_KEYS = ("disallowedTools", "disallowed-tools")
 
 
@@ -109,6 +114,14 @@ def check_tools(key, val, find, whitespace=True):
     deny = key in DENY_KEYS
     mcp_glob = MCP_TOOL_GLOB if whitespace else MCP_SERVER_GLOB  # whitespace=True means a skill key
     for it in items:
+        if it.startswith("mcp__") and "(" in it:
+            find(key, "an MCP tool takes no specifier here: settings files skip mcp__ rules with parentheses, "
+                      "and only the --disallowedTools CLI flag matches MCP parameters; drop the (...)")
+            continue
+        if not it.startswith("mcp__") and TOOL_NAME_GLOB.fullmatch(it):
+            if key != "disallowed-tools":
+                find(key, "tool-name globs are accepted only in a skill's disallowed-tools; name the tool")
+            continue
         valid = TOOL.fullmatch(it) or mcp_glob.fullmatch(it) or (deny and it == "mcp__*")
         # comma-only mode keeps an entry whole; whitespace outside parentheses means a missing comma
         if not valid and it == "mcp__*":
