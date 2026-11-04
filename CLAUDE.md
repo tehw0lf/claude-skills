@@ -16,10 +16,10 @@ uv run scripts/check-frontmatter.py         # front matter of every agent and SK
 bash -n plugins/prune-branches/skills/prune-branches/scripts/classify.sh
 python3 -m py_compile <script.py>           # syntax only; __pycache__ is gitignored
 git ls-files -s -- 'scripts/*' '*/scripts/*'   # modes: every script called by its path must be 100755
-python3 -m unittest discover -s tests       # the test suite: stdlib only, no network or gh auth; run from the repository root
+python3 -m unittest discover -s tests       # the test suite: stdlib only, no network or gh auth (docker is optional, see below); run from the repository root
 ```
 
-Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` against a fake `gh`, which never checks a query against GitHub's schema. Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
+Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` against a fake `gh`, which never checks a query against GitHub's schema, and the Git clean-up sequences of `work-issue` and `nx-migrate` (stop, resume and switch-back), run in throwaway repositories with the host's `git` and in every local container image that has Git (`docker`, started with `--network none --pull never`; the image part is skipped, with the reason, without `docker` or an image, and no minimum Git version is implied). Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
@@ -84,6 +84,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - `dependency-diff.py` and `pr-reviewer.md` (its dependency-file list and the `DEP` and `RESULT` lines), with the allow rule in `scheduling.md`.
 - The verdict layout of `pr-reviewer.md` and `verdict-layout.md`: `merge-facts.py`, `scripts/review-rounds.py`.
 - `scripts/review-rounds.py` and `tests/test_review_rounds.py`: the `gh` calls and the output lines.
+- `tests/test_git_cleanup.py` and `tests/fixtures/git_cleanup/scenarios.sh`: the Git sequences of `work-issue` (`SKILL.md` steps 2, 6, 7, 8, `stopping.md`, `resume.md`, `issue-worker.md`) and `nx-migrate`.
 - `verify-nx-provenance.js`: the pinned publisher.
 
 ## Working here
