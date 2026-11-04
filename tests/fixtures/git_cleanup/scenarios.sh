@@ -205,6 +205,73 @@ switch_back() {
     branch $s start
 }
 
-for f in dirty_tracked untracked ignored_target_tracks ignore_files ignore_files_nodiff bump_patch switch_back; do
+# starting branch `start` ignores .npmrc (origin/main does not); the file holds a token
+mk_start() {
+    mk "$1"
+    git switch -q -c start && echo .npmrc > .gitignore && git add .gitignore && git commit -q -m ign || exit 2
+    echo token > .npmrc
+}
+
+order_hazard() {
+    mk_start order-hazard
+    rc $s switch-run git switch --no-overwrite-ignore -c run refs/remotes/origin/main
+    out $s run-sees "$(git status --porcelain --untracked-files=all -- .npmrc | tr '\n' '|')"
+    echo new > new.txt
+    git diff --binary HEAD > "$d/abandoned.diff" 2>/dev/null
+    rc $s reset git reset --hard
+    rc $s switch-back git switch start
+    rc $s add-n git add -N .
+    git diff --binary HEAD >> "$d/abandoned.diff" 2>/dev/null
+    out $s diff-has-new-file "$(grep -c '^+++ b/new.txt' "$d/abandoned.diff")"
+    out $s diff-has-npmrc "$(grep -c 'npmrc' "$d/abandoned.diff")"
+    git reset --hard >/dev/null 2>&1 && git clean -fd >/dev/null 2>&1; out $s reset-clean $?
+    out $s npmrc-content "$(cat .npmrc 2>/dev/null)"
+    exists $s new-file new.txt
+    rc $s branch-delete git branch -D run
+    branch $s branch
+    state $s status
+    # control: the reversed order (add -N and clean on the run's branch) loses the file
+    rc $s control-switch-run git switch --no-overwrite-ignore -c run2 refs/remotes/origin/main
+    rc $s control-add-n git add -N .
+    git diff --binary HEAD > "$d/control.diff" 2>/dev/null
+    out $s control-diff-has-npmrc "$(grep -c '^+++ b/.npmrc' "$d/control.diff")"
+    git reset --hard >/dev/null 2>&1 && git clean -fd >/dev/null 2>&1; out $s control-reset-clean $?
+    exists $s control-npmrc .npmrc
+}
+
+order_hazard_resume() {
+    mk_start order-hazard-resume
+    rc $s switch-pr git switch --no-overwrite-ignore --track refs/remotes/origin/main -c pr
+    echo new > new.txt
+    rc $s reset git reset --hard
+    rc $s switch-back git switch start
+    rc $s clean git clean -fd
+    out $s npmrc-content "$(cat .npmrc 2>/dev/null)"
+    exists $s new-file new.txt
+    state $s status
+}
+
+resume_switch() {
+    mk resume-switch
+    echo ignored.txt > .gitignore && git add .gitignore && git commit -q -m ign && git push -q origin main && git fetch -q origin || exit 2
+    other
+    echo g > g.txt && git add g.txt && git commit -q -m g && git push -q origin HEAD:refs/heads/feat && git push -q origin HEAD:refs/heads/feat2 || exit 2
+    cd "$d/repo" && git fetch -q origin && echo secret > ignored.txt || exit 2
+    rc $s track git switch --no-overwrite-ignore --track refs/remotes/origin/feat
+    branch $s track-branch
+    out $s track-upstream "$(git rev-parse --abbrev-ref 'feat@{upstream}' 2>/dev/null)"
+    out $s track-content "$(cat ignored.txt)"
+    rc $s back git switch main
+    git branch feat2 refs/remotes/origin/main >/dev/null 2>&1
+    out $s ahead "$(git rev-list --count refs/remotes/origin/feat2..refs/heads/feat2 -- 2>/dev/null)"
+    rc $s local-switch git switch --no-overwrite-ignore feat2
+    rc $s local-merge git merge --ff-only --no-overwrite-ignore refs/remotes/origin/feat2
+    branch $s local-branch
+    if [ "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/feat2)" ]; then out $s local-head remote; else out $s local-head other; fi
+    out $s local-content "$(cat ignored.txt)"
+    state $s status
+}
+
+for f in dirty_tracked untracked ignored_target_tracks ignore_files ignore_files_nodiff bump_patch switch_back order_hazard order_hazard_resume resume_switch; do
     ( "$f" )
 done
