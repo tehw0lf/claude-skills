@@ -21,6 +21,9 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ["FAKE_GH_LOG"], "a") as log:
     log.write(json.dumps(args) + "\\n")
+with open(os.environ["FAKE_GH_LOG"]) as log:
+    if log.read().splitlines().count(json.dumps(args)) > 1:
+        sys.exit("fake gh: the same call twice, the loop does not advance: %r" % (args,))
 if args[:1] != ["api"] or len(args) < 2:
     sys.exit("fake gh: unexpected call %r" % (args,))
 if args[1] == "users/octo":
@@ -53,9 +56,12 @@ class ReviewRoundsPagination(unittest.TestCase):
             log = Path(tmp) / "calls.log"
             env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                        FAKE_GH_FIXTURE=str(FIXTURES / (name + ".json")), FAKE_GH_LOG=str(log))
-            proc = subprocess.run(
-                [sys.executable, str(SCRIPT), "--since", "2026-01-01", "--until", "2026-01-31", "--owner", "octo"],
-                capture_output=True, text=True, env=env)
+            try:
+                proc = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--since", "2026-01-01", "--until", "2026-01-31", "--owner", "octo"],
+                    capture_output=True, text=True, env=env, timeout=60)
+            except subprocess.TimeoutExpired:
+                self.fail("the script did not finish within 60 seconds")
             calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
         more = []
         for args in calls:

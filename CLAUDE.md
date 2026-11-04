@@ -19,7 +19,7 @@ git ls-files -s -- 'scripts/*' '*/scripts/*'   # modes: every script called by i
 python3 -m unittest discover -s tests       # the test suite: stdlib only, no network or gh auth; run from the repository root
 ```
 
-Those are all the checks there are. What `tests/` does not cover (so far the comment pagination of `scripts/review-rounds.py`, against a fake `gh`) has to be exercised by hand against a real target when a script changes (the calls are in `docs/commands.md`).
+Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` against a fake `gh`, which never checks a query against GitHub's schema. Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
