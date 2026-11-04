@@ -42,7 +42,7 @@ AGENT_MODELS = {"sonnet", "opus", "haiku", "fable", "inherit", "opusplan"}
 SKILL_MODELS = AGENT_MODELS | {"default", "best"}
 # The patterns below carry no anchors: they are applied with fullmatch, because `$` also matches before a trailing newline.
 # an alias or a full id, optionally with the 1M-context suffix
-MODEL_ID = re.compile(r"(claude-[a-z0-9.-]+|sonnet|opus)(\[1m\])?")
+MODEL_ID = re.compile(r"(claude-[a-z0-9.-]+|sonnet|opus|fable)(\[1m\])?")
 TOOL = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(\(.+\))?")
 # MCP globs: a `*` only after a literal, glob-free `mcp__<server>__` prefix. The sub-agents page names
 # only the server-level `mcp__<server>__*` for agent keys; partial globs (`mcp__<server>__get_*`)
@@ -177,7 +177,7 @@ def check(path, kind):
         models = AGENT_MODELS if kind == "agent" else SKILL_MODELS
         if not isinstance(m, str) or not (m in models or MODEL_ID.fullmatch(m)):
             find("model", f"unknown model {m!r} for a{'n' if kind == 'agent' else ''} {kind}; {kind} values: "
-                          f"{', '.join(sorted(models))}, a full claude- id, sonnet[1m] or opus[1m]")
+                          f"{', '.join(sorted(models))}, a full claude- id, sonnet[1m], opus[1m] or fable[1m]")
     if "effort" in fm and not (isinstance(fm["effort"], str) and fm["effort"] in EFFORTS):
         find("effort", f"unknown effort {fm['effort']!r}")
     tool_keys = ("tools", "disallowedTools") if kind == "agent" else ("allowed-tools", "disallowed-tools")
