@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-A Claude Code plugin marketplace (`tehw0lf-claude-skills`), not an application. The "code" is mostly prompt text: skills and agents that other Claude sessions execute, plus small helper scripts those skills call. There is no build, no test suite, no CI workflow in the repository and no package manifest.
+A Claude Code plugin marketplace (`tehw0lf-claude-skills`), not an application. The "code" is mostly prompt text: skills and agents that other Claude sessions execute, plus small helper scripts those skills call. There is no build, no CI workflow in the repository and no package manifest. A stdlib `unittest` suite under `tests/` is run by hand: tests and their recorded fixtures live there, also for scripts of shipped plugins, never under `plugins/`; a CI workflow running it would be an issue of its own.
 
 ## Commands
 
@@ -16,9 +16,10 @@ uv run scripts/check-frontmatter.py         # front matter of every agent and SK
 bash -n plugins/prune-branches/skills/prune-branches/scripts/classify.sh
 python3 -m py_compile <script.py>           # syntax only; __pycache__ is gitignored
 git ls-files -s -- 'scripts/*' '*/scripts/*'   # modes: every script called by its path must be 100755
+python3 -m unittest discover -s tests       # the test suite: stdlib only, no network or gh auth; run from the repository root
 ```
 
-Those are all the checks there are, so a changed script has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
+Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` against a fake `gh`, which never checks a query against GitHub's schema. Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
@@ -31,6 +32,7 @@ README.md                                  # front page: what it is, install, fu
 docs/                                      # coupling.md and commands.md, read at the point named in CLAUDE.md; not shipped by the marketplace
 .claude-plugin/marketplace.json            # lists every plugin, source: ./plugins/<name>
 scripts/                                   # repository checks and tools, not shipped by the marketplace
+tests/                                     # stdlib unittest tests (test_<subject>.py) and their fixtures (fixtures/<subject>/); not shipped by the marketplace
 plugins/<name>/.claude-plugin/plugin.json  # name, version, description
 plugins/<name>/skills/<name>/SKILL.md      # the skill; scripts/ and extra .md files sit beside it (work-issue: resume.md, finish-branch.md, stopping.md and the worker-*.md files; plan-issue: adopt.md; see below)
 plugins/<name>/agents/<agent>.md           # optional: runs the skill unsupervised, one repository per agent (pr-review: the agent, its layout file and `scripts/dependency-diff.py` are the whole plugin)
@@ -81,6 +83,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - `repo-commands.py`: how `tehw0lf/workflows` `test-and-build.yml` composes commands, and steps 4 to 7 of the `work-issue` `SKILL.md`.
 - `dependency-diff.py` and `pr-reviewer.md` (its dependency-file list and the `DEP` and `RESULT` lines), with the allow rule in `scheduling.md`.
 - The verdict layout of `pr-reviewer.md` and `verdict-layout.md`: `merge-facts.py`, `scripts/review-rounds.py`.
+- `scripts/review-rounds.py` and `tests/test_review_rounds.py`: the `gh` calls and the output lines.
 - `verify-nx-provenance.js`: the pinned publisher.
 
 ## Working here
