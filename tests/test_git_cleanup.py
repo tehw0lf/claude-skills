@@ -11,6 +11,7 @@ listed by `docker image ls`; the test never pulls an image and never uses the ne
 and an image without `sh` or Git are skipped with the Git version or the reason; no minimum version is implied.
 Run from the repository root: python3 -m unittest discover -s tests
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,8 @@ from pathlib import Path
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "git_cleanup"
 SCRIPT = FIXTURE_DIR / "scenarios.sh"
 TIMEOUT = 120
+# Git translates its usage line; the probes read it in English
+C_LOCALE = dict(os.environ, LC_ALL="C", LANGUAGE="")
 
 # (scenario, check, value). `nonzero` stands for any non-zero exit code; `status` values are
 # `git status --porcelain --untracked-files=all --ignored` lines joined by `|`.
@@ -62,7 +65,7 @@ EXPECTED = [
     ('ignore-files', 'reset', '0'),
     ('ignore-files', 'switch-back', '0'),
     ('ignore-files', 'created', 'd*/.gitignore|sub/.gitignore|'),
-    ('ignore-files', 'self-ignoring-new', 'si/.gitignore|'),
+    ('ignore-files', 'self-ignoring-new', 's*/.gitignore|si/.gitignore|'),
     ('ignore-files', 'check-ignore-dir', '1'),
     ('ignore-files', 'mark', '0'),
     ('ignore-files', 'reset-1', '0'),
@@ -77,12 +80,14 @@ EXPECTED = [
     ('ignore-files', 'removed-self-ignoring', 'no'),
     ('ignore-files', 'kept-venv', 'yes'),
     ('ignore-files', 'kept-dx', 'yes'),
+    ('ignore-files', 'removed-star-self-ignoring', 'no'),
+    ('ignore-files', 'kept-sx', 'yes'),
     ('ignore-files', 'add-n-all', '0'),
     ('ignore-files', 'reset-clean', '0'),
     ('ignore-files', 'removed-keep', 'no'),
     ('ignore-files', 'kept-venv-lib', 'yes'),
     ('ignore-files', 'branch-delete', '0'),
-    ('ignore-files', 'status', '!! dx/.gitignore|!! venv/.gitignore|!! venv/lib.txt|'),
+    ('ignore-files', 'status', '!! dx/.gitignore|!! sx/.gitignore|!! venv/.gitignore|!! venv/lib.txt|'),
     ('ignore-files-nodiff', 'switch-run', '0'),
     ('ignore-files-nodiff', 'reset', '0'),
     ('ignore-files-nodiff', 'switch-back', '0'),
@@ -154,12 +159,13 @@ class GitCleanupSequences(unittest.TestCase):
         sh = shutil.which("sh")
         if not (sh and shutil.which("git")):
             self.skipTest("host: sh or git not on PATH")
-        version = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout.strip()
-        probe = subprocess.run(["git", "switch", "-h"], capture_output=True, text=True)
+        version = subprocess.run(["git", "--version"], capture_output=True, text=True, env=C_LOCALE).stdout.strip()
+        probe = subprocess.run(["git", "switch", "-h"], capture_output=True, text=True, env=C_LOCALE)
         if "usage: git switch" not in probe.stdout + probe.stderr:
             self.skipTest("host: %s has no `git switch`" % version)
         with tempfile.TemporaryDirectory() as work:
-            done = subprocess.run([sh, str(SCRIPT), work], capture_output=True, text=True, timeout=TIMEOUT)
+            done = subprocess.run([sh, str(SCRIPT), work], capture_output=True, text=True, timeout=TIMEOUT,
+                                  env=C_LOCALE)
         if done.returncode == 3:
             self.skipTest("host: %s" % done.stderr.strip())
         self.assertEqual(done.returncode, 0, "host: scenarios.sh failed: " + done.stderr)
@@ -182,7 +188,7 @@ class GitCleanupSequences(unittest.TestCase):
         if not images:
             self.skipTest("images: no local image")
         base = ["docker", "run", "--rm", "--network", "none", "--pull", "never", "--entrypoint", "sh"]
-        probe = ('git --version || exit 3; case "$(git switch -h 2>&1)" in "usage: git switch"*) '
+        probe = ('export LC_ALL=C LANGUAGE=; git --version || exit 3; case "$(git switch -h 2>&1)" in "usage: git switch"*) '
                  'echo has-switch;; *) echo no-switch;; esac')
         ran = 0
         for image_id, name in sorted(images.items(), key=lambda kv: kv[1]):

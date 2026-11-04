@@ -2,15 +2,16 @@
 # Runs the Git sequences of the stop and resume clean-ups of work-issue and nx-migrate in throwaway
 # repositories and prints one tab-separated line per check: <scenario> <check> <value>.
 # Usage: sh scenarios.sh <empty work directory>
-# Needs only sh, git, sed, grep, tr, head, cat, printf, mkdir; everything is written under the work directory.
+# Needs only sh, git, sed, grep, tr, ls, cat, printf, mkdir; everything is written under the work directory.
 # The expected values live in tests/test_git_cleanup.py.
 
-for t in git sed grep tr head cat mkdir; do
+for t in git sed grep tr ls cat mkdir; do
     command -v "$t" >/dev/null 2>&1 || { echo "missing tool: $t" >&2; exit 3; }
 done
 [ -n "$1" ] && [ -d "$1" ] && [ -z "$(ls -A "$1" 2>/dev/null)" ] || { echo "usage: sh scenarios.sh <empty work directory>" >&2; exit 2; }
 w=$(cd "$1" && pwd) || exit 2
 
+export LC_ALL=C LANGUAGE=
 # Isolate Git from the machine's configuration (hooks, aliases, init.defaultBranch, identity).
 mkdir "$w/home" || exit 2
 export HOME="$w/home" XDG_CONFIG_HOME="$w/home/.config" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
@@ -34,7 +35,7 @@ mk() {
     git remote add origin "$d/origin.git" && echo base > f.txt && git add f.txt && git commit -q -m base || exit 2
     git push -q origin main && git fetch -q origin || exit 2
 }
-# other <message>: a second clone commits what the caller prepared there and pushes it to main
+# other: clones the origin into $d/other and changes into it; the caller commits and pushes from there
 other() {
     git clone -q "$d/origin.git" "$d/other" && cd "$d/other" || exit 2
 }
@@ -96,10 +97,10 @@ ignored_target_tracks() {
 
 ignore_files() {
     mk ignore-files
-    mkdir venv dx 'd*' && echo '*' > venv/.gitignore && echo x > venv/lib.txt && echo '*' > dx/.gitignore || exit 2
+    mkdir venv dx sx 's*' 'd*' && echo '*' > sx/.gitignore && echo '*' > venv/.gitignore && echo x > venv/lib.txt && echo '*' > dx/.gitignore || exit 2
     git ls-files --others --ignored --exclude-standard -- ':(glob)**/.gitignore' > "$d/before.txt" 2>/dev/null
     rc $s switch-run git switch --no-overwrite-ignore -c run refs/remotes/origin/main
-    mkdir si sub && printf '*\n!keep.txt\n' > si/.gitignore && echo k > si/keep.txt && echo tmp > sub/.gitignore && echo tmp > 'd*/.gitignore' || exit 2
+    mkdir si sub && printf '*\n!keep.txt\n' > si/.gitignore && echo k > si/keep.txt && echo tmp > sub/.gitignore && echo tmp > 'd*/.gitignore' && printf '*\n!keep.txt\n' > 's*/.gitignore' && echo k > 's*/keep.txt' || exit 2
     git diff --binary HEAD > "$d/abandoned.diff" 2>/dev/null
     rc $s reset git reset --hard
     rc $s switch-back git switch main
@@ -116,7 +117,7 @@ ignore_files() {
     rc $s mark git add -N -- ':(literal)sub/.gitignore' ':(literal)d*/.gitignore'
     git diff --binary HEAD >> "$d/abandoned.diff" 2>/dev/null
     rc $s reset-1 git reset --hard
-    rc $s mark-self-ignoring git add -N -f -- ':(literal)si/.gitignore'
+    rc $s mark-self-ignoring git add -N -f -- ':(literal)si/.gitignore' ':(literal)s*/.gitignore'
     git diff --binary HEAD >> "$d/abandoned.diff" 2>/dev/null
     rc $s reset-2 git reset --hard
     out $s diff-has-sub "$(grep -c '^+++ b/sub/.gitignore' "$d/abandoned.diff")"
@@ -128,6 +129,8 @@ ignore_files() {
     exists $s removed-self-ignoring si/.gitignore
     exists $s kept-venv venv/.gitignore
     exists $s kept-dx dx/.gitignore
+    exists $s removed-star-self-ignoring 's*/.gitignore'
+    exists $s kept-sx sx/.gitignore
     rc $s add-n-all git add -N .
     git diff --binary HEAD >> "$d/abandoned.diff" 2>/dev/null
     git reset --hard >/dev/null 2>&1 && git clean -fd >/dev/null 2>&1; out $s reset-clean $?
