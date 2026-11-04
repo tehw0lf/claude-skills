@@ -1,7 +1,8 @@
 """The Git sequences of the stop and resume clean-ups, run in throwaway repositories.
 
 tests/fixtures/git_cleanup/scenarios.sh runs the documented Git commands (work-issue: SKILL.md steps 2, 6, 7 and 8,
-stopping.md, resume.md, issue-worker.md "Back to the starting branch"; nx-migrate: SKILL.md step 2) against a
+stopping.md, resume.md, issue-worker.md "Back to the starting branch"; nx-migrate: SKILL.md step 2), among them
+the order hazard of the clean-up (a file ignored only on the starting branch) and the successful resume switches, against a
 local bare "origin" and prints `<scenario>\t<check>\t<value>` lines; EXPECTED below holds what Git must answer.
 The script runs once with the host's `git` and once in every local container image that has Git.
 
@@ -124,6 +125,43 @@ EXPECTED = [
     ('switch-back', 'detached', 'detached'),
     ('switch-back', 'switch-start', '0'),
     ('switch-back', 'start', 'main'),
+    ('order-hazard', 'switch-run', '0'),
+    ('order-hazard', 'run-sees', '?? .npmrc|'),
+    ('order-hazard', 'reset', '0'),
+    ('order-hazard', 'switch-back', '0'),
+    ('order-hazard', 'add-n', '0'),
+    ('order-hazard', 'diff-has-new-file', '1'),
+    ('order-hazard', 'diff-has-npmrc', '0'),
+    ('order-hazard', 'reset-clean', '0'),
+    ('order-hazard', 'npmrc-content', 'token'),
+    ('order-hazard', 'new-file', 'no'),
+    ('order-hazard', 'branch-delete', '0'),
+    ('order-hazard', 'branch', 'start'),
+    ('order-hazard', 'status', '!! .npmrc|'),
+    ('order-hazard', 'control-switch-run', '0'),
+    ('order-hazard', 'control-add-n', '0'),
+    ('order-hazard', 'control-diff-has-npmrc', '1'),
+    ('order-hazard', 'control-reset-clean', '0'),
+    ('order-hazard', 'control-npmrc', 'no'),
+    ('order-hazard-resume', 'switch-pr', '0'),
+    ('order-hazard-resume', 'reset', '0'),
+    ('order-hazard-resume', 'switch-back', '0'),
+    ('order-hazard-resume', 'clean', '0'),
+    ('order-hazard-resume', 'npmrc-content', 'token'),
+    ('order-hazard-resume', 'new-file', 'no'),
+    ('order-hazard-resume', 'status', '!! .npmrc|'),
+    ('resume-switch', 'track', '0'),
+    ('resume-switch', 'track-branch', 'feat'),
+    ('resume-switch', 'track-upstream', 'origin/feat'),
+    ('resume-switch', 'track-content', 'secret'),
+    ('resume-switch', 'back', '0'),
+    ('resume-switch', 'ahead', '0'),
+    ('resume-switch', 'local-switch', '0'),
+    ('resume-switch', 'local-merge', '0'),
+    ('resume-switch', 'local-branch', 'feat2'),
+    ('resume-switch', 'local-head', 'remote'),
+    ('resume-switch', 'local-content', 'secret'),
+    ('resume-switch', 'status', '!! ignored.txt|'),
 ]
 
 
