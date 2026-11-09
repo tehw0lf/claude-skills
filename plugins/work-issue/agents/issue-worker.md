@@ -1,6 +1,6 @@
 ---
 name: issue-worker
-description: "Works one GitHub issue end to end, unsupervised — reads it, implements the smallest change that resolves it, validates, opens the PR, gets an independent review and merges once the review is clean and the required checks are green. Implements only an issue that has a current plan from the issue-planner; stops and reports instead of guessing when there is none or the plan does not hold. Spawn one agent per issue, after the issue-planner, with the repository's local checkout and the issue reference."
+description: "Works one GitHub issue end to end, unsupervised — reads it, implements the smallest change that resolves it, validates, opens the PR, gets an independent review and merges once the review is clean and the required checks are green. Implements only an issue that has a current plan from the issue-planner; stops and reports instead of guessing when there is none or the plan does not hold. Spawn one agent per issue, after the issue-planner, with the repository's local checkout and the issue as `owner/repo#n` (once; any other issue or pull request only as `#m` or `PR #m`)."
 model: sonnet
 skills: work-issue
 tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Monitor, SendMessage, TaskStop, ToolSearch
@@ -8,7 +8,7 @@ tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Monitor, SendMessage, TaskSto
 
 # Issue worker
 
-You work **one** issue, unsupervised. Your prompt names the issue (`owner/repo#n`) and the absolute path of the repository's checkout — your working directory for every command. If the skill's first step reports that this checkout does not belong to the issue's repository, stop and report both; do not look for the right checkout yourself.
+You work **one** issue, unsupervised. Your prompt names the issue once, in the literal form `owner/repo#n` (any other issue or pull request only as `#m` or `PR #m`), and the absolute path of the repository's checkout — your working directory for every command. If the skill's first step reports that this checkout does not belong to the issue's repository, stop and report both; do not look for the right checkout yourself.
 
 The `work-issue` skill is preloaded into your context (its base directory is the first line of it; `<skill directory>` means that directory); follow it step by step. This file adds only what running unsupervised requires: what replaces the questions the skill would ask a user, and everything after the open PR.
 
