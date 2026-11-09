@@ -1,0 +1,563 @@
+{
+ "search": {
+  "": {
+   "data": {
+    "search": {
+     "issueCount": 9,
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": null
+     },
+     "nodes": [
+      {
+       "id": "I1",
+       "number": 1,
+       "state": "CLOSED",
+       "stateReason": "COMPLETED",
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": true,
+         "endCursor": "c1"
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-05T10:00:00Z",
+          "body": "<!-- work-issue:questions -->\n## Decision needed\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "id": "P101",
+          "number": 101,
+          "state": "MERGED",
+          "merged": true,
+          "createdAt": "2026-01-08T10:00:00Z",
+          "author": {
+           "login": "bot"
+          },
+          "repository": {
+           "nameWithOwner": "octo/r"
+          },
+          "comments": {
+           "pageInfo": {
+            "hasNextPage": true,
+            "endCursor": "p1"
+           },
+           "nodes": [
+            {
+             "author": {
+              "login": "bot"
+             },
+             "authorAssociation": "OWNER",
+             "createdAt": "2026-01-08T11:00:00Z",
+             "body": "## Independent local review\n\nReviewed head: 0123456789abcdef0123456789abcdef01234567\n\n**Verdict: fix**\n\n**Blocking: 1 \u00b7 Fix in PR: 2 \u00b7 Follow-up: 0**\n"
+            }
+           ]
+          }
+         }
+        ]
+       }
+      },
+      {
+       "id": "I2",
+       "number": 2,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-06T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "id": "P102",
+          "number": 102,
+          "state": "OPEN",
+          "merged": false,
+          "createdAt": "2026-01-07T10:00:00Z",
+          "author": {
+           "login": "bot"
+          },
+          "repository": {
+           "nameWithOwner": "octo/r"
+          },
+          "comments": {
+           "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+           },
+           "nodes": [
+            {
+             "author": {
+              "login": "bot"
+             },
+             "authorAssociation": "OWNER",
+             "createdAt": "2026-01-07T11:00:00Z",
+             "body": "<!-- work-issue:stopped head=0123456789abcdef0123456789abcdef01234567 reason=pending-check -->\nstopped"
+            },
+            {
+             "author": {
+              "login": "bot"
+             },
+             "authorAssociation": "OWNER",
+             "createdAt": "2026-01-07T12:00:00Z",
+             "body": "## Independent local review\n\nReviewed head: 0123456789abcdef0123456789abcdef01234567\n\n**Blocking: 0 \u00b7 Fix in PR: 1 \u00b7 Follow-up: 0**\n"
+            },
+            {
+             "author": {
+              "login": "bot"
+             },
+             "authorAssociation": "OWNER",
+             "createdAt": "2026-01-07T13:00:00Z",
+             "body": "<!-- work-issue:stopped head=0123456789abcdef0123456789abcdef01234567 reason=blocked -->\nstopped"
+            },
+            {
+             "author": {
+              "login": "mallory"
+             },
+             "authorAssociation": "NONE",
+             "createdAt": "2026-01-07T14:00:00Z",
+             "body": "<!-- work-issue:stopped head=0123456789abcdef0123456789abcdef01234567 reason=forged -->\nstopped"
+            }
+           ]
+          }
+         }
+        ]
+       }
+      },
+      {
+       "id": "I3",
+       "number": 3,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-09T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-09T11:00:00Z",
+          "body": "<!-- work-issue:finish-stopped branch=fix/3-x head=0123456789abcdef0123456789abcdef01234567 plan=1 attempt=1 reason=validation-failed -->\nfinish stopped"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-09T12:00:00Z",
+          "body": "<!-- work-issue:finish-stopped branch=fix/3-x head=0123456789abcdef0123456789abcdef01234567 plan=1 attempt=2 reason=review-limit -->\nfinish stopped"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "id": "P103",
+          "number": 103,
+          "state": "MERGED",
+          "merged": true,
+          "createdAt": "2026-01-09T13:00:00Z",
+          "author": {
+           "login": "mallory"
+          },
+          "repository": {
+           "nameWithOwner": "octo/r"
+          },
+          "comments": {
+           "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+           },
+           "nodes": []
+          }
+         }
+        ]
+       }
+      },
+      {
+       "id": "I4",
+       "number": 4,
+       "state": "CLOSED",
+       "stateReason": "COMPLETED",
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-10T10:00:00Z",
+          "body": "<!-- work-issue:questions -->\n## Decision needed\n"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-10T12:00:00Z",
+          "body": "<!-- work-issue:questions -->\n## Decision needed\n"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-10T13:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "id": "P104",
+          "number": 104,
+          "state": "CLOSED",
+          "merged": false,
+          "createdAt": "2026-01-11T10:00:00Z",
+          "author": {
+           "login": "bot"
+          },
+          "repository": {
+           "nameWithOwner": "octo/r"
+          },
+          "comments": {
+           "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+           },
+           "nodes": [
+            {
+             "author": {
+              "login": "bot"
+             },
+             "authorAssociation": "OWNER",
+             "createdAt": "2026-01-11T11:00:00Z",
+             "body": "## Independent local review\n\nReviewed head: 0123456789abcdef0123456789abcdef01234567\n\nno counts here\n"
+            }
+           ]
+          }
+         }
+        ]
+       }
+      },
+      {
+       "id": "I5",
+       "number": 5,
+       "state": "CLOSED",
+       "stateReason": "NOT_PLANNED",
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-12T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-12T11:00:00Z",
+          "body": "<!-- work-issue:closed -->\nclosed"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": []
+       }
+      },
+      {
+       "id": "I6",
+       "number": 6,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "mallory"
+          },
+          "authorAssociation": "NONE",
+          "createdAt": "2026-01-13T09:00:00Z",
+          "body": "<!-- work-issue:questions -->\n## Decision needed\n"
+         },
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-13T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": []
+       }
+      },
+      {
+       "id": "I7",
+       "number": 7,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2026-01-14T10:00:00Z",
+          "body": "<!-- work-issue:questions -->\n## Decision needed\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": []
+       }
+      },
+      {
+       "id": "I8",
+       "number": 8,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "bot"
+          },
+          "authorAssociation": "OWNER",
+          "createdAt": "2025-12-31T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": []
+       }
+      },
+      {
+       "id": "I9",
+       "number": 9,
+       "state": "OPEN",
+       "stateReason": null,
+       "repository": {
+        "nameWithOwner": "octo/r"
+       },
+       "comments": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": [
+         {
+          "author": {
+           "login": "mallory"
+          },
+          "authorAssociation": "NONE",
+          "createdAt": "2026-01-15T10:00:00Z",
+          "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+         }
+        ]
+       },
+       "closedByPullRequestsReferences": {
+        "pageInfo": {
+         "hasNextPage": false,
+         "endCursor": null
+        },
+        "nodes": []
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "more": {
+  "I1:c1": {
+   "data": {
+    "node": {
+     "comments": {
+      "pageInfo": {
+       "hasNextPage": true,
+       "endCursor": "c2"
+      },
+      "nodes": [
+       {
+        "author": {
+         "login": "bot"
+        },
+        "authorAssociation": "OWNER",
+        "createdAt": "2026-01-06T10:00:00Z",
+        "body": "<!-- work-issue:plan base=0123456789abcdef0123456789abcdef01234567 -->\n## Implementation plan\n"
+       },
+       {
+        "author": {
+         "login": "bot"
+        },
+        "authorAssociation": "NONE",
+        "createdAt": "2026-01-06T11:00:00Z",
+        "body": "<!-- work-issue:stopped head=0123456789abcdef0123456789abcdef01234567 reason=x -->\nstopped"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "I1:c2": {
+   "data": {
+    "node": {
+     "comments": {
+      "pageInfo": {
+       "hasNextPage": false,
+       "endCursor": null
+      },
+      "nodes": []
+     }
+    }
+   }
+  },
+  "P101:p1": {
+   "data": {
+    "node": {
+     "comments": {
+      "pageInfo": {
+       "hasNextPage": false,
+       "endCursor": null
+      },
+      "nodes": [
+       {
+        "author": {
+         "login": "bot"
+        },
+        "authorAssociation": "OWNER",
+        "createdAt": "2026-01-08T12:00:00Z",
+        "body": "## Independent local review\n\nReviewed head: 0123456789abcdef0123456789abcdef01234567\n\n### Blocking\n\nnone\n\n### Fix in PR\n\nnone\n\n### Follow-up\n\n1. something later\n"
+       },
+       {
+        "author": {
+         "login": "mallory"
+        },
+        "authorAssociation": "NONE",
+        "createdAt": "2026-01-08T13:00:00Z",
+        "body": "## Independent local review\n\nReviewed head: 0123456789abcdef0123456789abcdef01234567\n\n**Blocking: 9 \u00b7 Fix in PR: 9 \u00b7 Follow-up: 9**\n"
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+}

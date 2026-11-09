@@ -27,6 +27,7 @@ python3 plugins/work-issue/skills/work-issue/scripts/merge-facts.py <owner/repo>
 python3 plugins/pr-review/scripts/dependency-diff.py <base ref> <head ref>   # reads git only; prints `DEP` lines and a `RESULT` of none, version-only or changed for the dependency files of the diff <base>...<head>
 cmp plugins/nx-migrate/skills/nx-migrate/scripts/merge-facts.py plugins/work-issue/skills/work-issue/scripts/merge-facts.py   # the two copies must stay identical
 python3 scripts/review-rounds.py --since YYYY-MM-DD [--until YYYY-MM-DD] [--owner <login>]   # read-only (needs gh auth); counts review rounds and findings per round of the merged PRs in the range from their verdict comments
+python3 scripts/issue-stats.py --since YYYY-MM-DD [--until YYYY-MM-DD] [--owner <login>] [--account <login>]   # read-only (needs gh auth); one row per issue the planner ran on: question rounds, plans, outcome, review rounds and findings of the outcome PR, plus summary lines; calls `gh api users/<owner>`, `gh api user` (only when --owner or --account is missing) and `gh api graphql` (an issue search with closing PRs and comments, and `node(id:)` for further comment pages)
 ```
 
 `check-frontmatter.py`, `fetch-permissions.py` and `validate-caller.py` carry PEP 723 inline metadata (`pyyaml`) and run through `uv run --script`; the other Python scripts are stdlib-only.
