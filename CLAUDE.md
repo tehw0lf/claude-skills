@@ -18,9 +18,10 @@ python3 -m py_compile <script.py>           # syntax only; __pycache__ is gitign
 git ls-files -s -- 'scripts/*' '*/scripts/*'   # modes: every script called by its path must be 100755
 python3 -m unittest discover -s tests       # the test suite: stdlib only, no network or gh auth (docker is optional, see below); run from the repository root
 python3 scripts/issue-stats.py --since YYYY-MM-DD   # read-only (needs gh auth): one row per issue the planner ran on (questions, outcome, review rounds) and summary lines; the calls are in docs/commands.md
+python3 scripts/issue-cost.py --since YYYY-MM-DD   # read-only, local files only (no gh): tokens per issue, agent and model from the local session transcripts, plus an estimate at list prices from scripts/issue-cost-prices.json (not a bill)
 ```
 
-Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` and the outcome rules, denominator, pagination and summary lines of `scripts/issue-stats.py`, each against a fake `gh`, which never checks a query against GitHub's schema, and the Git clean-up sequences of `work-issue` and `nx-migrate` (stop, resume and switch-back), run in throwaway repositories with the host's `git` and in every local container image that has Git (`docker`, started with `--network none --pull never`; the image part is skipped, with the reason, without `docker` or an image, and no minimum Git version is implied). Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
+Those are all the checks there are. `tests/` covers so far the comment pagination loop of `scripts/review-rounds.py` and the outcome rules, denominator, pagination and summary lines of `scripts/issue-stats.py`, each against a fake `gh`, which never checks a query against GitHub's schema, the matching, deduplication, pricing and `# SKIPPED` lines of `scripts/issue-cost.py` against synthetic transcripts, and the Git clean-up sequences of `work-issue` and `nx-migrate` (stop, resume and switch-back), run in throwaway repositories with the host's `git` and in every local container image that has Git (`docker`, started with `--network none --pull never`; the image part is skipped, with the reason, without `docker` or an image, and no minimum Git version is implied). Everything else, and any change to a script's queries or `gh` calls, has to be exercised by hand against a real target (the calls are in `docs/commands.md`).
 
 To try an unmerged change in a live session, load the working copy for that session only: `claude --plugin-dir plugins/<name>`.
 
@@ -86,6 +87,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - The verdict layout of `pr-reviewer.md` and `verdict-layout.md`: `merge-facts.py`, `scripts/review-rounds.py`.
 - `scripts/review-rounds.py` and `tests/test_review_rounds.py`: the `gh` calls and the output lines.
 - `scripts/issue-stats.py` and `tests/test_issue_stats.py`: the marker formats of `plan-issue`, `work-issue` and `issue-context.py`, `scripts/review-rounds.py` (loaded by path), the `gh` calls and the output lines.
+- `scripts/issue-cost.py`, `scripts/issue-cost-prices.json` and `tests/test_issue_cost.py`: the transcript fields and the `.meta.json` fields named in `docs/coupling.md`, the issue references in the spawn prompts of `orchestrate-issue` and `issue-worker.md`, the `ISSUE` key of `scripts/issue-stats.py` and the output lines.
 - `tests/test_git_cleanup.py` and `tests/fixtures/git_cleanup/scenarios.sh`: the Git sequences of `work-issue` (`SKILL.md` steps 2, 6, 7, 8, `stopping.md`, `resume.md`, `issue-worker.md`) and `nx-migrate`.
 - `verify-nx-provenance.js`: the pinned publisher.
 

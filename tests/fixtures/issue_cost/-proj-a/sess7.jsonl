@@ -1,0 +1,4 @@
+{"type": "mode", "mode": "normal"}
+{"type": "user", "message": {"role": "user", "content": "Plan Acme/Gadgets#5"}, "timestamp": "2026-11-04T10:00:00.000Z", "version": "9.9.1", "gitBranch": "HEAD"}
+{"type": "assistant", "message": {"id": "d1", "model": "model-a", "role": "assistant", "content": [], "usage": {"input_tokens": 1000000, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "service_tier": "standard", "speed": "standard", "inference_geo": "global"}}, "timestamp": "2026-11-04T10:00:00.000Z", "version": "9.9.2", "gitBranch": "HEAD"}
+{"type": "assistant", "message": {"id": "d2", "model": "model-a", "role": "assistant", "content": [], "usage": {"input_tokens": 1000000, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "service_tier": "standard", "speed": "standard", "inference_geo": "us"}}, "timestamp": "2026-11-04T10:00:00.000Z", "version": "9.9.2", "gitBranch": "HEAD"}
