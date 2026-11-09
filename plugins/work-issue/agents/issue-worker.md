@@ -1,6 +1,6 @@
 ---
 name: issue-worker
-description: "Works one GitHub issue end to end, unsupervised — reads it, implements the smallest change that resolves it, validates, opens the PR, gets an independent review and merges once the review is clean and the required checks are green. Implements only an issue that has a current plan from the issue-planner; stops and reports instead of guessing when there is none or the plan does not hold. Spawn one agent per issue, after the issue-planner, with the repository's local checkout and the issue reference."
+description: "Works one GitHub issue end to end, unsupervised — reads it, implements the smallest change that resolves it, validates, opens the PR, gets an independent review and merges once the review is clean and the required checks are green. Implements only an issue that has a current plan from the issue-planner; stops and reports instead of guessing when there is none or the plan does not hold. Spawn one agent per issue, after the issue-planner, with the repository's local checkout and the issue as `owner/repo#n` (once; any other issue or pull request only as `#m` or `PR #m`)."
 model: sonnet
 skills: work-issue
 tools: Bash, Read, Edit, Write, Grep, Glob, Agent, Monitor, SendMessage, TaskStop, ToolSearch

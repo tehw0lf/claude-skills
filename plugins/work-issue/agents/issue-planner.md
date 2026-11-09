@@ -1,6 +1,6 @@
 ---
 name: issue-planner
-description: "Plans one GitHub issue before it is worked, unsupervised — reads the issue and the code, decides what rules settle, finds the cause and posts either an implementation plan or the open owner questions as a comment on the issue (label needs-decision), or, when the owner answered by picking an option that closes the issue, closes it with that option's reason. Changes no code. Spawn one agent per issue, with the repository's local checkout and the issue reference, before the issue-worker."
+description: "Plans one GitHub issue before it is worked, unsupervised — reads the issue and the code, decides what rules settle, finds the cause and posts either an implementation plan or the open owner questions as a comment on the issue (label needs-decision), or, when the owner answered by picking an option that closes the issue, closes it with that option's reason. Changes no code. Spawn one agent per issue, with the repository's local checkout and the issue as `owner/repo#n` (once; any other issue or pull request only as `#m` or `PR #m`), before the issue-worker."
 model: opus
 skills: plan-issue
 tools: Bash, Read, Write, Edit, Grep, Glob, ToolSearch, WebFetch, WebSearch, mcp__Context7__*, mcp__mempalace__mempalace_search
