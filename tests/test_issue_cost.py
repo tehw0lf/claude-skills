@@ -89,6 +89,42 @@ class IssueCostTest(unittest.TestCase):
             self.assertEqual(r.returncode, 2)
             self.assertIn(text, r.stderr)
 
+    def test_spawn_prompt_shapes_match_one_issue_each(self):
+        """The prompt shapes that orchestrate-issue, work-issue and propose-auto-work prescribe (`owner/repo#n`,
+        other issues and pull requests only as `#m` / `PR #m`) and the older `#n in owner/repo` form each match
+        exactly their one issue; a second issue named as `owner/repo#m` stays unmatched."""
+        prompts = {
+            1: "Plan issue acme/widgets#1. Checkout: /tmp/x",
+            2: "Work issue acme/widgets#2. Checkout: /tmp/x, resume PR #20",
+            3: "Work issue acme/widgets#3. Checkout: /tmp/x, finish branch fix/3-some-slug",
+            4: "Plan acme/widgets#4 again: the issue waits for the open #40",
+            5: "Plan issue #5 in acme/widgets. Checkout: /tmp/x",
+            6: "Plan acme/widgets#6 again: the issue waits for the open acme/widgets#60",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            proj = Path(d) / "-proj"
+            proj.mkdir()
+            for n, prompt in prompts.items():
+                lines = [
+                    {"type": "user", "message": {"role": "user", "content": prompt},
+                     "timestamp": "2026-11-03T10:00:00.000Z", "version": "9.9.1", "gitBranch": "HEAD"},
+                    {"type": "assistant", "message": {
+                        "id": "a%d" % n, "model": "model-a", "role": "assistant", "content": [{"type": "text"}],
+                        "usage": {"input_tokens": 7, "output_tokens": 0, "cache_creation_input_tokens": 0,
+                                  "cache_read_input_tokens": 0, "service_tier": "standard", "speed": "standard",
+                                  "cache_creation": {"ephemeral_5m_input_tokens": 0,
+                                                     "ephemeral_1h_input_tokens": 0}}},
+                     "timestamp": "2026-11-03T10:00:00.000Z", "version": "9.9.1", "gitBranch": "HEAD"},
+                ]
+                (proj / ("sess%d.jsonl" % n)).write_text("".join(json.dumps(x) + "\n" for x in lines))
+            r = run("--since", "2026-11-01", "--until", "2026-11-30", projects=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = [line.split("\t") for line in r.stdout.splitlines() if line.startswith("ISSUE\t")]
+        self.assertEqual(sorted((row[1], row[2]) for row in rows),
+                         [("acme/widgets", str(n)) for n in (1, 2, 3, 4, 5)])
+        unmatched = [line for line in r.stdout.splitlines() if line.startswith("UNMATCHED\t")]
+        self.assertEqual(len(unmatched), 1, r.stdout)
+
     def test_shipped_price_table_is_valid(self):
         with tempfile.TemporaryDirectory() as d:
             r = run("--since", "2026-11-01", projects=d, prices=ROOT / "scripts" / "issue-cost-prices.json")
