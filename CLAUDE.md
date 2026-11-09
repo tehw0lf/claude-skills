@@ -89,7 +89,7 @@ Conventions to keep when editing or adding a skill. Only the first is found in e
 - `scripts/review-rounds.py` and `tests/test_review_rounds.py`: the `gh` calls and the output lines.
 - `scripts/issue-stats.py` and `tests/test_issue_stats.py`: the marker formats of `plan-issue`, `work-issue` and `issue-context.py`, `scripts/review-rounds.py` (loaded by path), the `gh` calls and the output lines.
 - `scripts/issue-cost.py`, `scripts/issue-cost-prices.json` and `tests/test_issue_cost.py`: the transcript fields and the `.meta.json` fields named in `docs/coupling.md`, the issue references in the spawn prompts of `orchestrate-issue` (steps 4 to 6), `work-issue` (step 1 "The plan"), `propose-auto-work`, `issue-planner.md` and `issue-worker.md`, the `ISSUE` key of `scripts/issue-stats.py` and the output lines (`TOKENS`, `ISSUE`, `UNMATCHED`, `SESSION`).
-- `scripts/issue-report.py` and `tests/test_issue_report.py`: the `ISSUE` line of `scripts/issue-stats.py` and the `TOKENS`, `ISSUE`, `UNMATCHED`, `SESSION` and header lines of `scripts/issue-cost.py`.
+- `scripts/issue-report.py` and `tests/test_issue_report.py`: every output line kind of `scripts/issue-stats.py` (`ISSUE`, `UNPARSED`, `QROUNDS`, `OUTCOME`, `ROUNDS`, `SUMMARY`, field counts and the `# owner ` header) and the `TOKENS`, `ISSUE`, `UNMATCHED`, `SESSION` and header lines of `scripts/issue-cost.py`.
 - `tests/test_git_cleanup.py` and `tests/fixtures/git_cleanup/scenarios.sh`: the Git sequences of `work-issue` (`SKILL.md` steps 2, 6, 7, 8, `stopping.md`, `resume.md`, `issue-worker.md`) and `nx-migrate`.
 - `verify-nx-provenance.js`: the pinned publisher.
 

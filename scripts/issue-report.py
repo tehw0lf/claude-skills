@@ -19,7 +19,8 @@ issues with a priced total only, `priced` says how many. A TOTAL line sums the u
 messages of the unpriced rows separately.
 Input is checked, not guessed at: the first line of --stats must be the header of issue-stats.py (`# owner `), the
 first line of a cost file the header of issue-cost.py (`# issue-cost.py prices`), every other line either starts
-with `#` or is one of the line kinds below with its field count and numeric fields, and a stats `ISSUE` key may not
+with `#` or is one of the accepted input kinds with its field count and numeric fields (stats: `ISSUE`, `UNPARSED`, `QROUNDS`,
+`OUTCOME`, `ROUNDS`, `SUMMARY`; cost: `TOKENS`, `ISSUE`, `UNMATCHED`, `SESSION`), and a stats `ISSUE` key may not
 appear twice. Lines starting with `#` that are not `# SKIPPED` are ignored as commentary; `# SKIPPED` lines and the
 `# versions` line of a cost file are passed on.
 Output, tab separated; lines starting with `#` are the header and notes:
