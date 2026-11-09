@@ -1,0 +1,11 @@
+# issue-cost.py prices as_of 2026-11-01 source https://example.invalid/prices; estimate at list prices, not a bill
+# versions 9.9.1,9.9.2
+TOKENS	acme/gadgets	7	work-issue:issue-worker	model-a	2	2000000	0	0	0	2.0000
+TOKENS	acme/widgets	12	work-issue:issue-planner	model-a	1	0	1000000	0	0	2.0000
+TOKENS	acme/widgets	14	work-issue:issue-worker	model-a	1	0	0	0	2000000	1.0000
+ISSUE	acme/gadgets	7	2	2000000	0	0	0	2.0000
+ISSUE	acme/widgets	12	1	0	1000000	0	0	2.0000
+ISSUE	acme/widgets	14	1	0	0	0	2000000	1.0000
+UNMATCHED	no-reference	-	model-a	1	5	5	0	0	0.0100
+SESSION	s-one	acme/widgets	12	1
+SESSION	s-three	acme/gadgets	7	2

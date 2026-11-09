@@ -35,6 +35,15 @@ ISSUE	acme/widgets	12	8	2000110	1500220	2001000	2000000	-
 UNMATCHED	no-reference	-	model-a	1	5	5	0	0	0.0000
 UNMATCHED	no-repository	-	model-a	1	9	0	0	0	0.0000
 UNMATCHED	several-branches	-	model-a	1	7	0	0	0	0.0000
+SESSION	sess1	acme/widgets	12	1
+SESSION	sess1	acme/widgets	12	1
+SESSION	sess1	acme/widgets	12	2
+SESSION	sess1	acme/widgets	12	4
+SESSION	sess2	-	-	1
+SESSION	sess3	-	-	1
+SESSION	sess4	-	-	1
+SESSION	sess7	acme/gadgets	5	2
+SESSION	sess8	acme/gadgets	5	0
 # SKIPPED fields -proj-a/sess1/subagents/agent-wk.jsonl: 1 assistant messages without message.usage
 # SKIPPED file -proj-a/sess6.jsonl: line 2: invalid JSON
 # SKIPPED price model-a: 1 messages (no cache write breakdown)
@@ -62,6 +71,9 @@ class IssueCostTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("TOKENS\tacme/widgets\t12\t-\tmodel-a\t1\t999\t0\t0\t0\t0.0010", r.stdout)
         self.assertNotIn("planner", r.stdout)
+        # only the file in the range gets a SESSION line
+        self.assertEqual([l for l in r.stdout.splitlines() if l.startswith("SESSION\t")],
+                         ["SESSION\tsess5\tacme/widgets\t12\t1"])
 
     def test_empty_price_table_prices_nothing(self):
         with tempfile.TemporaryDirectory() as d:

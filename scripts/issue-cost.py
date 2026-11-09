@@ -37,6 +37,12 @@ free text), so a join with the `ISSUE` lines of issue-stats.py compares it case-
   ISSUE      <owner/repo> <n> <messages> <input> <output> <cache_write> <cache_read> <usd or ->
              the sum over the TOKENS rows of the issue; `-` when any of them is `-`
   UNMATCHED  <reason> <agent> <model> <messages> <input> <output> <cache_write> <cache_read> <usd or ->
+  SESSION    <session id> <owner/repo or -> <n or -> <messages>
+             one line per transcript file that was read and lies in the range, after the UNMATCHED lines: the
+             session id (the file name without `.jsonl` for a main transcript, the name of the session directory
+             for a subagent file), the issue the file matched (`-` and `-` when unmatched) and the messages the
+             file added after deduplication (can be 0). One machine can print several lines with one session id.
+             It lets issue-report.py notice the same session in the output of two machines.
   # SKIPPED file <file>: <reason>              a file that could not be read or parsed, or has no timestamp (it counts nothing)
   # SKIPPED fields <file>: <k> assistant messages without <field>
   # SKIPPED price <model>: <k> messages (<reason>)
@@ -262,6 +268,7 @@ def main():
     rows = defaultdict(Row)
     price_skips = defaultdict(int)
     versions = set()
+    sessions = []
     seen_ids = set()  # across all files: a resumed or forked session repeats earlier messages
 
     for f in files:
@@ -280,6 +287,7 @@ def main():
                 versions.add(d["version"])
         issue, reason = issue_of(f)
         missing = defaultdict(int)
+        added = 0
         for d in lines:
             if d.get("type") != "assistant" or not isinstance(d.get("message"), dict):
                 continue
@@ -315,6 +323,7 @@ def main():
             key = (("T", issue[0], issue[1]) if issue else ("U", reason, None), agent, model)
             row = rows[key]
             row.msgs += 1
+            added += 1
             for i, v in enumerate(tok):
                 row.tok[i] += v
             # price
@@ -340,6 +349,8 @@ def main():
             else:
                 row.usd += (tok[0] * p["input"] + tok[1] * p["output"] + w5 * p["cache_write_5m"]
                             + w1 * p["cache_write_1h"] + tok[3] * p["cache_read"]) / MILLION
+        session = f.parent.parent.name if f.parent.name == "subagents" else f.stem
+        sessions.append((session, issue[0] if issue else "-", str(issue[1]) if issue else "-", added))
         for gap, k in sorted(missing.items()):
             notes.append(f"# SKIPPED fields {rel(f)}: {k} assistant messages without {gap}")
 
@@ -366,6 +377,8 @@ def main():
     for key in sorted((k for k in rows if k[0][0] == "U"), key=lambda k: (k[0][1], k[1], k[2])):
         r = rows[key]
         out.append("\t".join(["UNMATCHED", key[0][1], key[1], key[2]] + counts(r) + [usd(r)]))
+    for session, repo, n, added in sorted(sessions, key=lambda s: (s[0], s[1], s[2], s[3])):
+        out.append("\t".join(["SESSION", session, repo, n, str(added)]))
     out.extend(sorted(notes))
     for (model, why_not), k in sorted(price_skips.items()):
         out.append(f"# SKIPPED price {model}: {k} messages ({why_not})")
