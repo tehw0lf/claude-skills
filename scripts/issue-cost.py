@@ -12,7 +12,8 @@ The money figure is an estimate, not a bill: the list prices of the table applie
 subscription has no per-token bill). The transcript format is an undocumented local file format: there is no
 check of its `version` field (the values seen are printed), a message that lacks a field is reported, not
 filled with zero.
-A file counts in the range by the date of the `timestamp` of its first line (UTC).
+A file counts in the range by the date of the `timestamp` of its first line that has one (UTC); a file
+without any is reported as `# SKIPPED file`.
 Matching a file to an issue, the first rule that applies:
   1. the first user message names exactly one issue, as `owner/repo#n` or `#n in owner/repo` (also
      `#n in the repository owner/repo`); a number after `PR ` or `pull request ` is a pull request, not an issue
@@ -23,9 +24,12 @@ Matching a file to an issue, the first rule that applies:
 Everything else is unmatched, with a reason: no-reference (no rule applies), several-branches (several numbers
 in the branches), no-repository (one number, but no or several repositories in the prompt). Main sessions
 (lines without `attributionAgent`) may cover several issues and are mostly unmatched.
-A message is counted once per file: one API response is written over several lines with the same `message.id`
-and `usage`; the first line counts. Messages whose four token fields are all 0 are ignored.
-Output, tab separated; lines starting with `#` are the header and notes:
+A message is counted once over all files read: one API response is written over several lines with the same
+`message.id` and `usage`, and a resumed or forked session repeats earlier lines in another file; the first line
+read counts (main sessions before subagent files, each in path order; files outside the range are not read,
+so a copy there does not count). Messages whose four token fields are all 0 are ignored.
+Output, tab separated; lines starting with `#` are the header and notes. <owner/repo> is lowercased (prompts are
+free text), so a join with the `ISSUE` lines of issue-stats.py compares it case-insensitively:
   # issue-cost.py prices as_of <date> source <url>; estimate at list prices, not a bill
   # versions <comma separated `version` values seen>
   TOKENS     <owner/repo> <n> <agent> <model> <messages> <input> <output> <cache_write> <cache_read> <usd or ->
@@ -33,15 +37,17 @@ Output, tab separated; lines starting with `#` are the header and notes:
   ISSUE      <owner/repo> <n> <messages> <input> <output> <cache_write> <cache_read> <usd or ->
              the sum over the TOKENS rows of the issue; `-` when any of them is `-`
   UNMATCHED  <reason> <agent> <model> <messages> <input> <output> <cache_write> <cache_read> <usd or ->
-  # SKIPPED file <file>: <reason>              a file that could not be read or parsed (it counts nothing)
+  # SKIPPED file <file>: <reason>              a file that could not be read or parsed, or has no timestamp (it counts nothing)
   # SKIPPED fields <file>: <k> assistant messages without <field>
   # SKIPPED price <model>: <k> messages (<reason>)
              tokens are counted, the usd of their row is `-`. Reasons: not in price table; no cache
              write breakdown (cache_creation_input_tokens above 0 without a matching
-             usage.cache_creation 5m and 1h split); speed or service_tier is not standard
+             usage.cache_creation 5m and 1h split); speed, service_tier or inference_geo is not standard
+A missing `speed`, `service_tier` or `inference_geo` counts as standard (priced); `inference_geo` is standard
+when absent, empty or `global`.
 usd = tokens * price per million tokens of the table (`input`, `output`, `cache_write_5m`, `cache_write_1h`,
 `cache_read`), the cache write split by TTL from usage.cache_creation.
-Not covered: server tool requests (usage.server_tool_use) and advisor model calls (`advisorModel`).
+Not covered: other price modifiers, server tool requests (usage.server_tool_use) and advisor model calls (`advisorModel`).
 Exit 0 on a completed run (also when nothing was found), 1 when the price table cannot be read or is
 invalid, 2 on invalid arguments."""
 import argparse, datetime, json, re, sys
@@ -157,7 +163,6 @@ def first_date(lines):
             if dt.tzinfo is not None:
                 dt = dt.astimezone(datetime.timezone.utc)
             return dt.date()
-        return None
     return None
 
 
@@ -257,6 +262,7 @@ def main():
     rows = defaultdict(Row)
     price_skips = defaultdict(int)
     versions = set()
+    seen_ids = set()  # across all files: a resumed or forked session repeats earlier messages
 
     for f in files:
         lines, why = parsed[f]
@@ -265,7 +271,7 @@ def main():
             continue
         day = first_date(lines)
         if day is None:
-            notes.append(f"# SKIPPED file {rel(f)}: no usable timestamp on the first line")
+            notes.append(f"# SKIPPED file {rel(f)}: no line with a usable timestamp")
             continue
         if not since <= day <= until:
             continue
@@ -273,7 +279,6 @@ def main():
             if isinstance(d.get("version"), str):
                 versions.add(d["version"])
         issue, reason = issue_of(f)
-        seen_ids = set()
         missing = defaultdict(int)
         for d in lines:
             if d.get("type") != "assistant" or not isinstance(d.get("message"), dict):
@@ -319,8 +324,9 @@ def main():
             w5 = w1 = Decimal(0)
             if p is None:
                 why_not = "not in price table"
-            elif usage.get("speed", "standard") != "standard" or usage.get("service_tier", "standard") != "standard":
-                why_not = "speed or service_tier is not standard"
+            elif (usage.get("speed", "standard") != "standard" or usage.get("service_tier", "standard") != "standard"
+                  or usage.get("inference_geo") not in (None, "", "global")):
+                why_not = "speed, service_tier or inference_geo is not standard"
             elif tok[2] > 0:
                 if (isinstance(cc, dict) and isinstance(cc.get("ephemeral_5m_input_tokens"), int)
                         and isinstance(cc.get("ephemeral_1h_input_tokens"), int)
