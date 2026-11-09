@@ -119,11 +119,17 @@ def all_comments(node):
 
 
 def first_line(c):
+    """First line of a verdict, as review-rounds.py reads it."""
     return c["body"].split("\n", 1)[0].rstrip()
 
 
+def marker_line(c):
+    """First line of a marker comment, as issue-context.py reads it (leading whitespace skipped, stripped)."""
+    return c["body"].lstrip().split("\n", 1)[0].strip()
+
+
 def by(c, account):
-    return (c.get("author") or {}).get("login") == account
+    return ((c.get("author") or {}).get("login") or "").lower() == account.lower()
 
 
 def mean(values):
@@ -172,21 +178,21 @@ def main():
     for issue in sorted(issues, key=lambda i: (i["repository"]["nameWithOwner"], i["number"])):
         repo, num = issue["repository"]["nameWithOwner"], issue["number"]
         comments = [c for c in all_comments(issue) if by(c, account)]
-        planner = [c for c in comments if PLAN_MARKER.search(first_line(c)) or QUESTIONS_MARKER.search(first_line(c))]
+        planner = [c for c in comments if PLAN_MARKER.fullmatch(marker_line(c)) or QUESTIONS_MARKER.fullmatch(marker_line(c))]
         if not planner:
             continue
         started = planner[0]["createdAt"][:10]
         if not (since <= datetime.date.fromisoformat(started) <= until):
             continue
-        qrounds = sum(1 for c in comments if QUESTIONS_MARKER.search(first_line(c)))
-        plans = sum(1 for c in comments if PLAN_MARKER.search(first_line(c)))
+        qrounds = sum(1 for c in comments if QUESTIONS_MARKER.fullmatch(marker_line(c)))
+        plans = sum(1 for c in comments if PLAN_MARKER.fullmatch(marker_line(c)))
         refs = issue["closedByPullRequestsReferences"]
         if refs["pageInfo"]["hasNextPage"]:
             skipped.append(f"# SKIPPED closing-prs: {repo}#{num} has more than 10 closing PRs, the first 10 were read")
-        prs = sorted((p for p in refs["nodes"] if p and (p["author"] or {}).get("login") == account),
+        prs = sorted((p for p in refs["nodes"] if p and ((p["author"] or {}).get("login") or "").lower() == account.lower()),
                      key=lambda p: p["createdAt"])
-        finish = [m for m in (FINISH_MARKER.search(first_line(c)) for c in comments) if m]
-        closed = any(CLOSED_MARKER.search(first_line(c)) for c in comments)
+        finish = [m for m in (FINISH_MARKER.fullmatch(marker_line(c)) for c in comments) if m]
+        closed = any(CLOSED_MARKER.fullmatch(marker_line(c)) for c in comments)
         merged = [p for p in prs if p["merged"]]
         opened = [p for p in prs if p["state"] == "OPEN"]
         unmerged = [p for p in prs if p["state"] == "CLOSED" and not p["merged"]]
@@ -197,7 +203,7 @@ def main():
         elif opened:
             outcome, outcome_pr = "open", opened[-1]
             pr_comments = all_comments(outcome_pr)
-            stops = [m for m in (STOP_MARKER.search(first_line(c)) for c in pr_comments if by(c, account)) if m]
+            stops = [m for m in (STOP_MARKER.fullmatch(marker_line(c)) for c in pr_comments if by(c, account)) if m]
             reason = stops[-1].group(2) if stops else "-"
         elif finish:
             outcome, reason = "finish-stopped", finish[-1].group(5)

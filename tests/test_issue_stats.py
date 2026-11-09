@@ -77,8 +77,10 @@ class IssueStats(unittest.TestCase):
             env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"],
                        FAKE_GH_FIXTURE=str(FIXTURES / (name + ".json")), FAKE_GH_LOG=str(log))
             args = list(extra) or ["--since", "2026-01-01", "--until", "2026-01-31"]
+            if "--account" not in args:
+                args += ["--account", "bot"]
             try:
-                proc = subprocess.run([sys.executable, str(SCRIPT), *args, "--owner", "octo", "--account", "bot"],
+                proc = subprocess.run([sys.executable, str(SCRIPT), *args, "--owner", "octo"],
                                       capture_output=True, text=True, env=env, timeout=60)
             except subprocess.TimeoutExpired:
                 self.fail("the script did not finish within 60 seconds")
@@ -104,10 +106,17 @@ class IssueStats(unittest.TestCase):
         self.assertEqual(more, [("I1", "c1"), ("I1", "c2"), ("P101", "p1")])
 
     def test_comments_of_others_are_ignored(self):
-        # I1 carries a stop marker by a NONE author (not by the account) and a NONE verdict with 9 findings
+        # P101 carries a NONE verdict with 9 findings (not counted); P102 a later stop marker by a stranger with the
+        # reason `forged`, so the reason `blocked` of I2 depends on the author filter of the stop markers
         proc, _ = self.run_script("outcomes")
-        row = next(ln for ln in proc.stdout.splitlines() if ln.startswith("ISSUE\tocto/r\t1\t"))
-        self.assertNotIn("9", row.split("\t")[-1])
+        rows = {ln.split("\t")[2]: ln.split("\t") for ln in proc.stdout.splitlines() if ln.startswith("ISSUE\t")}
+        self.assertNotIn("9", rows["1"][-1])
+        self.assertEqual(rows["2"][8], "blocked")
+
+    def test_account_is_compared_case_insensitively(self):
+        proc, _ = self.run_script("outcomes", "--since", "2026-01-01", "--until", "2026-01-31", "--account", "BOT")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("SUMMARY\tissues\t7", proc.stdout.splitlines())
 
     def test_range_after_the_data_counts_nothing(self):
         proc, _ = self.run_script("outcomes", "--since", "2026-02-01", "--until", "2026-02-28")
