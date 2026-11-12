@@ -5,6 +5,11 @@ usage: collect.py                     refresh from GitHub for the default owner,
        collect.py --owner <login>     the list for that one user or organisation, live; writes no cache
                                       (a cache of it would replace the file --summary reads when the
                                       owner is the default one), but takes the lock like a refresh
+       collect.py --owner <login> --contributed [N]
+                                      --owner, but the repository list is only the owner's repositories
+                                      (neither archived nor forks) among those the viewer recently
+                                      contributed to, newest push first, at most N (default 30): a subset,
+                                      for an organisation whose full list fails. Needs --owner.
        collect.py --repo <owner/name> the same list for one repository, live; writes no cache and takes no
                                       lock, so the owner's cache and the --summary line stay owner-wide
        collect.py --here              --repo for the repository `gh repo view` resolves for the current
@@ -46,9 +51,11 @@ kinds: 1 SECURITY (ref dependabot | code-scanning, state "<n> open, max <severit
                    first 10 of each)
 The last two columns are "-" for every kind but ISSUE, and "-" for an issue without assignees or closing PRs.
 Status lines start with "#":
-  # owner=<login> owners=<login>[,<org>...] scope=<login | owner/name> generated=<epoch> repos=<n> ignored=<n>
+  # owner=<login> owners=<login>[,<org>...] scope=<login | owner/name> [contributed=<N>] generated=<epoch> repos=<n> ignored=<n>
                                            owners are the owners whose repositories were read (repos is
-                                           their total); an older cache file has no owners key
+                                           their total); an older cache file has no owners key;
+                                           contributed=<N> is there only under --contributed: the list is
+                                           the subset described above, not the owner's repositories
   # NOTICE <text>                          repos=0: nothing was found to list, and why
   # SKIPPED <source> <repo>: <reason>      a source that could not be read; its items are missing.
                                            <repo> is "<owner>/*" when the source spans repositories.
@@ -76,7 +83,10 @@ Files, all in $XDG_CACHE_HOME/claude-inbox (default ~/.cache/claude-inbox):
                       successful refresh of the default owner
 
 A `gh` call that fails or takes longer than 60 seconds is retried once for the repository list and
-the search and then ends the run non-zero, leaving the cache as it was; for an organisation of the
+the search and then ends the run non-zero, leaving the cache as it was, with a message that names the
+query: "collect.py: GitHub query <name> failed: ..." where <name> is `repositories` (the owner's list),
+`contributed` (the --contributed list), `repository` (one repository, --repo and --here) or `search`
+(issues and pull requests); for an organisation of the
 default run, a failed repository list or search becomes a SKIPPED line instead. An unreadable
 per-repository source becomes a SKIPPED line. The runs of a repository are read with one call for the newest 100 runs
 of its default branch; a workflow or job whose newest run is not among them is not seen. A run decides
@@ -106,6 +116,7 @@ from pathlib import Path
 DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "claude-inbox"
 IGNORE = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "inbox-ignore"
 GH_TIMEOUT = 60
+DEFAULT_CONTRIBUTED = 30
 SEARCH_LIMIT = 1000  # GitHub's search hands out no results beyond this
 DEP_BOTS = {"dependabot", "dependabot-preview", "renovate", "renovate-bot"}
 SEVERITIES = ["LOW", "MODERATE", "HIGH", "CRITICAL"]
@@ -125,6 +136,18 @@ query($owner: String!, $cursor: String) {
     repositories(first: 100, after: $cursor, ownerAffiliations: OWNER, isArchived: false, isFork: false) {
       pageInfo { hasNextPage endCursor }
       nodes {%s}
+    }
+  }
+}""" % REPO_FIELDS
+
+CONTRIBUTED = """
+query($cursor: String) {
+  viewer {
+    repositoriesContributedTo(first: 100, after: $cursor, includeUserRepositories: true,
+        contributionTypes: [COMMIT, ISSUE, PULL_REQUEST, PULL_REQUEST_REVIEW],
+        orderBy: {field: PUSHED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { owner { login } isArchived isFork %s }
     }
   }
 }""" % REPO_FIELDS
@@ -178,9 +201,9 @@ def gh(*args):
         return subprocess.CompletedProcess(args, 127, "", f"cannot run gh: {error}")
 
 
-def graphql(query, totals, **variables):
-    """Yield every node of a paginated query; exit when a page fails twice. Stores a search's
-    issueCount in totals["count"]."""
+def graphql(query, totals, query_name, **variables):
+    """Yield every node of a paginated query; exit when a page fails twice, naming `query_name`. Stores a
+    search's issueCount in totals["count"]."""
     cursor = None
     while True:
         args = ["api", "graphql", "-f", f"query={query}"]
@@ -193,12 +216,13 @@ def graphql(query, totals, **variables):
             time.sleep(2)
             result = gh(*args)
         if result.returncode != 0:
-            sys.exit(f"collect.py: GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
+            sys.exit(f"collect.py: GitHub query {query_name} failed: {result.stderr.strip() or result.stdout.strip()}")
         data = json.loads(result.stdout)["data"]
         if "repository" in data:  # a single repository: no pages; GitHub answers an unknown one with an error
             yield data["repository"]
             return
-        page = data.get("search") or (data.get("repositoryOwner") or {}).get("repositories")
+        page = (data.get("search") or (data.get("viewer") or {}).get("repositoriesContributedTo")
+                or (data.get("repositoryOwner") or {}).get("repositories"))
         if page is None:
             sys.exit(f"collect.py: no such owner: {variables.get('owner')}")
         totals["count"] = page.get("issueCount")
@@ -206,6 +230,21 @@ def graphql(query, totals, **variables):
         if not page["pageInfo"]["hasNextPage"]:
             return
         cursor = page["pageInfo"]["endCursor"]
+
+
+def contributed(owner, limit):
+    """The first `limit` repositories of `owner` (case-insensitive, neither archived nor forks) among the
+    viewer's contributions, newest push first. The API has no owner argument, so the filter runs here and
+    pages are read until `limit` repositories were kept or the connection ends; no page is requested once
+    the limit is reached."""
+    kept = 0
+    for repo in graphql(CONTRIBUTED, {}, "contributed"):
+        if repo["owner"]["login"].lower() != owner.lower() or repo["isArchived"] or repo["isFork"]:
+            continue
+        yield repo
+        kept += 1
+        if kept >= limit:
+            return
 
 
 def organizations():
@@ -306,21 +345,23 @@ def clean(text):
     return " ".join(str(text).split())
 
 
-def collect(owner, only=None, organisations=(), notes=(), default=False):
+def collect(owner, only=None, organisations=(), notes=(), default=False, limit=None):
     """The list for all of `owner`'s repositories, or, with `only` ("owner/name"), for that one. With
     `organisations`, their repositories are listed too; `notes` are status lines to print (SKIPPED);
-    `default` marks the default run, whose empty result points to /inbox <org>."""
+    `default` marks the default run, whose empty result points to /inbox <org>. With `limit`, the owner's
+    repositories are only those of the viewer's recent contributions, at most `limit` (`contributed()`)."""
     rows, skipped, rules = [], list(notes), ignore_rules()
     groups = []  # (owner, its repositories, search): only owners that were read
     if only:
-        groups.append((owner, list(graphql(REPO, {}, owner=owner, name=only.partition("/")[2])),
+        groups.append((owner, list(graphql(REPO, {}, "repository", owner=owner, name=only.partition("/")[2])),
                        f"repo:{only} is:open"))
         scope = only
     else:
         scope = owner
         for name in [owner, *organisations]:
             try:
-                found = list(graphql(REPOS, {}, owner=name))
+                found = (list(contributed(name, limit)) if limit
+                         else list(graphql(REPOS, {}, "repositories", owner=name)))
             except SystemExit as error:  # the login's own list stays fatal, an organisation's does not
                 if name == owner:
                     raise
@@ -389,7 +430,7 @@ def collect(owner, only=None, organisations=(), notes=(), default=False):
     for name, _, search in groups:
         totals, found = {}, []
         try:
-            found.extend(graphql(ITEMS, totals, q=search))
+            found.extend(graphql(ITEMS, totals, "search", q=search))
         except SystemExit as error:
             if name == owner:
                 raise
@@ -434,10 +475,14 @@ def collect(owner, only=None, organisations=(), notes=(), default=False):
     kept.sort(key=lambda row: row[5], reverse=True)
     kept.sort(key=lambda row: [kind for kind, _ in KINDS].index(row[1]))  # CI before RUN: both are prio 2
     kept.sort(key=lambda row: row[0])
-    header = (f"# owner={owner} owners={owners} scope={scope} generated={int(time.time())} "
+    header = (f"# owner={owner} owners={owners} scope={scope}" + (f" contributed={limit}" if limit else "")
+              + f" generated={int(time.time())} "
               f"repos={len(repos)} ignored={len(rows) - len(kept)}")
     notice = []
-    if not repos:
+    if not repos and limit:
+        notice = [f"# NOTICE none of {owner}'s repositories that are neither archived nor forks is among the "
+                  "viewer's recent contributions"]
+    elif not repos:
         notice = [f"# NOTICE no repositories found for {owners}: "
                   + ("none of them has a" if "," in owners else "it has no")
                   + " repository that is neither archived nor a fork"
@@ -445,7 +490,7 @@ def collect(owner, only=None, organisations=(), notes=(), default=False):
     return "\n".join([header, *notice, *skipped, *("\t".join(clean(field) for field in row) for row in kept)]) + "\n"
 
 
-def refresh(owner, background=False):
+def refresh(owner, background=False, limit=None):
     """Collect for `owner` (None: the default owner) and, for the default run only, write its cache. One
     refresh at a time: a background run gives way to a running one, a foreground run waits for it and then
     reads live. The default run covers the organisations of the `gh` login too, when the owner is that login."""
@@ -479,7 +524,7 @@ def refresh(owner, background=False):
                 notes.append(f"# SKIPPED organizations {owner}/*: {reason}")
             rules = ignore_rules()
             organisations = [org for org in found if org.lower() != owner.lower() and not ignored(rules, f"{org}/*", "")]
-        text = collect(owner, organisations=organisations, notes=notes, default=default)
+        text = collect(owner, organisations=organisations, notes=notes, default=default, limit=limit)
         if default:
             tmp = DIR / f"inbox.{os.getpid()}.tmp"
             tmp.write_text(text)
@@ -584,6 +629,9 @@ def main():
         sys.stdout.write(single(args[1]))
     elif len(args) == 2 and args[0] == "--owner":
         sys.stdout.write(refresh(args[1]))
+    elif len(args) in (3, 4) and args[0] == "--owner" and args[2] == "--contributed" and (
+            len(args) == 3 or (args[3].isascii() and args[3].isdecimal() and int(args[3]) > 0)):
+        sys.stdout.write(refresh(args[1], limit=int(args[3]) if len(args) == 4 else DEFAULT_CONTRIBUTED))
     elif not args:
         sys.stdout.write(refresh(None))
     else:

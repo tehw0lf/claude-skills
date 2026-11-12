@@ -1,7 +1,7 @@
 ---
 name: inbox
 description: List everything on GitHub that a task can be derived from — for the repository the session is in, or across all repositories of the user's account and of the organisations it belongs to — security alerts, failing default branches, failed workflow runs, open PRs, dependency PRs from dependabot or renovate, and issues (including bot-opened ones such as spec updates) — in priority order, then ask what to work on. Use when the user says "inbox", "what's open", "what should I work on", "open issues", "was steht an", "woran soll ich arbeiten", "offene issues", "offene PRs" or similar.
-argument-hint: [all | <owner/repo> | <owner> | ignore <owner/repo#n>]
+argument-hint: "[all | <owner/repo> | <owner> | <owner> contributed [N] | ignore <owner/repo#n>]"
 allowed-tools: Bash, AskUserQuestion
 ---
 
@@ -17,13 +17,14 @@ The inbox reads GitHub and nothing else. A source that is not on GitHub (a Light
 - `all` — every repository of the account `gh` is logged in as and of every organisation that account is a member of, in one list: `scripts/collect.py`, also from inside a checkout. With `$INBOX_OWNER` set to another user or organisation it lists that owner alone. A login that is literally `all` needs `--owner all`.
 - `<owner/repo>` — one repository, wherever the session is: `scripts/collect.py --repo <owner/repo>`
 - `<owner>` — one user or organisation: `scripts/collect.py --owner <owner>` (reads live, writes no cache). This is also how to list an organisation that `all` does not cover. Expect `# SKIPPED` lines there: alerts are readable only with admin permission on a repository.
+- `<owner> contributed [N]` — a bounded part of one user or organisation: `scripts/collect.py --owner <owner> --contributed [N]` (N a positive integer, default 30). The repository list is only the owner's repositories (neither archived nor forks) among those the logged-in account recently contributed to, newest push first, at most N. Offer it when the full list of a large organisation fails on the `repositories` query (step 1; the mode runs the same owner-wide search, so it does not help against a failed `search`); it shows a subset, see "Not covered".
 - `ignore <owner/repo#n>` — hide one item for good, see step 4
 
 ## Steps
 
-1. **Collect.** Run `scripts/collect.py` with the mode the argument selects (see above). It always reads live and takes some seconds; the summary printed at session start comes from a cache and can be hours old, so never answer from it. A non-zero exit means the list is not available — report the message and stop; do not fall back to the cache or to memory. The one exception is exit 2 of `--here`, which means "no repository here" and switches to the account-wide list (see Arguments); a failed `gh` call under `--here` exits 1 and stops like any other.
+1. **Collect.** Run `scripts/collect.py` with the mode the argument selects (see above). It always reads live and takes some seconds; the summary printed at session start comes from a cache and can be hours old, so never answer from it. A non-zero exit means the list is not available — report the message, which names the failed query (`repositories`, `contributed`, `repository` or `search`), and stop; when the `repositories` query of a large organisation failed, offer `<owner> contributed [N]` (a failed `search` fails in that mode too); do not fall back to the cache or to memory. The one exception is exit 2 of `--here`, which means "no repository here" and switches to the account-wide list (see Arguments); a failed `gh` call under `--here` exits 1 and stops like any other.
 
-   The first line says what was read: `scope=<owner>` is the whole account, `scope=<owner/repo>` one repository, and `owners=` names the owners whose repositories the list covers (the login and its organisations; an older cache has no such key). Name the scope and the owners before the list, and when it is one repository, say that `all` gives the overview of every repository. The single-repository modes read live and write no cache.
+   The first line says what was read: `scope=<owner>` is the whole account, `scope=<owner/repo>` one repository, and `owners=` names the owners whose repositories the list covers (the login and its organisations; an older cache has no such key). A `contributed=<N>` key after `scope=` means the `--contributed` mode: the list is a subset (at most N of the owner's repositories that the account recently contributed to), so name that, and a repository that is missing is a scope limit, not an empty one. Name the scope and the owners before the list, and when it is one repository, say that `all` gives the overview of every repository. The single-repository modes read live and write no cache.
 
    Output is tab-separated: `prio  kind  repo  ref  state  updated  title  url  assignees  closing`, already sorted by priority and then by last update. `assignees` and `closing` are `-` for every kind but `ISSUE`. Lines starting with `#` are status lines.
 
@@ -75,6 +76,7 @@ Add only what the user named. An ignored security alert or red branch stays invi
 
 ## Not covered
 
+- with `<owner> contributed [N]`: every repository of the owner that is not among the (at most N) listed ones. Red default branches, failed runs and security alerts there are absent from the list, and so are its issues and pull requests (the search is owner-wide, but only rows of the listed repositories are shown). Which repositories count as "recently contributed to", and how far back, is GitHub's definition (the GraphQL field `repositoriesContributedTo`); a repository where the account has only administrative access, or whose commits do not count as the account's, may not appear
 - repositories that are archived or forks in the account-wide list, organisations included (`--repo` lists them anyway), and anything outside GitHub
 - organisations of the login when `$INBOX_OWNER` names someone else, organisations beyond the first 100, and organisations the login only has outside-collaborator access to (membership only; the token also needs `read:org`, and an organisation whose SSO is not authorised for it shows as `SKIPPED` or, if GitHub answers without an error, not at all)
 - the session-start line: it stays account-wide and reads the cache, which the single-repository modes never touch

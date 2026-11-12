@@ -1,0 +1,186 @@
+{
+ "contributed": {
+  "": {
+   "data": {
+    "viewer": {
+     "repositoriesContributedTo": {
+      "pageInfo": {
+       "hasNextPage": true,
+       "endCursor": "c1"
+      },
+      "nodes": [
+       {
+        "owner": {
+         "login": "Acme"
+        },
+        "isArchived": false,
+        "isFork": false,
+        "nameWithOwner": "Acme/one",
+        "url": "https://github.com/Acme/one",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       },
+       {
+        "owner": {
+         "login": "other"
+        },
+        "isArchived": false,
+        "isFork": false,
+        "nameWithOwner": "other/x",
+        "url": "https://github.com/other/x",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       },
+       {
+        "owner": {
+         "login": "acme"
+        },
+        "isArchived": false,
+        "isFork": false,
+        "nameWithOwner": "acme/two",
+        "url": "https://github.com/acme/two",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       },
+       {
+        "owner": {
+         "login": "acme"
+        },
+        "isArchived": true,
+        "isFork": false,
+        "nameWithOwner": "acme/old",
+        "url": "https://github.com/acme/old",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  "c1": {
+   "data": {
+    "viewer": {
+     "repositoriesContributedTo": {
+      "pageInfo": {
+       "hasNextPage": false,
+       "endCursor": null
+      },
+      "nodes": [
+       {
+        "owner": {
+         "login": "acme"
+        },
+        "isArchived": false,
+        "isFork": true,
+        "nameWithOwner": "acme/forked",
+        "url": "https://github.com/acme/forked",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       },
+       {
+        "owner": {
+         "login": "ACME"
+        },
+        "isArchived": false,
+        "isFork": false,
+        "nameWithOwner": "ACME/three",
+        "url": "https://github.com/ACME/three",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       },
+       {
+        "owner": {
+         "login": "acme"
+        },
+        "isArchived": false,
+        "isFork": false,
+        "nameWithOwner": "acme/four",
+        "url": "https://github.com/acme/four",
+        "viewerCanAdminister": true,
+        "hasVulnerabilityAlertsEnabled": true,
+        "vulnerabilityAlerts": {
+         "totalCount": 0,
+         "nodes": []
+        },
+        "defaultBranchRef": null
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "repositories": {
+  "data": {
+   "repositoryOwner": {
+    "repositories": {
+     "pageInfo": {
+      "hasNextPage": false,
+      "endCursor": null
+     },
+     "nodes": [
+      {
+       "owner": {
+        "login": "acme"
+       },
+       "isArchived": false,
+       "isFork": false,
+       "nameWithOwner": "acme/full",
+       "url": "https://github.com/acme/full",
+       "viewerCanAdminister": true,
+       "hasVulnerabilityAlertsEnabled": true,
+       "vulnerabilityAlerts": {
+        "totalCount": 0,
+        "nodes": []
+       },
+       "defaultBranchRef": null
+      }
+     ]
+    }
+   }
+  }
+ },
+ "search": {
+  "data": {
+   "search": {
+    "issueCount": 0,
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": []
+   }
+  }
+ }
+}
